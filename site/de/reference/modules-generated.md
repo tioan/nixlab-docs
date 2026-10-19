@@ -134,6 +134,8 @@ them serve the same commit after a deploy or the nightly upgrade.
 | `package` | The built site - the flake's docs-site package. |
 | `fqdn` | Name the site is served under (a mesh-only NetBird DNS zone). |
 | `allow` | Addresses or networks nginx serves the site to; everyone else gets 403, with a page that says why and how a device gets in. Default: the whole mesh. The lab sets the admins' devices from terraform/netbird/admin-peers.json (flake.nix) - see the header of terraform/netbird/admin-peers.tf for why it is an address list. |
+| `redirectPort` | Port of a plain-HTTP listener that answers every request with a redirect to redirectTo, keeping the path - the target of the NetBird reverse proxy service for the same name, so a visitor from outside the mesh lands on the public docs. A port of its own because the proxy's peer has no address that is known in advance; the port is only open on the mesh (nb-mesh is a trusted interface) and admits only the mesh. null: no listener. |
+| `redirectTo` | Where redirectPort sends visitors, without a trailing slash; the request path is appended. |
 
 [Quelltext](https://github.com/tioan/nixlab-docs/blob/main/modules/docs-site.nix)
 

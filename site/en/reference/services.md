@@ -15,7 +15,7 @@ Services are named by function, not by product. There are three kinds of reachab
 | `s3-admin` | garage-ui | aldrin | mesh only |
 | `dokumente` | Paperless + paperless-gpt (`/paperless-gpt/`) | ursalia | mesh only; public access via the proxy in progress |
 | `llm` | Ollama (behind Caddy) | zorlock | mesh only |
-| `doku` | This documentation (private version) | aldrin + ursalia | mesh only, admin devices only ([why](../explanation/secrets-network-access.md#private-docs-admin-devices-only)), one A record per host |
+| `doku` | This documentation (private version) | aldrin + ursalia | in the mesh admin devices only ([why](../explanation/secrets-network-access.md#private-docs-admin-devices-only)), one A record per host; from outside a redirect to the public docs through the reverse proxy |
 
 **Reverse proxy:** Traefik on grammi owns port 443. It terminates `mesh.homelab.example` itself and hands everything else via TCP passthrough with PROXY protocol v2 to `netbird-proxy`, which does TLS and ACME (tls-alpn-01) on its own. Login at the proxy is SSO against Pocket ID, limited to the NetBird groups of the respective app.
 

@@ -108,6 +108,28 @@ in
         terraform/netbird/admin-peers.tf for why it is an address list.
       '';
     };
+
+    redirectPort = lib.mkOption {
+      type = lib.types.nullOr lib.types.port;
+      default = null;
+      example = 8091;
+      description = ''
+        Port of a plain-HTTP listener that answers every request with a
+        redirect to redirectTo, keeping the path - the target of the NetBird
+        reverse proxy service for the same name, so a visitor from outside
+        the mesh lands on the public docs. A port of its own because the
+        proxy's peer has no address that is known in advance; the port is
+        only open on the mesh (nb-mesh is a trusted interface) and admits
+        only the mesh. null: no listener.
+      '';
+    };
+
+    redirectTo = lib.mkOption {
+      type = lib.types.str;
+      default = "";
+      example = "https://example.github.io/docs";
+      description = "Where redirectPort sends visitors, without a trailing slash; the request path is appended.";
+    };
   };
 
   config = lib.mkIf cfg.enable {
@@ -117,6 +139,10 @@ in
       {
         assertion = cfg.allow != [ ];
         message = "services.docsSite.allow is empty - nobody could read the docs site";
+      }
+      {
+        assertion = cfg.redirectPort == null || cfg.redirectTo != "";
+        message = "services.docsSite.redirectPort is set but redirectTo is empty";
       }
     ];
 
@@ -154,6 +180,28 @@ in
         # The 403 page's font. Two open source font files, nothing about
         # the lab - open to anyone who reaches the vhost at all.
         locations."^~ /assets/fonts/".extraConfig = "";
+      };
+
+      # Redirect listener for the reverse proxy (option redirectPort): one
+      # answer for everything, no TLS (the proxy terminates it and reaches
+      # this through its tunnel), mesh only. Its own virtual host with the
+      # same server name, told apart by the port.
+      virtualHosts."${cfg.fqdn}-redirect" = lib.mkIf (cfg.redirectPort != null) {
+        serverName = cfg.fqdn;
+        listen = [
+          { addr = "0.0.0.0"; port = cfg.redirectPort; }
+          { addr = "[::]"; port = cfg.redirectPort; }
+        ];
+        # The redirect sits behind try_files on purpose: a plain "return"
+        # runs in nginx's rewrite phase, before allow/deny are checked, so
+        # the mesh restriction would never apply. try_files runs after the
+        # access check and hands over to the named location.
+        locations."/".extraConfig = ''
+          allow 192.0.2.0/24;
+          deny all;
+          try_files /.redirect-only @redirect;
+        '';
+        locations."@redirect".return = "301 ${cfg.redirectTo}$request_uri";
       };
     };
   };
