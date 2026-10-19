@@ -133,7 +133,7 @@ them serve the same commit after a deploy or the nightly upgrade.
 | `enable` | Enable: the private docs site on the mesh |
 | `package` | The built site - the flake's docs-site package. |
 | `fqdn` | Name the site is served under (a mesh-only NetBird DNS zone). |
-| `allow` | Addresses or networks nginx serves the site to; everyone else gets 403. Default: the whole mesh. The lab sets the admins' devices from terraform/netbird/admin-peers.json (flake.nix) - see the header of terraform/netbird/admin-peers.tf for why it is an address list. |
+| `allow` | Addresses or networks nginx serves the site to; everyone else gets 403, with a page that says why and how a device gets in. Default: the whole mesh. The lab sets the admins' devices from terraform/netbird/admin-peers.json (flake.nix) - see the header of terraform/netbird/admin-peers.tf for why it is an address list. |
 
 [Source](https://github.com/tioan/nixlab-docs/blob/main/modules/docs-site.nix)
 
