@@ -1,0 +1,104 @@
+# Zensical config for the German site. Not used as is: docs/site-src.sh
+# fills in the @...@ placeholders and drops lines marked "# private" (public
+# build) or "# public" (private build). Zensical knows only one language per
+# project, so English and German are two projects - English at the root,
+# German under de/ - linked by the language selector (extra.alternate).
+[project]
+site_name = "nixlab"
+site_description = "NixOS/OpenTofu-Homelab – Projektdokumentation"
+site_url = "https://tioan.github.io/nixlab-docs/de/"
+repo_url = "https://github.com/tioan/nixlab-docs" # public
+repo_name = "nixlab-docs" # public
+copyright = "Zusammen mit Claude (Anthropic) entstanden · Module unter MIT-Lizenz" # public
+docs_dir = "de"
+site_dir = "_site/de"
+nav = [
+  { "Start" = "index.md" },
+  { "Erklärung" = [
+    "explanation/nixos-opentofu.md",
+    "explanation/secrets-network-access.md",
+    "explanation/deployment.md",
+    "explanation/monitoring.md",
+  ] },
+  { "Anleitungen" = [
+    "how-to/new-host.md",
+    "how-to/new-service.md",
+    "how-to/secrets.md",
+    "how-to/key-rotation.md",
+  ] },
+  { "Referenz" = [
+    "reference/repository.md",
+    "reference/where-to-change.md",
+    "reference/host-directory.md",
+    "reference/inputs.md",
+    "reference/hosts.md",
+    "reference/services.md",
+    "reference/modules.md",
+    "reference/modules-generated.md", # generated
+    "reference/recipes.md",
+    "reference/recipes-generated.md", # generated
+    "reference/troubleshooting.md",
+  ] },
+  { "Projekt" = [
+    "project/conventions.md",
+    "project/open-items.md",
+  ] },
+]
+
+[project.theme]
+language = "de"
+features = [
+  "content.code.copy",
+  "content.tooltips",
+  "navigation.footer",
+  "navigation.instant",
+  "navigation.path",
+  "navigation.sections",
+  "navigation.top",
+  "navigation.tracking",
+  "search.highlight",
+  "toc.follow",
+]
+
+[[project.theme.palette]]
+media = "(prefers-color-scheme)"
+toggle.icon = "lucide/sun-moon"
+toggle.name = "Helles Design"
+
+[[project.theme.palette]]
+media = "(prefers-color-scheme: light)"
+scheme = "default"
+toggle.icon = "lucide/sun"
+toggle.name = "Dunkles Design"
+
+[[project.theme.palette]]
+media = "(prefers-color-scheme: dark)"
+scheme = "slate"
+toggle.icon = "lucide/moon"
+toggle.name = "Wie das System"
+
+[[project.extra.alternate]]
+name = "English"
+link = "/nixlab-docs/"
+lang = "en"
+
+[[project.extra.alternate]]
+name = "Deutsch"
+link = "/nixlab-docs/de/"
+lang = "de"
+
+[project.markdown_extensions]
+admonition = {}
+attr_list = {}
+def_list = {}
+footnotes = {}
+md_in_html = {}
+tables = {}
+toc.permalink = true
+pymdownx.details = {}
+pymdownx.highlight.anchor_linenums = true
+pymdownx.inlinehilite = {}
+pymdownx.superfences.custom_fences = [
+  { name = "mermaid", class = "mermaid", format = "pymdownx.superfences.fence_code_format" },
+]
+pymdownx.tasklist.custom_checkbox = true
