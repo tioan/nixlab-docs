@@ -7,7 +7,7 @@ As of: 2026-10-19 · [Deutsch](README.de.md) · [PDF](nixlab-documentation.en.pd
 
 ## Overview
 
-nixlab is the flake monorepo for the **homelab.example** homelab: five NixOS hosts and a Mac mini running nix-darwin, plus two OpenTofu modules for the NetBird account and the deSEC API tokens. Everything is operated through a `justfile` from the MacBook; the hosts pull their own configuration from the Codeberg repo and update themselves overnight.
+nixlab is the flake monorepo for the **homelab.example** homelab: five NixOS hosts and a Mac mini running nix-darwin, plus three OpenTofu modules for the NetBird account, the deSEC API tokens and the GitHub repositories with their deploy keys. Everything is operated through a `justfile` from the MacBook; the hosts pull their own configuration from the private GitHub repo and update themselves overnight.
 
 Short answer to the question *"Did you wire NixOS and OpenTofu together somehow?"*: **Yes, but deliberately loosely – through files in the repo, not through a shared tool.** OpenTofu writes sops-encrypted files into `hosts/<host>/` that the NixOS modules read at build time, and both sides read the same service list `hosts/grammi/proxy-services.json`. No terranix, no Tofu run from within Nix. Details in the section [NixOS & OpenTofu](#nixos--opentofu).
 
@@ -25,6 +25,7 @@ One flake, `nixosConfigurations` for five hosts plus `darwinConfigurations.zorlo
 | `pkgs/` | Own packages: garage-ui, logchef, paperless-gpt, prometheus-paperless-exporter, ollama-metrics-proxy |
 | `terraform/netbird/` | OpenTofu: NetBird account, policies, DNS zones, reverse proxy services, people/groups (incl. Pocket ID) |
 | `terraform/desec-tokens/` | OpenTofu: narrowly scoped deSEC tokens per host for DNS-01 |
+| `terraform/github/` | OpenTofu: the repositories `nixlab` (private) and `nixlab-docs` (public), deploy keys per host |
 | `topology.nix` | Generates the Grafana topology dashboard from the host configs |
 | `justfile` | All operational workflows: deploy, secrets, netbird-\*, desec-\* |
 | `docs/` | This project documentation (de/en) and its build, install guides (ursalia, cuckoosegg), drafts of upstream issues |
@@ -57,7 +58,7 @@ The 16 modules under `modules/` carry the configuration shared by all hosts; eve
 | [auto-upgrade-git.nix](modules/auto-upgrade-git.nix) | Nightly `nixos-rebuild switch`, commits and pushes the new `flake.lock` back to the repo | `services.autoUpgradeGit`: `enable`, `flakeDir`, `flakeAttr`, `updateInputs`, `dates`, `allowReboot`, `rebootWindow`, `deployKeySecret`, `gitAuthorEmail` |
 | [log-shipping.nix](modules/log-shipping.nix) | journald and nginx logs to VictoriaLogs via Vector | `services.logShipping`: `enable`, `victoriaLogsUrl` |
 | [metrics-shipping.nix](modules/metrics-shipping.nix) | vmagent scrapes the local exporters and remote-writes to VictoriaMetrics | `services.metricsShipping`: `enable`, `remoteWriteUrl`, `exporterPorts` |
-| [deploy.nix](modules/deploy.nix) | The lab's policy for auto-upgrade-git: Codeberg deploy key, pinned host key, reboot window 04:00–06:00 | kept apart from the mechanism so that stays reusable |
+| [deploy.nix](modules/deploy.nix) | The lab's policy for auto-upgrade-git: GitHub deploy key, pinned host key, reboot window 04:00–06:00 | kept apart from the mechanism so that stays reusable |
 | [acme.nix](modules/acme.nix) | ACME defaults for every TLS host: DNS-01 against deSEC | token from `hosts/<host>/desec.yaml` (from Tofu) |
 | [netbird.nix](modules/netbird.nix) | NetBird client in the mesh, registration via setup key, local metrics | setup key from `hosts/<host>/netbird.yaml` (from Tofu) |
 | [tailscale.nix](modules/tailscale.nix) | Shared Tailscale agent | `tailscale serve` stays in the host config |
@@ -123,6 +124,7 @@ Tofu never writes to a host directly: every result ends up as a file in the repo
 | Tofu → NixOS | `hosts/<host>/netbird.yaml` | `just netbird-key <host>` (`tofu output setup_keys` → `sops encrypt`) | `modules/netbird.nix` (`sopsFile`) | One-time setup key, valid for 24 h |
 | Tofu → NixOS | `hosts/<host>/desec.yaml` | `just desec-key <host>` (`tofu output acme_tokens` → `sops encrypt`) | `modules/acme.nix` (`sopsFile`) | deSEC token for TXT records only, VMs pinned to their IP |
 | shared | `hosts/grammi/proxy-services.json` | by hand | `terraform/netbird/reverse-proxy.tf` (`jsondecode(file(...))`) and `topology.nix` | Name → app, port, groups of the reverse proxy services |
+| repo → both | `hosts/<host>/github.yaml` + `github-deploy.pub` | `just github-key <host>` (`ssh-keygen` → `sops encrypt`) | private half: `modules/deploy.nix` (`sopsFile`); public half: `terraform/github` (`file(...)`) | Deploy key for `/etc/nixos`; Tofu only ever sees the public half |
 | NixOS → Tofu | NetBird server on grammi | `hosts/grammi/netbird.nix` | provider via `https://mesh.homelab.example` | The API Tofu runs against in the first place |
 | NixOS → Tofu | Bootstrap tokens | `just netbird-setup-owner`, `netbird-proxy-token` (SSH to grammi, server API) | `terraform/netbird/secrets.yaml` and `hosts/grammi/netbird-proxy.yaml` | Owner PAT, proxy token |
 
@@ -130,7 +132,7 @@ The flow for a new host: Tofu creates the setup key, `just netbird-key` writes i
 
 ### What is deliberately not wired
 
-- **No shared host list.** Hosts are listed three times: `nixosConfigurations` in `flake.nix`, `local.hosts` in both Tofu modules and `hosts :=` in the `justfile`. A new host has to be added in all three places.
+- **No shared host list.** Hosts are listed three times: `nixosConfigurations` in `flake.nix`, `local.hosts` in the Tofu modules and `hosts :=` in the `justfile`. A new host has to be added in all three places.
 - **No terranix / no Tofu in the Nix build.** Tofu state is local (gitignored, in the main checkout, also from worktrees) because it holds setup keys and tokens in plain text.
 - **No provisioning of the machines.** The VMs are created by hand at the provider, ursalia/cuckoosegg following `docs/install-*.md`.
 - **Public DNS** lives in DNSControl (its own repo, only linked in via symlink), not in Tofu.
@@ -148,6 +150,7 @@ Every host file is encrypted for exactly two recipients: the age key derived fro
 | `hosts/<host>/secrets.yaml` | host + admin | Deploy key, app passwords, OIDC clients, restic |
 | `hosts/<host>/netbird.yaml` | host + admin | NetBird setup key (from Tofu) |
 | `hosts/<host>/desec.yaml` | host + admin | deSEC token (from Tofu) |
+| `hosts/<host>/github.yaml` | host + admin | GitHub deploy key (from `just github-key`) |
 | `terraform/*/secrets.yaml` | workstation + admin | API tokens for the providers |
 
 The workstation key lives in 1Password and is read via `SOPS_AGE_KEY_CMD`, never as a file. `env.sh` in each Tofu module decrypts the tokens only into the shell of the respective recipe.
@@ -166,7 +169,7 @@ Only 22/80/443 are open to the public. `modules/ssh.nix` allows root SSH only fr
 
 ## Deployment & operations
 
-The pull hosts (zummi, aldrin, grammi, ursalia) keep `/etc/nixos` as a checkout of the Codeberg repo and build themselves. cuckoosegg is pushed to, zorlock is switched locally with `darwin-rebuild`.
+The pull hosts (zummi, aldrin, grammi, ursalia) keep `/etc/nixos` as a checkout of the private GitHub repo and build themselves. cuckoosegg is pushed to, zorlock is switched locally with `darwin-rebuild`.
 
 | Host | Manual deploy | Automatic |
 | --- | --- | --- |
@@ -176,7 +179,7 @@ The pull hosts (zummi, aldrin, grammi, ursalia) keep `/etc/nixos` as a checkout 
 
 ### Nightly upgrade
 
-`modules/auto-upgrade-git.nix` updates `nixpkgs`, `nixpkgs-unstable` and `sops-nix`, builds, switches and pushes the new `flake.lock` back to Codeberg with the host's deploy key. The Codeberg host key is pinned because nobody is watching. A configuration error that only shows up on a cold boot therefore takes the host down at 04:00 – for the VMs there is the provider's console for that.
+`modules/auto-upgrade-git.nix` updates `nixpkgs`, `nixpkgs-unstable` and `sops-nix`, builds, switches and pushes the new `flake.lock` back to GitHub with the host's deploy key. The GitHub host key is pinned because nobody is watching. A configuration error that only shows up on a cold boot therefore takes the host down at 04:00 – for the VMs there is the provider's console for that.
 
 ### Important recipes
 
@@ -189,6 +192,8 @@ The pull hosts (zummi, aldrin, grammi, ursalia) keep `/etc/nixos` as a checkout 
 | `just netbird-key <host>` | New setup key for a host, 24 h to deploy |
 | `just netbird-import` | Restore lost Tofu state from the account |
 | `just netbird-renew-token` | Yearly renewal of the service user token |
+| `just github-key <host>` | New GitHub deploy key for a host (key via sops, registration via Tofu) |
+| `just github-plan` / `github-apply` | Change the repositories and deploy keys on GitHub |
 | `just desec-key <host>` / `desec-verify` | Rotate a deSEC token, or check the scopes from every host |
 | `just gc <host>` | Delete store generations older than 7 days |
 | `just docs` | Build this documentation: private PDFs (de/en) and the anonymised public version in `nixlab-docs` |
@@ -226,4 +231,4 @@ eval $(op signin) && export SOPS_AGE_KEY_CMD='op read "op://<vault>/<item>/passw
 - [ ] Grafana alerting (contact point still missing) for SMART, fwupd, Paperless
 - [ ] Update notifications for the inputs pinned by hand (NetBird, Pocket ID)
 - [ ] Declarative root passwords via sops
-- [ ] Keep the host list in one place instead of `flake.nix`, both Tofu modules and `justfile`
+- [ ] Keep the host list in one place instead of `flake.nix`, the Tofu modules and `justfile`
