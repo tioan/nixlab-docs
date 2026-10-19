@@ -13,6 +13,6 @@ Ein Flake, `nixosConfigurations` für fünf Hosts plus `darwinConfigurations.zor
 | `terraform/github/` | OpenTofu: die Repos `nixlab` (privat) und `nixlab-docs` (öffentlich), Deploy-Keys pro Host |
 | `topology.nix` | Generiert das Topologie-Dashboard für Grafana aus den Host-Configs |
 | `justfile` | Alle Bedienabläufe: deploy, secrets, netbird-\*, desec-\* |
-| `docs/` | Diese Projektdokumentation: Seiten unter `site/{de,en}/`, Zensical-Konfiguration, Build (`build.sh`, `site-src.sh`, `assemble.py`, `gen-reference.py`), Installationsanleitungen (ursalia, cuckoosegg), Upstream-Issue-Entwürfe |
+| `docs/` | Diese Projektdokumentation: Seiten unter `site/{de,en}/`, Zensical-Konfiguration, Build (`build.sh`, `site-src.sh`, `assemble.py`, `gen-reference.py`), Paket der privaten Site (`package.nix`) und was sie sonst von Dritten laden würde – Schriften, glightbox (`assets.nix`), Installationsanleitungen (ursalia, cuckoosegg), Upstream-Issue-Entwürfe |
 | `dnsconfig.js` | Symlink ins separate DNSControl-Repo – öffentliche DNS-Records leben dort |
 | `.sops.yaml` | age-Empfänger pro Host, `admin` (Offline-Recovery) und `workstation` (1Password) |

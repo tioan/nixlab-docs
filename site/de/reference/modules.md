@@ -19,5 +19,5 @@ Die 17 Module unter `modules/` tragen die gemeinsame Konfiguration aller Hosts; 
 | [logging.nix](https://github.com/tioan/nixlab-docs/blob/main/modules/logging.nix) | Begrenzt journald, das sonst bis 4 GB wächst | |
 | [qemu-guest.nix](https://github.com/tioan/nixlab-docs/blob/main/modules/qemu-guest.nix) | QEMU Guest Agent mit gesperrter RPC-Liste: Snapshots ja, Shell und Dateizugriff über den Kanal nein | |
 | [nix.nix](https://github.com/tioan/nixlab-docs/blob/main/modules/nix.nix) | Nix-Daemon, Garbage Collection, Store-Optimierung | |
-| [docs-site.nix](https://github.com/tioan/nixlab-docs/blob/main/modules/docs-site.nix) | Die private Doku-Site (Flake-Paket `docs-site`) unter `doku` im Mesh | `services.docsSite`: `enable`, `package`, `fqdn`; auf aldrin und ursalia |
+| [docs-site.nix](https://github.com/tioan/nixlab-docs/blob/main/modules/docs-site.nix) | Die private Doku-Site (Flake-Paket `docs-site`) unter `doku` im Mesh | `services.docsSite`: `enable`, `package`, `fqdn`, `allow` (Standard: das ganze Mesh; im Lab nur die Admin-Geräte aus `admin-peers.json`); auf aldrin und ursalia |
 | [base.nix](https://github.com/tioan/nixlab-docs/blob/main/modules/base.nix) | Locale, Konsole, Zeit und Werkzeuge zum Debuggen | |

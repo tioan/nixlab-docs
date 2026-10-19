@@ -5,7 +5,7 @@
 | `just check <host>` | `git pull` + `nixos-rebuild dry-activate` |
 | `just secrets <host>` / `pull-secrets <host>` | Host-Secrets auf dem Host editieren und zurückholen |
 | `just topology` | Topologie-Dashboard neu erzeugen (sonst schlägt `nix flake check` fehl) |
-| `just netbird-plan` / `netbird-apply` | NetBird-Account ändern; apply schreibt auch `expected-peers.json` neu (committen, grammi deployen) |
+| `just netbird-plan` / `netbird-apply` | NetBird-Account ändern; apply schreibt auch `expected-peers.json` (committen, grammi deployen) und `admin-peers.json` (committen, aldrin und ursalia deployen) neu |
 | `just netbird-key <host>` | Neuer Setup-Key für einen Host, 24 h Zeit zum Deployen |
 | `just netbird-import` | Verlorenen Tofu-State aus dem Account wiederherstellen |
 | `just netbird-renew-token` | Jährliche Erneuerung des Service-User-Tokens |
@@ -18,6 +18,6 @@
 
 Rezepte, die sops auf dem MacBook brauchen, laufen mit vorangestellter Anmeldung bei 1Password, die den age-Key über `SOPS_AGE_KEY_CMD` bereitstellt:
 
-```
+```bash
 eval $(op signin) && export SOPS_AGE_KEY_CMD='op read "op://<vault>/<item>/password"' && just netbird-plan
 ```

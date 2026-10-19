@@ -15,7 +15,7 @@ Dienste sind nach Funktion benannt, nicht nach Produkt. Es gibt drei Arten der E
 | `s3-admin` | garage-ui | aldrin | nur Mesh |
 | `dokumente` | Paperless + paperless-gpt (`/paperless-gpt/`) | ursalia | nur Mesh; öffentlicher Zugang über den Proxy in Arbeit |
 | `llm` | Ollama (hinter Caddy) | zorlock | nur Mesh |
-| `doku` | Diese Dokumentation (private Fassung) | aldrin + ursalia | nur Mesh, ein A-Record je Host |
+| `doku` | Diese Dokumentation (private Fassung) | aldrin + ursalia | nur Mesh, nur Admin-Geräte ([warum](../explanation/secrets-network-access.md#private-doku-nur-admin-gerate)), ein A-Record je Host |
 
 **Reverse Proxy:** Traefik auf grammi besitzt Port 443. `mesh.homelab.example` terminiert es selbst, alles andere reicht es per TCP-Passthrough mit PROXY-Protokoll v2 an `netbird-proxy` weiter, das TLS und ACME (tls-alpn-01) selbst macht. Login am Proxy ist SSO gegen Pocket ID, begrenzt auf die NetBird-Gruppen der jeweiligen App.
 

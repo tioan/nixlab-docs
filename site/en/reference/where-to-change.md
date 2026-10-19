@@ -8,6 +8,7 @@ Which file is responsible for which change, how often that happens, and what to 
 | Something for all hosts | `modules/*.nix` | now and then | `just ship-all "…"`; new module: public or in `docs/modules-private.txt`? |
 | A name behind the reverse proxy (grammi) | `hosts/grammi/proxy-services.json` | rarely | CNAME in DNSControl, deploy grammi, `just netbird-apply` |
 | A mesh-only name | `terraform/netbird/mesh-services.tf` | rarely | `just netbird-apply` |
+| Who may read the private docs | group `admin-workstations` (`terraform/netbird/subraum.tf`, peer names) | rarely | `just netbird-apply`, commit `admin-peers.json`, deploy aldrin and ursalia |
 | NetBird policies, groups, people, routes | `terraform/netbird/*.tf` | rarely | `just netbird-plan`, `just netbird-apply` |
 | Public DNS records | DNSControl repo (`dnsconfig.js`) | rarely | push there |
 | What a deSEC token may do | `terraform/desec-tokens/main.tf` | rarely | `just desec-apply` |

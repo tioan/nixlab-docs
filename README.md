@@ -28,6 +28,7 @@ Tofu never writes to a host directly: every result ends up as a file in the repo
 | Tofu → NixOS | `hosts/<host>/netbird.yaml` | `just netbird-key <host>` (`tofu output setup_keys` → `sops encrypt`) | `modules/netbird.nix` (`sopsFile`) | One-time setup key, valid for 24 h |
 | Tofu → NixOS | `hosts/<host>/desec.yaml` | `just desec-key <host>` (`tofu output acme_tokens` → `sops encrypt`) | `modules/acme.nix` (`sopsFile`) | deSEC token for TXT records only, VMs pinned to their IP |
 | Tofu → NixOS | `terraform/netbird/expected-peers.json` | `just netbird-apply` (`tofu output expected_peers`, computed from the policies in `expected-peers.tf`) | `hosts/grammi/netbird-expected-peers.nix` (`builtins.readFile`) | Expected NetBird peers per host as metric `netbird_expected_peers`, next to the real network map in the NetBird dashboard (e.g. aldrin 6, grammi 8) |
+| Tofu → NixOS | `terraform/netbird/admin-peers.json` | `just netbird-apply` (`tofu output admin_peers`, from the group `admin-workstations`, `admin-peers.tf`) | `flake.nix` (`builtins.readFile`, option `services.docsSite.allow`) | Mesh addresses of the admins' devices – who may read the private docs |
 | shared | `hosts/grammi/proxy-services.json` | by hand | `terraform/netbird/reverse-proxy.tf` (`jsondecode(file(...))`) and `topology.nix` | Name → app, port, groups of the reverse proxy services |
 | repo → both | `hosts/<host>/github.yaml` + `github-deploy.pub` | `just github-key <host>` (`ssh-keygen` → `sops encrypt`) | private half: `modules/deploy.nix` (`sopsFile`); public half: `terraform/github` (`file(...)`) | Deploy key for `/etc/nixos`; Tofu only ever sees the public half |
 | NixOS → Tofu | NetBird server on grammi | `hosts/grammi/netbird.nix` | provider via `https://mesh.homelab.example` | The API Tofu runs against in the first place |
@@ -72,6 +73,23 @@ The workstation key lives in 1Password and is read via `SOPS_AGE_KEY_CMD`, never
 ### Access
 
 Only 22/80/443 are open to the public. `modules/ssh.nix` allows root SSH only from mesh or Tailscale addresses; every host has its own login keypair. The mesh is IPv4 only for now; dual stack is listed as an open item.
+
+#### Private docs: admin devices only
+
+The private version of this documentation (`doku.homelab.example`, on aldrin and ursalia) contains every internal address and describes how the lab is run. That is more than every device in the mesh needs to see. So nginx serves it only to the mesh addresses of the admins' devices; everyone else gets 403. The name itself resolves for all peers.
+
+**What counts as an admin device:** the devices in the group `admin-workstations` (`terraform/netbird/subraum.tf`), today the MacBook – the same device that may also SSH to the Subraum devices. Deliberately not the person group `homelab_admins`: that one is filled from Pocket ID with *all* devices of an admin user. Today that would be none (Calla has no devices of its own), and a phone signing in under an admin user would be in at once. An admin here is a device named in Tofu, not a login. A further device in `admin-workstations` therefore also gets SSH to the Subraum devices – the same trust. Tofu reads the members on every `just netbird-apply` and writes name → address to `terraform/netbird/admin-peers.json`; `flake.nix` hands the addresses to `services.docsSite.allow`. A new admin device therefore gets in after `just netbird-apply`, a commit and a deploy of aldrin and ursalia.
+
+**Why nginx and not a NetBird policy:** `to-servers` lets the devices of all persons (`homelab` and `homelab_admins`) reach all ports on all servers. NetBird policies can only allow, never deny – a narrower rule for the docs would change nothing as long as `to-servers` stays as it is. Narrowing `to-servers` to a port list per service would work, but touches every service on every server for one static site. Moving the docs to a port of their own fails at the same point. So the policy still decides which hosts a device reaches, and nginx decides who gets the docs.
+
+**Why no login (Pocket ID):** you read the docs when something is broken. A login would tie them to zummi (Pocket ID) and, through the reverse proxy, to grammi – exactly the hosts they are meant to be independent of. An address list needs nothing at runtime but nginx on the host itself.
+
+**What this deliberately accepts:**
+
+- The list is as current as the last `just netbird-apply` followed by a deploy. Until then a new admin device sees 403, and a removed device still gets in.
+- The address stands for the device, not the person: whoever uses an admin device reads the docs.
+- The list must never be empty – `just netbird-admin-peers` refuses an empty output, and the module fails the build with an assertion instead of quietly giving everyone 403.
+- IPv4 only, like the mesh. With the IPv6 overlay the v6 addresses go into the same list.
 
 ## Deployment & operations
 
@@ -262,7 +280,7 @@ One flake, `nixosConfigurations` for five hosts plus `darwinConfigurations.zorlo
 | `terraform/github/` | OpenTofu: the repositories `nixlab` (private) and `nixlab-docs` (public), deploy keys per host |
 | `topology.nix` | Generates the Grafana topology dashboard from the host configs |
 | `justfile` | All operational workflows: deploy, secrets, netbird-\*, desec-\* |
-| `docs/` | This project documentation: pages under `site/{de,en}/`, Zensical config, build (`build.sh`, `site-src.sh`, `assemble.py`, `gen-reference.py`), install guides (ursalia, cuckoosegg), drafts of upstream issues |
+| `docs/` | This project documentation: pages under `site/{de,en}/`, Zensical config, build (`build.sh`, `site-src.sh`, `assemble.py`, `gen-reference.py`), the private site's package (`package.nix`) and what it would otherwise load from third parties – fonts, glightbox (`assets.nix`), install guides (ursalia, cuckoosegg), drafts of upstream issues |
 | `dnsconfig.js` | Symlink into the separate DNSControl repo – public DNS records live there |
 | `.sops.yaml` | age recipients per host, `admin` (offline recovery) and `workstation` (1Password) |
 
@@ -276,6 +294,7 @@ Which file is responsible for which change, how often that happens, and what to 
 | Something for all hosts | `modules/*.nix` | now and then | `just ship-all "…"`; new module: public or in `docs/modules-private.txt`? |
 | A name behind the reverse proxy (grammi) | `hosts/grammi/proxy-services.json` | rarely | CNAME in DNSControl, deploy grammi, `just netbird-apply` |
 | A mesh-only name | `terraform/netbird/mesh-services.tf` | rarely | `just netbird-apply` |
+| Who may read the private docs | group `admin-workstations` (`terraform/netbird/subraum.tf`, peer names) | rarely | `just netbird-apply`, commit `admin-peers.json`, deploy aldrin and ursalia |
 | NetBird policies, groups, people, routes | `terraform/netbird/*.tf` | rarely | `just netbird-plan`, `just netbird-apply` |
 | Public DNS records | DNSControl repo (`dnsconfig.js`) | rarely | push there |
 | What a deSEC token may do | `terraform/desec-tokens/main.tf` | rarely | `just desec-apply` |
@@ -354,7 +373,7 @@ Services are named by function, not by product. There are three kinds of reachab
 | `s3-admin` | garage-ui | aldrin | mesh only |
 | `dokumente` | Paperless + paperless-gpt (`/paperless-gpt/`) | ursalia | mesh only; public access via the proxy in progress |
 | `llm` | Ollama (behind Caddy) | zorlock | mesh only |
-| `doku` | This documentation (private version) | aldrin + ursalia | mesh only, one A record per host |
+| `doku` | This documentation (private version) | aldrin + ursalia | mesh only, admin devices only ([why](#private-docs-admin-devices-only)), one A record per host |
 
 **Reverse proxy:** Traefik on grammi owns port 443. It terminates `mesh.homelab.example` itself and hands everything else via TCP passthrough with PROXY protocol v2 to `netbird-proxy`, which does TLS and ACME (tls-alpn-01) on its own. Login at the proxy is SSO against Pocket ID, limited to the NetBird groups of the respective app.
 
@@ -383,7 +402,7 @@ The 17 modules under `modules/` carry the configuration shared by all hosts; eve
 | [logging.nix](modules/logging.nix) | Bounds journald, which otherwise grows up to 4 GB | |
 | [qemu-guest.nix](modules/qemu-guest.nix) | QEMU guest agent with an RPC deny list: snapshots yes, shell and file access over the channel no | |
 | [nix.nix](modules/nix.nix) | Nix daemon, garbage collection, store optimisation | |
-| [docs-site.nix](modules/docs-site.nix) | The private docs site (flake package `docs-site`) under `doku` on the mesh | `services.docsSite`: `enable`, `package`, `fqdn`; on aldrin and ursalia |
+| [docs-site.nix](modules/docs-site.nix) | The private docs site (flake package `docs-site`) under `doku` on the mesh | `services.docsSite`: `enable`, `package`, `fqdn`, `allow` (default: the whole mesh; in the lab only the admin devices from `admin-peers.json`); on aldrin and ursalia |
 | [base.nix](modules/base.nix) | Locale, console, time and tools for debugging | |
 
 ## just recipes
@@ -393,7 +412,7 @@ The 17 modules under `modules/` carry the configuration shared by all hosts; eve
 | `just check <host>` | `git pull` + `nixos-rebuild dry-activate` |
 | `just secrets <host>` / `pull-secrets <host>` | Edit host secrets on the host and fetch them back |
 | `just topology` | Regenerate the topology dashboard (otherwise `nix flake check` fails) |
-| `just netbird-plan` / `netbird-apply` | Change the NetBird account; apply also rewrites `expected-peers.json` (commit it, deploy grammi) |
+| `just netbird-plan` / `netbird-apply` | Change the NetBird account; apply also rewrites `expected-peers.json` (commit it, deploy grammi) and `admin-peers.json` (commit it, deploy aldrin and ursalia) |
 | `just netbird-key <host>` | New setup key for a host, 24 h to deploy |
 | `just netbird-import` | Restore lost Tofu state from the account |
 | `just netbird-renew-token` | Yearly renewal of the service user token |
@@ -406,7 +425,7 @@ The 17 modules under `modules/` carry the configuration shared by all hosts; eve
 
 Recipes that need sops on the MacBook run with a 1Password sign-in in front, which provides the age key via `SOPS_AGE_KEY_CMD`:
 
-```
+```bash
 eval $(op signin) && export SOPS_AGE_KEY_CMD='op read "op://<vault>/<item>/password"' && just netbird-plan
 ```
 
@@ -427,6 +446,7 @@ eval $(op signin) && export SOPS_AGE_KEY_CMD='op read "op://<vault>/<item>/passw
 - Dual stack wherever possible.
 - Code comments explain the *why*, including the mistakes that led to a decision, with a date.
 - Code comments, commit messages and changelogs in English; the project documentation exists in German and English.
+- The docs site loads nothing from third parties: the fonts and glightbox ship with the site (`docs/assets.nix`) instead of coming from Google Fonts or unpkg.com. Why: GDPR, and private docs that work without internet access.
 
 ## Open items
 

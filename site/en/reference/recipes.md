@@ -5,7 +5,7 @@
 | `just check <host>` | `git pull` + `nixos-rebuild dry-activate` |
 | `just secrets <host>` / `pull-secrets <host>` | Edit host secrets on the host and fetch them back |
 | `just topology` | Regenerate the topology dashboard (otherwise `nix flake check` fails) |
-| `just netbird-plan` / `netbird-apply` | Change the NetBird account; apply also rewrites `expected-peers.json` (commit it, deploy grammi) |
+| `just netbird-plan` / `netbird-apply` | Change the NetBird account; apply also rewrites `expected-peers.json` (commit it, deploy grammi) and `admin-peers.json` (commit it, deploy aldrin and ursalia) |
 | `just netbird-key <host>` | New setup key for a host, 24 h to deploy |
 | `just netbird-import` | Restore lost Tofu state from the account |
 | `just netbird-renew-token` | Yearly renewal of the service user token |
@@ -18,6 +18,6 @@
 
 Recipes that need sops on the MacBook run with a 1Password sign-in in front, which provides the age key via `SOPS_AGE_KEY_CMD`:
 
-```
+```bash
 eval $(op signin) && export SOPS_AGE_KEY_CMD='op read "op://<vault>/<item>/password"' && just netbird-plan
 ```

@@ -7,11 +7,21 @@
 site_name = "nixlab"
 site_description = "NixOS/OpenTofu-Homelab – Projektdokumentation"
 site_url = "https://tioan.github.io/nixlab-docs/de/"
+# Repository and "view source" button (content.action.view): public site ->
+# its anonymised sources in nixlab-docs, private site -> the pages in the
+# private repo. The two generated reference pages and the install guides
+# have no file at that path - their button leads to a 404.
 repo_url = "https://github.com/tioan/nixlab-docs" # public
 repo_name = "nixlab-docs" # public
+edit_uri = "blob/main/site/de/" # public
 copyright = "Zusammen mit Claude (Anthropic) entstanden · Module unter MIT-Lizenz" # public
 docs_dir = "de"
 site_dir = "_site/de"
+# Fonts and the lightbox from the site itself, not from Google or unpkg -
+# docs/assets.nix. glightbox.min.js has to be there before the theme looks
+# for GLightbox; then it never loads its own copy from unpkg.com.
+extra_css = ["assets/stylesheets/fonts.css", "assets/vendor/glightbox/glightbox.min.css"]
+extra_javascript = ["assets/vendor/glightbox/glightbox.min.js"]
 nav = [
   { "Start" = "index.md" },
   { "Erklärung" = [
@@ -47,13 +57,19 @@ nav = [
 
 [project.theme]
 language = "de"
+# Own fonts instead of Google Fonts (extra_css above).
+font = false
 features = [
+  "content.action.view",
   "content.code.copy",
+  "content.tabs.link",
   "content.tooltips",
   "navigation.footer",
   "navigation.instant",
   "navigation.path",
   "navigation.sections",
+  "navigation.tabs",
+  "navigation.tabs.sticky",
   "navigation.top",
   "navigation.tracking",
   "search.highlight",
@@ -96,9 +112,25 @@ md_in_html = {}
 tables = {}
 toc.permalink = true
 pymdownx.details = {}
-pymdownx.highlight.anchor_linenums = true
+pymdownx.keys = {}
 pymdownx.inlinehilite = {}
+# Code blocks: language as title, line numbers in their own column (not
+# copied along), each line its own anchor and span.
+pymdownx.highlight.pygments_lang_class = true
+pymdownx.highlight.auto_title = true
+pymdownx.highlight.linenums = true
+pymdownx.highlight.linenums_style = "pymdownx-table"
+pymdownx.highlight.anchor_linenums = true
+pymdownx.highlight.line_spans = "__span"
+# Content tabs (=== "macOS" ...), linked across the page (content.tabs.link).
+pymdownx.tabbed.alternate_style = true
 pymdownx.superfences.custom_fences = [
   { name = "mermaid", class = "mermaid", format = "pymdownx.superfences.fence_code_format" },
 ]
 pymdownx.tasklist.custom_checkbox = true
+
+# Click an image to see it full size (the data-flow diagram). The script
+# and stylesheet come with the site (extra_javascript/extra_css above,
+# docs/assets.nix) - the theme would otherwise fetch them from unpkg.com.
+[project.plugins.glightbox]
+enabled = true

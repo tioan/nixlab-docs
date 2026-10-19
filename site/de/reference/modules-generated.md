@@ -105,6 +105,13 @@ this file is the lab's policy.
 The private docs site (flake package docs-site, built from docs/) on the
 NetBird mesh under doku.homelab.example.
 
+Who may read it is the allow list (option allow): the whole mesh by
+default, in this lab only the admins' devices - the docs carry every
+internal address and how the lab is run, which is more than everyone with
+a device in the mesh needs to see. Enforced here in nginx because the
+NetBird policies cannot tell this site apart from the other services on
+the same hosts (terraform/netbird/admin-peers.tf has the reasoning).
+
 Mesh-only like the other admin names: the name is a NetBird DNS zone with
 one A record per host that imports this module
 (terraform/netbird/mesh-services.tf), public DNS has no record, and the
@@ -126,6 +133,7 @@ them serve the same commit after a deploy or the nightly upgrade.
 | `enable` | Enable: the private docs site on the mesh |
 | `package` | The built site - the flake's docs-site package. |
 | `fqdn` | Name the site is served under (a mesh-only NetBird DNS zone). |
+| `allow` | Addresses or networks nginx serves the site to; everyone else gets 403. Default: the whole mesh. The lab sets the admins' devices from terraform/netbird/admin-peers.json (flake.nix) - see the header of terraform/netbird/admin-peers.tf for why it is an address list. |
 
 [Quelltext](https://github.com/tioan/nixlab-docs/blob/main/modules/docs-site.nix)
 

@@ -19,5 +19,5 @@ The 17 modules under `modules/` carry the configuration shared by all hosts; eve
 | [logging.nix](https://github.com/tioan/nixlab-docs/blob/main/modules/logging.nix) | Bounds journald, which otherwise grows up to 4 GB | |
 | [qemu-guest.nix](https://github.com/tioan/nixlab-docs/blob/main/modules/qemu-guest.nix) | QEMU guest agent with an RPC deny list: snapshots yes, shell and file access over the channel no | |
 | [nix.nix](https://github.com/tioan/nixlab-docs/blob/main/modules/nix.nix) | Nix daemon, garbage collection, store optimisation | |
-| [docs-site.nix](https://github.com/tioan/nixlab-docs/blob/main/modules/docs-site.nix) | The private docs site (flake package `docs-site`) under `doku` on the mesh | `services.docsSite`: `enable`, `package`, `fqdn`; on aldrin and ursalia |
+| [docs-site.nix](https://github.com/tioan/nixlab-docs/blob/main/modules/docs-site.nix) | The private docs site (flake package `docs-site`) under `doku` on the mesh | `services.docsSite`: `enable`, `package`, `fqdn`, `allow` (default: the whole mesh; in the lab only the admin devices from `admin-peers.json`); on aldrin and ursalia |
 | [base.nix](https://github.com/tioan/nixlab-docs/blob/main/modules/base.nix) | Locale, console, time and tools for debugging | |

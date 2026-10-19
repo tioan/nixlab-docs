@@ -223,6 +223,15 @@ metric netbird_expected_peers. Runs after every netbird-apply; commit the
 file and deploy grammi when it changed. Via a temp file, so a failed
 `tofu output` leaves the old JSON in place.
 
+## `just netbird-admin-peers`
+
+Write the mesh addresses of the admin devices - the group
+admin-workstations (terraform/netbird/admin-peers.tf) to terraform/netbird/admin-peers.json - the allow list of
+the private docs site on aldrin and ursalia (flake.nix, docs-site). Runs
+after every netbird-apply; when the file changed, commit it and deploy
+aldrin and ursalia. Via a temp file, and refuses an empty list: an empty
+allow list would lock every admin out (the module asserts it as well).
+
 ## `just netbird-import`
 
 Adopt what the NetBird account already has into Tofu state: looks each
