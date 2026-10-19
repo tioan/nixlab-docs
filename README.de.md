@@ -196,7 +196,7 @@ Die Pull-Hosts (zummi, aldrin, grammi, ursalia) halten `/etc/nixos` als Checkout
 | `just github-plan` / `github-apply` | Repos und Deploy-Keys auf GitHub ändern |
 | `just desec-key <host>` / `desec-verify` | deSEC-Token tauschen bzw. Scopes von jedem Host aus prüfen |
 | `just gc <host>` | Store-Generationen älter als 7 Tage löschen |
-| `just docs` | Diese Doku bauen: private PDFs (de/en) und die anonymisierte öffentliche Fassung in `public-docs/` (Clone von `nixlab-docs`, gitignored) |
+| `just docs` | Diese Doku bauen: private PDFs (de/en) und die anonymisierte öffentliche Fassung in `public-docs/` (Clone von `nixlab-docs`, gitignored), dort committet und gepusht |
 
 Rezepte, die sops auf dem MacBook brauchen, laufen mit vorangestellter Anmeldung bei 1Password, die den age-Key über `SOPS_AGE_KEY_CMD` bereitstellt:
 
