@@ -23,9 +23,9 @@ For services on grammi:
 1. An entry in `hosts/grammi/proxy-services.json`: name → app, port, Pocket ID groups. Tofu (`reverse-proxy.tf`) and `topology.nix` read the same file.
 2. The service listens on all addresses; only 80/443 are open publicly, `nb-mesh` is trusted.
 3. Push a CNAME `<name>` → `proxy.homelab.example` in DNSControl – a few minutes before the apply, otherwise the resolver caches NXDOMAIN.
-4. Deploy grammi first, then `just netbird-apply`. The other way round the proxy's ACME prefetch fails and the dashboard hangs at "Issuing certificate…" (fix: `systemctl restart netbird-proxy` on grammi).
+4. Deploy grammi first, then `just netbird-apply`. At the end it runs `just netbird-proxy-certs`: it requests every new name once from outside so the proxy fetches its certificate, then restarts `netbird-proxy` once – otherwise the dashboard hangs at "Issuing certificate…" (NetBird discussion #7118).
 
-Services on other hosts get a resource of their own in `terraform/netbird/reverse-proxy.tf` with the host as peer target (example: `dokumente` on ursalia).
+Services on other hosts get a resource of their own in `terraform/netbird/reverse-proxy.tf` with the host as peer target (examples: `dokumente` on ursalia, `doku` on aldrin). Here too: push the CNAME first, `just netbird-apply` takes care of the certificates.
 
 ## Directly public
 

@@ -217,9 +217,9 @@ For services on grammi:
 1. An entry in `hosts/grammi/proxy-services.json`: name → app, port, Pocket ID groups. Tofu (`reverse-proxy.tf`) and `topology.nix` read the same file.
 2. The service listens on all addresses; only 80/443 are open publicly, `nb-mesh` is trusted.
 3. Push a CNAME `<name>` → `proxy.homelab.example` in DNSControl – a few minutes before the apply, otherwise the resolver caches NXDOMAIN.
-4. Deploy grammi first, then `just netbird-apply`. The other way round the proxy's ACME prefetch fails and the dashboard hangs at "Issuing certificate…" (fix: `systemctl restart netbird-proxy` on grammi).
+4. Deploy grammi first, then `just netbird-apply`. At the end it runs `just netbird-proxy-certs`: it requests every new name once from outside so the proxy fetches its certificate, then restarts `netbird-proxy` once – otherwise the dashboard hangs at "Issuing certificate…" (NetBird discussion #7118).
 
-Services on other hosts get a resource of their own in `terraform/netbird/reverse-proxy.tf` with the host as peer target (example: `dokumente` on ursalia).
+Services on other hosts get a resource of their own in `terraform/netbird/reverse-proxy.tf` with the host as peer target (examples: `dokumente` on ursalia, `doku` on aldrin). Here too: push the CNAME first, `just netbird-apply` takes care of the certificates.
 
 ### Directly public
 
@@ -425,6 +425,7 @@ The 17 modules under `modules/` carry the configuration shared by all hosts; eve
 | `just secrets <host>` / `pull-secrets <host>` | Edit host secrets on the host and fetch them back |
 | `just topology` | Regenerate the topology dashboard (otherwise `nix flake check` fails) |
 | `just netbird-plan` / `netbird-apply` | Change the NetBird account; apply also rewrites `expected-peers.json` (commit it, deploy grammi) and `admin-peers.json` (commit it, deploy aldrin and ursalia) |
+| `just netbird-proxy-certs` | Get proxy services without a certificate one and bring the dashboard up to date (NetBird #7118); runs at the end of `netbird-apply` |
 | `just netbird-key <host>` | New setup key for a host, 24 h to deploy |
 | `just netbird-import` | Restore lost Tofu state from the account |
 | `just netbird-renew-token` | Yearly renewal of the service user token |
@@ -448,6 +449,7 @@ eval $(op signin) && export SOPS_AGE_KEY_CMD='op read "op://<vault>/<item>/passw
 - Tofu recipes refuse to run against an empty state, so no second `servers` group or set of tokens gets created.
 - WLAN on ursalia: `iw dev wlp2s0f0 link` shows band, signal and PHY mode. The router's 5 GHz radio is on a DFS channel with a 300 TU beacon interval, so a single scan can miss it; band, signal, rates and PHY mode also go to VictoriaMetrics (node_exporter `wifi` collector plus `wifi_link_*`), Grafana dashboard "Homelab / WLAN".
 - After a network change NetBird can keep a dead P2P path for minutes while still showing `Connected` (seen on ursalia, 2026-10-19). Fix: `systemctl restart netbird-mesh` on the host, via Tailscale if the mesh is down.
+- A proxy service hangs at "Issuing certificate…" in the NetBird dashboard or fails the TLS handshake from outside ("internal error"): `just netbird-proxy-certs` – requests the names without a certificate from outside and restarts `netbird-proxy` on grammi (NetBird discussion #7118). Also runs at the end of `just netbird-apply`.
 
 ## Conventions
 

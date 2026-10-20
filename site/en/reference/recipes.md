@@ -6,6 +6,7 @@
 | `just secrets <host>` / `pull-secrets <host>` | Edit host secrets on the host and fetch them back |
 | `just topology` | Regenerate the topology dashboard (otherwise `nix flake check` fails) |
 | `just netbird-plan` / `netbird-apply` | Change the NetBird account; apply also rewrites `expected-peers.json` (commit it, deploy grammi) and `admin-peers.json` (commit it, deploy aldrin and ursalia) |
+| `just netbird-proxy-certs` | Get proxy services without a certificate one and bring the dashboard up to date (NetBird #7118); runs at the end of `netbird-apply` |
 | `just netbird-key <host>` | New setup key for a host, 24 h to deploy |
 | `just netbird-import` | Restore lost Tofu state from the account |
 | `just netbird-renew-token` | Yearly renewal of the service user token |

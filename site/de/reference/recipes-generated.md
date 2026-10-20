@@ -262,6 +262,23 @@ cached there as missing for up to an hour (SOA minimum 3600). So: push
 DNS a few minutes ahead; this re-triggers every 30 s for up to 15 min and
 stops once every custom domain is validated. Then `just netbird-apply`.
 
+## `just netbird-proxy-certs`
+
+Get every NetBird reverse proxy service its certificate and make the
+dashboard show it. Works around netbird discussion #7118, hit for every
+new service so far (the grammi names 2026-10-19, doku 2026-10-20): the
+proxy only fetches a new name's certificate (ACME tls-alpn-01) on the
+first request from outside, and even then never reports it to the
+management server - the dashboard hangs at "Issuing certificate..."
+until netbird-proxy restarts, finds the certificate on disk and reports
+it. So: for every service without certificate_issued_at, request it once
+through the proxy's public address (retrying while the certificate is
+being issued - the first requests fail the TLS handshake), then restart
+netbird-proxy on grammi once and check again. Does nothing when every
+service has its certificate; runs at the end of `just netbird-apply`.
+A new name has to be in public DNS first (DNSControl, a few minutes
+ahead), or Let's Encrypt cannot reach the proxy for it.
+
 ## `just netbird-pocketid-api-key`
 
 Store a Pocket ID API key (Pocket ID admin UI -> Settings -> API Keys,
