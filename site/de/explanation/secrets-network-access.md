@@ -54,3 +54,26 @@ Die private Fassung dieser Doku (`doku.homelab.example`, auf aldrin und ursalia)
 - Die Adresse steht für das Gerät, nicht für die Person: Wer ein Admin-Gerät benutzt, liest die Doku.
 - Leer darf die Liste nicht werden – `just netbird-admin-peers` verweigert eine leere Ausgabe, und das Modul bricht den Build mit einer Assertion ab, statt still allen 403 zu geben.
 - Nur IPv4, wie das Mesh. Mit dem IPv6-Overlay kommen die v6-Adressen in dieselbe Liste.
+
+### Paperless: Freigabelinks von außen
+
+Paperless (`dokumente.homelab.example`, ursalia) ist nur im Mesh erreichbar. Wer die App nutzt, braucht den NetBird-Client – jede Person. Bis 2026-10-20 war die volle App zusätzlich über den Reverse Proxy mit SSO öffentlich; das ist ersetzt.
+
+**Von außen** liefert derselbe Name nur Freigabelinks, hinter einer PIN: Öffentlich ist `dokumente` ein CNAME auf den Reverse Proxy, dessen Dienst `dokumente` nach der PIN an einen Listener auf ursalia (Port 8092, nur Mesh, HTTP durch den Tunnel) weiterreicht. Der kennt nur `share/<slug>` (Dokumente und Bündel, beides `SharedLinkView` in Paperless) und sonst 404. Ein abgelaufener oder unbekannter Link führt in Paperless auf die Login-Seite; der Listener beantwortet das mit einem kurzen Hinweistext.
+
+| Wer | Weg | Ergebnis |
+| --- | --- | --- |
+| Extern oder NetBird aus | Reverse Proxy (grammi, PIN) → ursalia:8092 | nur `/share/<slug>`, sonst 404 |
+| Im Mesh | direkt ursalia:443 | volle App (Login per Pocket ID), Freigabelinks ohne PIN |
+
+**Warum derselbe Name:** Paperless baut den Freigabelink aus dem Origin der Oberfläche. Ein im Mesh erzeugter Link `https://dokumente.homelab.example/share/<slug>` funktioniert so für Dritte ohne Umschreiben. Ein eigener Name (etwa `teilen`) hieße, jeden Link von Hand anzupassen.
+
+**Warum der Listener filtert und nicht die PIN:** Die PIN ist eine zweite Hürde vor dem nicht ratbaren Slug, kein Ersatz. Dass die App selbst nicht erreichbar ist, hängt allein an nginx auf ursalia. Der Proxy-Dienst hat keinen Pfadfilter (Ziel-`path`), sonst käme die Weiterleitung auf `/accounts/login/` bei abgelaufenen Links nicht mehr beim Listener an.
+
+**PIN:** genau 6 Ziffern (mehr nimmt die NetBird-API nicht an), eine für alle Freigaben. Neu: `just dokumente-share-pin` (zufällig, nach `terraform/netbird/secrets.yaml`), dann `just netbird-apply`; anzeigen: `just dokumente-share-pin-show`. Der Proxy sperrt eine Client-Adresse nach 5 falschen PINs in 5 Minuten für 15 Minuten.
+
+**Was das bewusst in Kauf nimmt:**
+
+- Wer die PIN kennt, kommt an jeden Link, dessen Slug er kennt – nicht an andere. Freigaben in Paperless deshalb mit Ablaufdatum anlegen.
+- CrowdSec sieht die PIN-Versuche nicht (TCP-Passthrough, kein HTTP-Log auf grammi), wie bei allen Proxy-Namen; es bleibt die Sperre des Proxys selbst.
+- ursalias nginx loggt als Absender die Mesh-Adresse des Proxys, nicht die des Besuchers (kein `realip`: es würde die Adresse vor `allow`/`deny` umschreiben).

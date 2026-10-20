@@ -333,6 +333,20 @@ name "netbird-tofu") in terraform/netbird/secrets.yaml - used by
 terraform/netbird/people.tf for the person groups. Pocket ID keys expire:
 create a new one before the old one's date and run this again.
 
+## `just dokumente-share-pin`
+
+The NetBird reverse proxy service dokumente (terraform/netbird/
+reverse-proxy.tf) asks for this PIN before it serves a share link: 6
+digits, the only format NetBird accepts. Stored in
+terraform/netbird/secrets.yaml and printed once; takes effect with the
+next `just netbird-apply`. Changing it locks out everyone who only knows
+the old one - share links themselves stay valid.
+New random PIN for Paperless' share links from outside the mesh.
+
+## `just dokumente-share-pin-show`
+
+Show the current share-link PIN, to pass on with a link.
+
 ## `just netbird-rotate-token`
 
 Move the service user's token (netbird_token.terraform) from Tofu state

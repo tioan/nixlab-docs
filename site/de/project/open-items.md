@@ -1,7 +1,6 @@
 # Offene Punkte
 
 - [ ] NetBird-Mesh auf Dual-Stack (IPv6-Overlay) umstellen
-- [ ] Reverse-Proxy-Stufe 3 abschließen: Paperless öffentlich unter `dokumente` (Uploads, paperless-gpt)
 - [ ] Upstream-PRs im NetBird-Provider (#247 `direct_upstream`/Cluster-Targets, #248 `crowdsec_mode`); danach Proxy-Targets auf grammi auf `localhost` umstellen
 - [ ] Tailscale von den Servern entfernen, sobald nichts mehr darauf angewiesen ist
 - [ ] Grafana-Alerting (Kontaktpunkt fehlt noch) für SMART, fwupd, Paperless, NetBird Soll ≠ known, WLAN von ursalia (nicht verbunden, hängt auf 2,4 GHz, schwaches Signal)
