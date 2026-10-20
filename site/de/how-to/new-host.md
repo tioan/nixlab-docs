@@ -16,6 +16,7 @@ Gemietete VMs werden beim Anbieter von Hand angelegt; Bare Metal und die Subraum
 | Datei | Eintrag |
 | --- | --- |
 | `flake.nix` | `nixosConfigurations.<host>` |
+| `inventory.json` | `hosts.<host>` mit `"managed": true` – Art, Site, Owner, Entsperren (siehe [Inventar](../reference/inventory.md)) |
 | `justfile` | `hosts := "…"` (nur Pull-Hosts, für `ship-all`) |
 | `terraform/netbird/main.tf` | `local.hosts`: Host → Setup-Key-Gruppe (`servers` o. ä.) |
 | `terraform/desec-tokens/main.tf` | `local.hosts`: erlaubte Quelladressen, `acme_names` |
@@ -23,7 +24,7 @@ Gemietete VMs werden beim Anbieter von Hand angelegt; Bare Metal und die Subraum
 
 ## 4. sops-Empfänger
 
-Den age-Schlüssel aus dem SSH-Host-Key des neuen Hosts ableiten (`ssh-to-age` auf `/etc/ssh/ssh_host_ed25519_key.pub`) und in `.sops.yaml` eintragen: einen Anker unter `keys` und eine `creation_rule` für `hosts/<host>/(secrets|netbird|desec|github)\.yaml$` mit dem Host und `admin` als Empfängern.
+Den age-Schlüssel aus dem SSH-Host-Key des neuen Hosts ableiten (`ssh-to-age` auf `/etc/ssh/ssh_host_ed25519_key.pub`) und in `.sops.yaml` eintragen: einen Anker unter `keys` und eine `creation_rule` für `hosts/<host>/(secrets|netbird|desec|github)\.yaml$` mit dem Host und `admin` als Empfängern. Der öffentliche Host-Key selbst kommt in `inventory.json` (`sshHostKeys`, oder später per `just inventory-collect`); `checks.inventory-sops` gleicht beides ab.
 
 ## 5. Schlüssel und Tokens erzeugen
 
@@ -39,5 +40,6 @@ Rezepte, die auf dem MacBook sops brauchen, laufen mit der 1Password-Anmeldung d
 
 - Erster Deploy innerhalb von 24 h nach `netbird-key`. Der Host registriert sich beim Start selbst im Mesh; Tofu findet ihn über `data "netbird_peer"` am Namen.
 - `just topology` ausführen und das Ergebnis committen – sonst schlägt `nix flake check` fehl.
+- `just inventory-collect` (Host-Key, Interfaces), `network`/`ipv4` von Hand ergänzen, dann `just inventory-test`; auf dem MacBook `just known-hosts`.
 - App-Secrets erst eintragen, wenn der Host läuft: [Secrets eintragen](secrets.md).
 - Doku nachziehen: [Hosts & Rollen](../reference/hosts.md), [Services](../reference/services.md).

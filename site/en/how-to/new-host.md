@@ -16,6 +16,7 @@ Rented VMs are created by hand at the provider; bare metal and the Subraum VM fo
 | File | Entry |
 | --- | --- |
 | `flake.nix` | `nixosConfigurations.<host>` |
+| `inventory.json` | `hosts.<host>` with `"managed": true` – kind, site, owner, unlock (see [Inventory](../reference/inventory.md)) |
 | `justfile` | `hosts := "…"` (pull hosts only, for `ship-all`) |
 | `terraform/netbird/main.tf` | `local.hosts`: host → setup key group (`servers` or similar) |
 | `terraform/desec-tokens/main.tf` | `local.hosts`: allowed source addresses, `acme_names` |
@@ -23,7 +24,7 @@ Rented VMs are created by hand at the provider; bare metal and the Subraum VM fo
 
 ## 4. sops recipient
 
-Derive the age key from the new host's SSH host key (`ssh-to-age` on `/etc/ssh/ssh_host_ed25519_key.pub`) and add it to `.sops.yaml`: an anchor under `keys` and a `creation_rule` for `hosts/<host>/(secrets|netbird|desec|github)\.yaml$` with the host and `admin` as recipients.
+Derive the age key from the new host's SSH host key (`ssh-to-age` on `/etc/ssh/ssh_host_ed25519_key.pub`) and add it to `.sops.yaml`: an anchor under `keys` and a `creation_rule` for `hosts/<host>/(secrets|netbird|desec|github)\.yaml$` with the host and `admin` as recipients. The public host key itself goes into `inventory.json` (`sshHostKeys`, or later via `just inventory-collect`); `checks.inventory-sops` compares the two.
 
 ## 5. Mint keys and tokens
 
@@ -39,5 +40,6 @@ Recipes that need sops on the MacBook run with the 1Password sign-in in front (s
 
 - First deploy within 24 h of `netbird-key`. The host registers itself in the mesh at startup; Tofu finds it by name through `data "netbird_peer"`.
 - Run `just topology` and commit the result – otherwise `nix flake check` fails.
+- `just inventory-collect` (host key, interfaces), set `network`/`ipv4` by hand, then `just inventory-test`; `just known-hosts` on the MacBook.
 - Add app secrets once the host is running: [Add secrets](secrets.md).
 - Update the docs: [Hosts & roles](../reference/hosts.md), [Services](../reference/services.md).

@@ -17,5 +17,7 @@ Welche Datei für welche Änderung zuständig ist, wie oft das vorkommt und was 
 | Version eines separat gepinnten Inputs | `flake.lock` (`nix flake update <input>`) | von Hand | Hosts deployen, die ihn nutzen |
 | Grafana-Dashboard | `hosts/grammi/dashboards/*.json` | gelegentlich | grammi deployen |
 | Topologie (neuer Host, Exporter, vHost) | `topology.nix` erzeugt sie | bei Bedarf | `just topology`, committen |
+| Maschinendaten: Art, Hardware, Site, Uplink, Strom, Entsperren, Netze, Interfaces, Host-Keys | `inventory.json` | mit jedem neuen Gerät | `just inventory-collect`, `just inventory-test` ([Inventar](inventory.md)) |
+| Inventar-Format (Felder, Gerätearten) | `spec` in `inventory.nix` | selten | `just inventory-schema`, Testfall, Doku |
 | Secrets eines Hosts | `hosts/<host>/secrets.yaml` | selten | [Secrets eintragen](../how-to/secrets.md) |
 | Diese Dokumentation | `docs/site/{de,en}/` | mit jeder Änderung | `just docs` |

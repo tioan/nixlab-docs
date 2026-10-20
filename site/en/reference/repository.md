@@ -4,7 +4,7 @@ One flake, `nixosConfigurations` for five hosts plus `darwinConfigurations.zorlo
 
 | Path | Contents |
 | --- | --- |
-| `flake.nix` / `flake.lock` | Inputs, host definitions, packages, `lib.topology`, `checks` |
+| `flake.nix` / `flake.lock` | Inputs, host definitions, packages, `lib.topology`, `lib.inventory`, `checks` |
 | `modules/` | 17 shared modules: base, nix, ssh, firewall, networking (ifstate), acme, crowdsec, tailscale, netbird, metrics/metrics-shipping, logging/log-shipping, qemu-guest, deploy, auto-upgrade-git, docs-site |
 | `hosts/<host>/` | `configuration.nix`, hardware, service modules, sops files (`secrets.yaml`, `netbird.yaml`, `desec.yaml`) |
 | `pkgs/` | Own packages: garage-ui, logchef, paperless-gpt, prometheus-paperless-exporter, ollama-metrics-proxy |
@@ -12,6 +12,9 @@ One flake, `nixosConfigurations` for five hosts plus `darwinConfigurations.zorlo
 | `terraform/desec-tokens/` | OpenTofu: narrowly scoped deSEC tokens per host for DNS-01 |
 | `terraform/github/` | OpenTofu: the repositories `nixlab` (private) and `nixlab-docs` (public), deploy keys per host |
 | `topology.nix` | Generates the Grafana topology dashboard from the host configs |
+| `inventory.json` / `inventory.nix` | Lab inventory (every machine: kind, site, uplink, relations, unlock) and its validation, see [Inventory](inventory.md) |
+| `inventory.schema.json` | JSON Schema for editing `inventory.json`, generated |
+| `tests/` | Tests evaluated by `nix flake check` (`inventory.nix`) |
 | `justfile` | All operational workflows: deploy, secrets, netbird-\*, desec-\* |
 | `docs/` | This project documentation: pages under `site/{de,en}/`, Zensical config, build (`build.sh`, `site-src.sh`, `assemble.py`, `gen-reference.py`), the private site's package (`package.nix`) and what it would otherwise load from third parties – fonts, glightbox (`assets.nix`), install guides (ursalia, cuckoosegg), drafts of upstream issues |
 | `dnsconfig.js` | Symlink into the separate DNSControl repo – public DNS records live there |

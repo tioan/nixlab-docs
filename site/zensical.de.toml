@@ -42,6 +42,7 @@ nav = [
     "reference/host-directory.md",
     "reference/inputs.md",
     "reference/hosts.md",
+    "reference/inventory.md",
     "reference/services.md",
     "reference/modules.md",
     "reference/modules-generated.md", # generated

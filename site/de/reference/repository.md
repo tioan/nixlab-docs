@@ -4,7 +4,7 @@ Ein Flake, `nixosConfigurations` für fünf Hosts plus `darwinConfigurations.zor
 
 | Pfad | Inhalt |
 | --- | --- |
-| `flake.nix` / `flake.lock` | Inputs, Host-Definitionen, Pakete, `lib.topology`, `checks` |
+| `flake.nix` / `flake.lock` | Inputs, Host-Definitionen, Pakete, `lib.topology`, `lib.inventory`, `checks` |
 | `modules/` | 17 geteilte Module: base, nix, ssh, firewall, networking (ifstate), acme, crowdsec, tailscale, netbird, metrics/metrics-shipping, logging/log-shipping, qemu-guest, deploy, auto-upgrade-git, docs-site |
 | `hosts/<host>/` | `configuration.nix`, Hardware, Dienst-Module, sops-Dateien (`secrets.yaml`, `netbird.yaml`, `desec.yaml`) |
 | `pkgs/` | Eigene Pakete: garage-ui, logchef, paperless-gpt, prometheus-paperless-exporter, ollama-metrics-proxy |
@@ -12,6 +12,9 @@ Ein Flake, `nixosConfigurations` für fünf Hosts plus `darwinConfigurations.zor
 | `terraform/desec-tokens/` | OpenTofu: eng gescopte deSEC-Tokens pro Host für DNS-01 |
 | `terraform/github/` | OpenTofu: die Repos `nixlab` (privat) und `nixlab-docs` (öffentlich), Deploy-Keys pro Host |
 | `topology.nix` | Generiert das Topologie-Dashboard für Grafana aus den Host-Configs |
+| `inventory.json` / `inventory.nix` | Lab-Inventar (jede Maschine: Art, Site, Uplink, Beziehungen, Entsperren) und seine Prüfung, siehe [Inventar](inventory.md) |
+| `inventory.schema.json` | JSON-Schema zum Bearbeiten von `inventory.json`, generiert |
+| `tests/` | Tests, die `nix flake check` auswertet (`inventory.nix`) |
 | `justfile` | Alle Bedienabläufe: deploy, secrets, netbird-\*, desec-\* |
 | `docs/` | Diese Projektdokumentation: Seiten unter `site/{de,en}/`, Zensical-Konfiguration, Build (`build.sh`, `site-src.sh`, `assemble.py`, `gen-reference.py`), Paket der privaten Site (`package.nix`) und was sie sonst von Dritten laden würde – Schriften, glightbox (`assets.nix`), Installationsanleitungen (ursalia, cuckoosegg), Upstream-Issue-Entwürfe |
 | `dnsconfig.js` | Symlink ins separate DNSControl-Repo – öffentliche DNS-Records leben dort |

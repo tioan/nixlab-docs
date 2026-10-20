@@ -39,6 +39,53 @@ Regenerate hosts/grammi/dashboards/topology.json from the flake (see
 topology.nix). Run after adding a host, exporter or vhost; `nix flake check`
 fails until you do. Via a temp file, so a failed eval leaves the old JSON.
 
+## `just inventory`
+
+Show the validated lab inventory (inventory.json) with everything derived
+from it - effective sites, reverse relations, upstream, unattended boot.
+Fails with the list of all errors if inventory.json is invalid.
+
+## `just inventory-test`
+
+Check inventory.json, run the validator's tests (tests/inventory.nix) and
+compare the host keys with .sops.yaml - the inventory part of
+`nix flake check`, without evaluating any host.
+
+## `just inventory-schema`
+
+Regenerate inventory.schema.json (editor completion/hover for
+inventory.json) from the spec in inventory.nix. Run after changing a field
+there; `nix flake check` fails until you do. Via a temp file, like topology.
+
+## `just inventory-collect *args`
+
+Collect what the devices can tell about themselves into inventory.json:
+SSH host keys, interfaces (name, MAC, wifi/ethernet, link-local) and, for
+hardware that is not virtual, vendor, model, product id and serial.
+Managed hosts over the mesh (root, zorlock as admin); unmanaged devices
+only their host keys, at their first fixed IPv4 address.
+
+```
+just inventory-collect                  all devices, fill in what is missing
+just inventory-collect ursalia beryl    only these
+just inventory-collect --force ursalia  overwrite with what the device reports
+```
+
+Without --force a value that differs is only printed - a changed host key
+should be a decision. Values the device does not report (network, ipv4,
+notes, interfaces it no longer has) are never touched, not even with
+--force.
+
+## `just known-hosts`
+
+Write the SSH host keys from inventory.json to ~/.ssh/known_hosts.nixlab
+for the workstation (the hosts get them via flake.nix). ssh reads the file
+once ~/.ssh/config has, under "Host *":
+
+```
+UserKnownHostsFile ~/.ssh/known_hosts ~/.ssh/known_hosts.nixlab
+```
+
 ## `just docs`
 
 Build the project documentation in German and English: the private PDFs
