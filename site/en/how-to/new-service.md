@@ -4,8 +4,8 @@ Services are named by function (`rezepte`, not `mealie`); new web services on gr
 
 | Reachability | For | Examples |
 | --- | --- | --- |
-| Mesh only | admin UIs, services for your own devices | `s3-admin`, `llm`, `dokumente` |
-| Public behind the reverse proxy with SSO | web apps that should work on the road without the NetBird app | `rezepte`, `grist`, `metrics` |
+| Mesh only | admin UIs, services for your own devices | `s3-admin`, `llm` |
+| Public behind the reverse proxy with SSO | web apps that should work on the road without the NetBird app | `rezepte`, `grist`, `metrics`, `dokumente` |
 | Directly public | services with their own login, for machines or everyone | `auth`, `s3.aldrin` |
 
 ## Mesh only
@@ -25,7 +25,7 @@ For services on grammi:
 3. Push a CNAME `<name>` → `proxy.homelab.example` in DNSControl – a few minutes before the apply, otherwise the resolver caches NXDOMAIN.
 4. Deploy grammi first, then `just netbird-apply`. At the end it runs `just netbird-proxy-certs`: it requests every new name once from outside so the proxy fetches its certificate, then restarts `netbird-proxy` once – otherwise the dashboard hangs at "Issuing certificate…" (NetBird discussion #7118).
 
-Services on other hosts get a resource of their own in `terraform/netbird/reverse-proxy.tf` with the host as peer target (examples: `dokumente` on ursalia – share links only, behind a PIN –, `doku` on aldrin). Here too: push the CNAME first, `just netbird-apply` takes care of the certificates.
+Services on other hosts get a resource of their own in `terraform/netbird/reverse-proxy.tf` with the host as peer target (examples: `dokumente` on ursalia – SSO for the app, a PIN for share links only –, `doku` on aldrin). Here too: push the CNAME first, `just netbird-apply` takes care of the certificates.
 
 ## Directly public
 

@@ -13,11 +13,11 @@ Services are named by function, not by product. There are three kinds of reachab
 | `metrics` | Grafana | grammi | reverse proxy + SSO |
 | `vm` / `vl` | VictoriaMetrics / VictoriaLogs UI | grammi | reverse proxy + SSO (via Traefik entrypoint `apps`, port 8090) |
 | `s3-admin` | garage-ui | aldrin | mesh only |
-| `dokumente` | Paperless + paperless-gpt (`/paperless-gpt/`) | ursalia | mesh only; from outside, through the reverse proxy, share links only behind a PIN ([why](../explanation/secrets-network-access.md#paperless-share-links-from-outside)) |
+| `dokumente` | Paperless + paperless-gpt (`/paperless-gpt/`) | ursalia | in the mesh directly; from outside, through the reverse proxy, share links via PIN and the app via SSO ([why](../explanation/secrets-network-access.md#paperless-from-outside-share-links-pin-and-the-app-sso)) |
 | `llm` | Ollama (behind Caddy) | zorlock | mesh only |
 | `doku` | This documentation (private version) | aldrin + ursalia | in the mesh admin devices only ([why](../explanation/secrets-network-access.md#private-docs-admin-devices-only)), one A record per host; from outside a redirect to the public docs through the reverse proxy |
 
-**Reverse proxy:** Traefik on grammi owns port 443. It terminates `mesh.homelab.example` itself and hands everything else via TCP passthrough with PROXY protocol v2 to `netbird-proxy`, which does TLS and ACME (tls-alpn-01) on its own. Login at the proxy is SSO against Pocket ID, limited to the NetBird groups of the respective app; exception `dokumente` with a PIN.
+**Reverse proxy:** Traefik on grammi owns port 443. It terminates `mesh.homelab.example` itself and hands everything else via TCP passthrough with PROXY protocol v2 to `netbird-proxy`, which does TLS and ACME (tls-alpn-01) on its own. Login at the proxy is SSO against Pocket ID, limited to the NetBird groups of the respective app; `dokumente` additionally with a PIN (share links only).
 
 **Mesh-only names:** Every name is its own NetBird DNS zone with one A record pointing at the mesh address (192.0.2.x). Public DNS does not know them; the certificate comes via DNS-01 through deSEC.
 
