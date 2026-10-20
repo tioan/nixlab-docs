@@ -80,6 +80,7 @@ In the mesh `dokumente.homelab.example` resolves straight to ursalia through the
 
 **What this deliberately accepts:**
 
+- A still-valid PIN session (the proxy's cookie) skips the login page. Whoever then wants the app via SSO lands on a note page and has to clear the site data or use a private window first.
 - Whoever knows the PIN gets every link whose slug they know – no others. So create shares in paperless with an expiry date.
 - Telling PIN from SSO rests on a behaviour of the proxy, not on a documented interface.
 - CrowdSec sees neither PIN attempts nor requests to the app (TCP passthrough, no HTTP log on grammi), as with every proxy name; the proxy's own block and paperless' login remain.
