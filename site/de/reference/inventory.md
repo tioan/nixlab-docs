@@ -34,29 +34,13 @@ Ein Schlüssel `"$schema": "./inventory.schema.json"` ganz oben ist erlaubt und 
 
 Wer ein Gerät administriert: entscheidet, wen man anruft und was man ändern darf.
 
-| Feld | Typ | | Bedeutung |
-| --- | --- | --- | --- |
-| `name` | String | Pflicht | Anzeigename |
-| `contact` | String | | Ansprechpartner, wenn Geräte dieses Owners betroffen sind |
-| `note` | String | | Freitext |
+Alle Felder mit Typ, Standardwert und Bedeutung: [Inventar-Schema → owners](inventory-schema.md#owners).
 
 ### uplinks
 
 Ein Internetanschluss. Mehrere Sites können sich einen teilen (selten), eine Site kann mehrere haben (primär und Backup).
 
-| Feld | Typ | | Bedeutung |
-| --- | --- | --- | --- |
-| `provider` | Anbieter-ID | | Provider; im Rechenzentrum der Hoster |
-| `asn` | Ganzzahl ≥ 1 | | AS-Nummer des Provider-Netzes, ohne „AS“ |
-| `medium` | `fiber` `dsl` `cable` `lte` `satellite` `datacenter` | | Anschlussart |
-| `bandwidth` | `{ "down": int, "up": int }` | | Gebuchte Bandbreite in Mbit/s, beide Werte Pflicht |
-| `ipv4` | `public` `cgnat` `none` | | Was der Anschluss für IPv4 hergibt |
-| `ipv4Static` | Boolean | | Feste öffentliche IPv4-Adresse (nur bei `public` sinnvoll) |
-| `ipv6` | Boolean | | Natives IPv6 |
-| `ipv6PrefixLength` | Ganzzahl 1–128 | | Größe des delegierten IPv6-Präfixes (56 für ein /56); nur mit `ipv6` |
-| `ipv6Static` | Boolean | | Festes IPv6-Präfix; nur mit `ipv6` |
-| `contracts` | Liste von Vertrags-IDs | | Womit der Anschluss bezahlt wird; mit dem `provider` des Anschlusses |
-| `note` | String | | Freitext |
+Alle Felder mit Typ, Standardwert und Bedeutung: [Inventar-Schema → uplinks](inventory-schema.md#uplinks).
 
 Alle Felder sind optional, damit ein Anschluss schon eingetragen werden kann, bevor die Details bekannt sind.
 
@@ -64,39 +48,13 @@ Alle Felder sind optional, damit ein Anschluss schon eingetragen werden kann, be
 
 Ein Ort, an dem Geräte stehen.
 
-| Feld | Typ | | Bedeutung |
-| --- | --- | --- | --- |
-| `city` | String | Pflicht | Stadt |
-| `kind` | `residential` `hackerspace` `datacenter` | Pflicht | Art des Orts |
-| `provider` | Anbieter-ID | | Wer den Ort betreibt (Hoster, Verein); bei einer Wohnung leer |
-| `uplinks` | Liste von Uplink-IDs | Pflicht, ≥ 1 | Internetanschlüsse, **der primäre zuerst**, Backups danach |
-| `note` | String | | Freitext |
+Alle Felder mit Typ, Standardwert und Bedeutung: [Inventar-Schema → sites](inventory-schema.md#sites).
 
 ### hosts
 
 Jedes Gerät mit einer Adresse, auf die es ankommt: Server, VMs, Router, APs, KVMs, PDUs, Appliances.
 
-| Feld | Typ | | Bedeutung |
-| --- | --- | --- | --- |
-| `kind` | siehe [Gerätearten](#kinds) | Pflicht | Was das Gerät ist |
-| `vendor` | String | | Hersteller (Lenovo, Apple, GL.iNet). Nicht bei `vm`/`container` |
-| `model` | String | | Modell ohne Hersteller (ThinkCentre M720q), bei einer VM das Produkt bzw. der Tarif des Anbieters |
-| `productId` | String | | Kennung des Herstellers für Treiber und Firmware: Lenovo-Maschinentyp (`10T7…`), Apple-Modellkennung (`Mac16,10`). Nicht bei `vm`/`container` |
-| `serial` | String | | Seriennummer, im ganzen Lab eindeutig. Nicht bei `vm`/`container` |
-| `site` | Site-ID | Pflicht\* | Wo es steht. \*Optional mit `runsOn` oder `inside`: dann geerbt |
-| `owner` | Owner-ID | Pflicht | Wer es administriert |
-| `managed` | Boolean | Pflicht | Von diesem Flake konfiguriert – muss zu `flake.nix` passen |
-| `criticality` | `core` `service` `lab` | Standard `service` | `core`: ohne das steht das Lab; `service`: ein Dienst ist weg; `lab`: nichts hängt daran |
-| `availability` | `always-on` `intermittent` | Standard `always-on` | `intermittent`: offline ist normal (Laptop), kein Vorfall |
-| `unlock` | Objekt, siehe [Entsperren](#entsperren) | | Weglassen bei unverschlüsselter Platte |
-| `runsOn` | Host-ID | | Nur `vm`/`container`: die Maschine, auf der es läuft |
-| `inside` | Host-ID | | Physisch in ein anderes Gerät eingebaut |
-| `power` | Host-ID | | Stromquelle: PDU/USV, PoE-Switch oder der Host, in dem eine Karte steckt |
-| `manages` | Liste von Host-IDs | | Nur `kvm`: Maschinen, auf die es Out-of-Band-Zugriff gibt |
-| `sshHostKeys` | Liste von Strings | | Öffentliche SSH-Host-Keys, `"<typ> <base64>"` ohne Kommentar, siehe [SSH-Host-Keys](#ssh-host-keys) |
-| `interfaces` | Objekt: Name → Interface | | Netzwerk-Interfaces, siehe [Interfaces](#interfaces) |
-| `contracts` | Liste von Vertrags-IDs | | Womit er bezahlt wird (gemietete VM, Zusatz-IPv4); mit dem Anbieter seiner Site |
-| `note` | String | | Freitext |
+Alle Felder mit Typ, Standardwert und Bedeutung: [Inventar-Schema → hosts](inventory-schema.md#hosts).
 
 #### Gerätearten { #kinds }
 
@@ -117,16 +75,7 @@ Ob ein Host virtuell ist, folgt aus `kind` (`vm`, `container`) – nicht aus `ru
 
 Ein Layer-2-Netz mit seinem IPv4-Präfix: das Heimnetz, ein VLAN im Hackerspace.
 
-| Feld | Typ | | Bedeutung |
-| --- | --- | --- | --- |
-| `name` | String | Pflicht | Bezeichnung (die ID ist der technische Schlüssel) |
-| `site` | Site-ID | Pflicht | Wo das Netz ist |
-| `vlan` | Ganzzahl 1–4094 | | 802.1Q-VLAN-ID; weglassen bei einem ungetaggten Netz. Eindeutig je Site – eine andere Site darf dieselbe ID nutzen |
-| `ipv4` | Präfix, z. B. `192.0.2.0/24` | | Ohne Host-Bits |
-| `ipv6` | Präfix, z. B. `2001:db8:1::/64` | | Nur wenn es fest ist (ULA, statische GUA) – kein wechselndes Provider-Präfix |
-| `dhcpServer` | Host-ID | | Verteilt IPv4 per DHCP; muss an der Site sein und ein Interface in diesem Netz haben |
-| `dhcpPool` | `{ "start": ip, "end": ip }` | | Dynamischer Bereich; innerhalb von `ipv4`, Start ≤ Ende. Braucht `ipv4` und `dhcpServer` |
-| `note` | String | | Freitext |
+Alle Felder mit Typ, Standardwert und Bedeutung: [Inventar-Schema → networks](inventory-schema.md#networks).
 
 Ein Netz ohne Interface ist erlaubt – es kann vor seinen Geräten eingetragen werden.
 
@@ -134,35 +83,13 @@ Ein Netz ohne Interface ist erlaubt – es kann vor seinen Geräten eingetragen 
 
 Eine Firma oder ein Verein, von dem das Lab abhängt: Provider, Hoster, ein von außen eingekaufter Dienst, der Hackerspace.
 
-| Feld | Typ | | Bedeutung |
-| --- | --- | --- | --- |
-| `name` | String | Pflicht | Anzeigename |
-| `url` | String | | Website oder Kundenportal |
-| `contact` | String | | Support-Adresse, Telefon, Ticketsystem |
-| `note` | String | | Freitext |
+Alle Felder mit Typ, Standardwert und Bedeutung: [Inventar-Schema → providers](inventory-schema.md#providers).
 
 ### contracts
 
 Was an einen Anbieter bezahlt wird. Ein Anbieter kann mehrere haben – zwei VMs und eine Zusatz-IPv4 beim selben Hoster sind drei Verträge. Hosts, Anschlüsse und Dienste nennen ihre Verträge (`contracts: [...]`); was ein Vertrag abdeckt, wird abgeleitet.
 
-| Feld | Typ | | Bedeutung |
-| --- | --- | --- | --- |
-| `provider` | Anbieter-ID | Pflicht | Mit wem |
-| `product` | String | | Tarifname, wie der Anbieter ihn nennt |
-| `cost` | Objekt, siehe unten | | Weglassen, solange unbekannt – der Vertrag steht dann unter `pending` |
-| `since` | Datum `YYYY-MM-DD` | | Beginn |
-| `renews` | Datum `YYYY-MM-DD` | | Nächste Verlängerung oder Ende ohne Kündigung; nicht vor `since` |
-| `notice` | String | | Kündigungsfrist, wie im Vertrag formuliert |
-| `note` | String | | Freitext |
-
-`cost`:
-
-| Feld | Typ | | Bedeutung |
-| --- | --- | --- | --- |
-| `amount` | Ganzzahl ≥ 0 | Pflicht | Pro Zeitraum, **in Cent** (`899` = 8,99) – ganze Zahlen, keine Rundungsfehler |
-| `currency` | `EUR` `USD` `CHF` `GBP` | Pflicht | Summen werden je Währung geführt, nie umgerechnet |
-| `period` | `month` `year` `once` | Pflicht | Wie oft abgerechnet wird |
-| `dueMonth` | Ganzzahl 1–12 | Pflicht bei `year` | Monat, in dem der Jahresbetrag fällig wird; nur bei `year` |
+Alle Felder mit Typ, Standardwert und Bedeutung: [Inventar-Schema → contracts](inventory-schema.md#contracts). Die Kosten stehen in ganzen Cent pro Monat, pro Jahr – mit dem Monat, in dem abgebucht wird – oder einmalig, in ihrer eigenen Währung; Summen werden je Währung geführt und nie umgerechnet.
 
 Kunden- und Vertragsnummern gehören **nicht** in `inventory.json`: Sie stehen in `inventory.secrets.yaml` (sops, Workstation- und Admin-Schlüssel), mit der Vertrags-ID als Schlüssel. Nichts liest diese Datei automatisch.
 
@@ -176,40 +103,7 @@ realtox-grammi:
 
 Was die Hosts betreiben und was von außen eingekauft ist. Die Grundausstattung jedes Hosts (sshd, Exporter, vmagent, Vector, CrowdSec, Mesh-Client) ist hier kein Dienst – sie ist überall gleich und steht in den Modulen.
 
-| Feld | Typ | | Bedeutung |
-| --- | --- | --- | --- |
-| `name` | String | Pflicht | Anzeigename |
-| `software` | String | | Die Software (Paperless-ngx, Garage) |
-| `hosts` | Liste von Host-IDs, ≥ 1 | eins von `hosts`/`provider` | Die Maschinen, auf denen er läuft |
-| `provider` | Anbieter-ID | eins von `hosts`/`provider` | Bei einem Dienst von außen: wer ihn betreibt |
-| `package` | String | | Nur auf verwalteten Hosts: Optionspfad des Pakets in der Host-Konfiguration (`services.paperless.package`). Version, Lizenz und Sprache kommen von dort |
-| `version` | String | | Von Hand, nur ohne `package` (Home Assistant OS, ein NanoKVM) |
-| `criticality` | `core` `service` `lab` | Standard `service` | Wie bei Hosts |
-| `endpoints` | Liste, siehe unten | | Wie er erreicht wird |
-| `dependsOn` | Liste von Dienst-IDs | | Ohne die geht es nicht |
-| `uses` | Liste von Dienst-IDs | | Ohne die geht es eingeschränkt (neue Logins scheitern, eine Funktion fehlt) |
-| `data` | `stateful` `stateless` | Pflicht | `stateless`: aus dem Repository wiederherstellbar, nichts zu verlieren |
-| `backup` | Liste, siehe unten | | Nur bei `stateful` |
-| `contracts` | Liste von Vertrags-IDs | | Nur mit `provider` – ein Dienst auf Hosts wird über diese bezahlt |
-| `note` | String | | Freitext |
-
-`endpoints[]`:
-
-| Feld | Typ | | Bedeutung |
-| --- | --- | --- | --- |
-| `fqdn` | Domain in Kleinbuchstaben | Pflicht | Im ganzen Lab eindeutig |
-| `exposure` | `public` `proxy` `mesh` `lan` `loopback` | Pflicht | `public`: offen vom eigenen Host; `proxy`: über einen Reverse-Proxy; `mesh`: nur im Overlay-Netz; `lan`: nur in einem lokalen Netz; `loopback`: nur auf dem Host selbst |
-| `via` | Dienst-ID | Pflicht bei `proxy` | Der Dienst, über den er erreicht wird – zählt als Abhängigkeit. Nicht bei `loopback` |
-| `port` | Ganzzahl 1–65535 | | Wenn es nicht der Standardport des Protokolls ist |
-| `note` | String | | Freitext |
-
-`backup[]`:
-
-| Feld | Typ | | Bedeutung |
-| --- | --- | --- | --- |
-| `method` | `restic` `arq` `btrbk` `pgdump` `provider-snapshot` | Pflicht | `restic`/`arq` kopieren woandershin; der Rest bleibt auf der Maschine oder beim Anbieter |
-| `to` | Dienst-ID | Pflicht bei `restic`/`arq` | Zieldienst; muss `stateful` sein. Nicht bei den anderen Methoden |
-| `note` | String | | Freitext |
+Alle Felder mit Typ, Standardwert und Bedeutung: [Inventar-Schema → services](inventory-schema.md#services).
 
 **Abhängigkeiten.** `dependsOn` und jedes `via` sind die harten: Zusammen müssen sie zyklenfrei sein, und ein Dienst darf nicht hart von einem weniger kritischen abhängen (ein `core`-Dienst von einem `lab`-Dienst) – entweder den anderen hochstufen oder nach `uses` verschieben. `uses` gehört nicht zur Kette: Ist Pocket ID weg, hält NetBird seine Tunnel und lehnt nur neue Logins ab.
 
@@ -227,14 +121,7 @@ Was die Hosts betreiben und was von außen eingekauft ist. Die Grundausstattung 
 }
 ```
 
-| Feld | Typ | | Bedeutung |
-| --- | --- | --- | --- |
-| `mac` | `aa:bb:cc:dd:ee:ff`, klein | | Hardware-Adresse. Im ganzen Lab eindeutig, keine Multicast-Adresse |
-| `medium` | `ethernet` `wifi` | | Physisches Medium |
-| `linkLocal` | `eui64` `stable-privacy` `random` oder eine `fe80::`-Adresse | | Wie die IPv6-Link-Local-Adresse entsteht |
-| `network` | Netz-ID | | Netz, in dem es hängt; an derselben Site wie der Host |
-| `ipv4` | `{ "mode": …, "address": … }` | | IPv4-Adressierung, braucht `network` |
-| `note` | String | | Freitext |
+Alle Felder mit Typ, Standardwert und Bedeutung: [Inventar-Schema → hosts](inventory-schema.md#hosts).
 
 **Link-Local.** Nur bei EUI-64 folgt die Adresse aus der MAC (`fe80::` + MAC mit umgedrehtem U/L-Bit und `ff:fe` in der Mitte); das abgeleitete `ipv6LinkLocal` wird dann berechnet. Viele Systeme nutzen stattdessen `stable-privacy` (RFC 7217: stabil, aber nicht berechenbar), auch macOS und tvOS leiten sie nicht aus der MAC ab. Ist die Adresse stabil und bekannt, trägt man sie direkt ein (`"fe80::…"`); genau das macht `just inventory-collect`, wenn sie nicht zu EUI-64 passt. `eui64` braucht eine `mac`; mit einer *lokal verwalteten* WLAN-MAC (private WLAN-Adresse) ist es ein Fehler, weil diese MAC – und damit die Adresse – meist zufällig ist. Eine lokal verwaltete Ethernet-MAC ist in Ordnung (QEMUs `52:54:00:…` ist eine).
 
@@ -305,12 +192,7 @@ Ein geänderter Host-Key soll eine Entscheidung sein, daher `--force` – am bes
 "unlock": { "methods": ["tpm", "nbde"], "threshold": 1, "tang": ["nas"], "fallback": "remote-ssh" }
 ```
 
-| Feld | Typ | | Bedeutung |
-| --- | --- | --- | --- |
-| `methods` | Liste aus `tpm`, `nbde` | Pflicht (darf leer sein) | Automatische Methoden. Leer: nur ein Mensch kann entsperren |
-| `threshold` | Ganzzahl ≥ 1 | Standard 1 | Wie viele Methoden gelingen müssen – der `sss`-Schwellwert von Clevis. 1 = eine reicht, 2 = TPM **und** Tang |
-| `tang` | Liste von Host-IDs | Pflicht bei `nbde` | Tang-Server; einer davon genügt |
-| `fallback` | `remote-ssh` `console` | | Was ein Mensch tut, wenn die Methoden scheitern: SSH (initrd-SSH, FileVault per SSH) oder Konsole/KVM |
+Alle Felder mit Typ, Standardwert und Bedeutung: [Inventar-Schema → hosts](inventory-schema.md#hosts).
 
 | Fall | `unlock` |
 | --- | --- |
@@ -544,7 +426,7 @@ locals {
 
 ## Tests
 
-`tests/inventory.nix` enthält ein vollständiges, erfundenes Inventar (die Beispiele oben) und 93 Fälle. Jeder Fall ändert genau eine Sache und nennt die erwarteten Fehler – exakter Wortlaut und Reihenfolge – oder, bei gültigen Varianten, Werte der abgeleiteten Sicht. Ein Fall schlägt auch fehl, wenn ein kaputtes Inventar `.inventory` nicht werfen lässt.
+`tests/inventory.nix` enthält ein vollständiges, erfundenes Inventar (die Beispiele oben) und 94 Fälle. Jeder Fall ändert genau eine Sache und nennt die erwarteten Fehler – exakter Wortlaut und Reihenfolge – oder, bei gültigen Varianten, Werte der abgeleiteten Sicht. Ein Fall schlägt auch fehl, wenn ein kaputtes Inventar `.inventory` nicht werfen lässt.
 
 | Gruppe | Deckt ab |
 | --- | --- |
@@ -564,7 +446,7 @@ locals {
 just inventory-test
 ```
 
-baut `checks.<system>.inventory` (die echte Datei ist gültig), `inventory-tests` (alle Fälle bestehen) `inventory-schema` (Schema aktuell) und `inventory-sops` (Host-Keys ↔ `.sops.yaml`). Bei einem Fehler listet die Meldung jeden fehlgeschlagenen Fall mit „want“ und „got“.
+baut `checks.<system>.inventory` (die echte Datei ist gültig), `inventory-tests` (alle Fälle bestehen), `inventory-schema` (Schema aktuell), `inventory-diagram` (das [Schema-Diagramm](inventory-schema.md#alle-felder-auf-einen-blick) aktuell) und `inventory-sops` (Host-Keys ↔ `.sops.yaml`). Bei einem Fehler listet die Meldung jeden fehlgeschlagenen Fall mit „want“ und „got“.
 
 **Eine neue Regel** bekommt im selben Commit einen Fall: in `base` mit `set`/`del` genau eine Sache ändern, die exakte Meldung eintragen. **Geänderter Wortlaut** einer Meldung lässt die Tests fehlschlagen – Fall und diese Seite zusammen anpassen.
 
@@ -578,5 +460,5 @@ baut `checks.<system>.inventory` (die echte Datei ist gültig), `inventory-tests
 | Details eines Anschlusses nachtragen | Felder in `uplinks.<id>`, sonst nichts zu tun |
 | Neuer Dienst | Eintrag in `services` mit `hosts` (und `package` auf verwaltetem Host) oder `provider`, `endpoints`, `dependsOn`/`uses`, `data`, `backup`; `just inventory-test` – ein fehlendes Backup außer Haus erscheint unter „worth a look“ |
 | Neuer Vertrag | Eintrag in `contracts`, die ID in `contracts` des Hosts, Anschlusses oder Dienstes, den er bezahlt; Kunden-/Vertragsnummer in `inventory.secrets.yaml` (`sops inventory.secrets.yaml`) |
-| Neues Feld oder neue Geräteart | `spec` in `inventory.nix`, dann `just inventory-schema`, ein Testfall in `tests/inventory.nix`, diese Seite (de/en) |
+| Neues Feld oder neue Geräteart | `spec` in `inventory.nix`, dann `just inventory-schema` und `just inventory-diagram`, ein Testfall in `tests/inventory.nix`, diese Seite (de/en); `docs/inventory-example.json`, wenn das Beispiel der [Schema-Seite](inventory-schema.md) es zeigen soll |
 | Ansehen | `just inventory` |

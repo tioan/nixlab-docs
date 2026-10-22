@@ -34,29 +34,13 @@ A `"$schema": "./inventory.schema.json"` key at the top is allowed and ignored; 
 
 Who administers a device: it decides whom to call and what may be changed.
 
-| Field | Type | | Meaning |
-| --- | --- | --- | --- |
-| `name` | string | required | Display name |
-| `contact` | string | | Who to talk to when this owner's devices are affected |
-| `note` | string | | Free text |
+All fields with type, default and meaning: [Inventory schema → owners](inventory-schema.md#owners).
 
 ### uplinks
 
 An internet line. Several sites may share one (rarely), one site may have several (primary and backup).
 
-| Field | Type | | Meaning |
-| --- | --- | --- | --- |
-| `provider` | provider id | | Provider; for a data centre the hoster |
-| `asn` | integer ≥ 1 | | AS number of the provider's network, without "AS" |
-| `medium` | `fiber` `dsl` `cable` `lte` `satellite` `datacenter` | | Kind of line |
-| `bandwidth` | `{ "down": int, "up": int }` | | Booked bandwidth in Mbit/s, both values required |
-| `ipv4` | `public` `cgnat` `none` | | What the line gives for IPv4 |
-| `ipv4Static` | boolean | | Fixed public IPv4 address (only meaningful with `public`) |
-| `ipv6` | boolean | | Native IPv6 |
-| `ipv6PrefixLength` | integer 1–128 | | Size of the delegated IPv6 prefix (56 for a /56); only with `ipv6` |
-| `ipv6Static` | boolean | | Fixed IPv6 prefix; only with `ipv6` |
-| `contracts` | list of contract ids | | What the line is paid by; with the line's `provider` |
-| `note` | string | | Free text |
+All fields with type, default and meaning: [Inventory schema → uplinks](inventory-schema.md#uplinks).
 
 All fields are optional, so a line can be entered before its details are known.
 
@@ -64,39 +48,13 @@ All fields are optional, so a line can be entered before its details are known.
 
 A place where devices stand.
 
-| Field | Type | | Meaning |
-| --- | --- | --- | --- |
-| `city` | string | required | City |
-| `kind` | `residential` `hackerspace` `datacenter` | required | Kind of place |
-| `provider` | provider id | | Who runs the place (hoster, club); empty for a home |
-| `uplinks` | list of uplink ids | required, ≥ 1 | Internet lines, **primary first**, backups after it |
-| `note` | string | | Free text |
+All fields with type, default and meaning: [Inventory schema → sites](inventory-schema.md#sites).
 
 ### hosts
 
 Every device with an address that matters: servers, VMs, routers, APs, KVMs, PDUs, appliances.
 
-| Field | Type | | Meaning |
-| --- | --- | --- | --- |
-| `kind` | see [kinds](#kinds) | required | What the device is |
-| `vendor` | string | | Manufacturer (Lenovo, Apple, GL.iNet). Not for `vm`/`container` |
-| `model` | string | | Model without the vendor (ThinkCentre M720q), or for a VM the provider's product/plan name |
-| `productId` | string | | The vendor's id for drivers and firmware: Lenovo machine type (`10T7…`), Apple model identifier (`Mac16,10`). Not for `vm`/`container` |
-| `serial` | string | | Serial number, unique lab-wide. Not for `vm`/`container` |
-| `site` | site id | required\* | Where it is. \*Optional with `runsOn` or `inside`: then it is inherited |
-| `owner` | owner id | required | Who administers it |
-| `managed` | boolean | required | Configured by this flake – must match `flake.nix` |
-| `criticality` | `core` `service` `lab` | default `service` | `core`: the lab stops working without it; `service`: a service is down; `lab`: nothing depends on it |
-| `availability` | `always-on` `intermittent` | default `always-on` | `intermittent`: offline is normal (laptop), not an incident |
-| `unlock` | object, see [Disk unlock](#disk-unlock) | | Leave it out for an unencrypted disk |
-| `runsOn` | host id | | Only `vm`/`container`: the machine it runs on |
-| `inside` | host id | | Physically built into another device |
-| `power` | host id | | Power source: PDU/UPS, PoE switch, or the host a card sits in |
-| `manages` | list of host ids | | Only `kvm`: machines it gives out-of-band access to |
-| `sshHostKeys` | list of strings | | SSH host public keys, `"<type> <base64>"` without comment, see [SSH host keys](#ssh-host-keys) |
-| `interfaces` | object: name → interface | | Network interfaces, see [Interfaces](#interfaces) |
-| `contracts` | list of contract ids | | What it is paid by (a rented VM, its extra IPv4); with the provider of its site |
-| `note` | string | | Free text |
+All fields with type, default and meaning: [Inventory schema → hosts](inventory-schema.md#hosts).
 
 #### Kinds { #kinds }
 
@@ -117,16 +75,7 @@ Whether a host is virtual follows from `kind` (`vm`, `container`) – not from `
 
 A layer-2 network with its IPv4 prefix: the home LAN, a VLAN in the hackerspace.
 
-| Field | Type | | Meaning |
-| --- | --- | --- | --- |
-| `name` | string | required | Display name (the id is the technical key) |
-| `site` | site id | required | Where the network is |
-| `vlan` | integer 1–4094 | | 802.1Q VLAN id; leave out for an untagged network. Unique per site – another site may use the same id |
-| `ipv4` | prefix, e.g. `192.0.2.0/24` | | Without host bits |
-| `ipv6` | prefix, e.g. `2001:db8:1::/64` | | Only when it is fixed (ULA, static GUA) – not an ISP prefix that changes |
-| `dhcpServer` | host id | | Serves DHCP for IPv4; must be at the site and have an interface in this network |
-| `dhcpPool` | `{ "start": ip, "end": ip }` | | Dynamic range; inside `ipv4`, start ≤ end. Needs `ipv4` and `dhcpServer` |
-| `note` | string | | Free text |
+All fields with type, default and meaning: [Inventory schema → networks](inventory-schema.md#networks).
 
 A network without any interface is allowed – it can be entered before its devices are.
 
@@ -134,35 +83,13 @@ A network without any interface is allowed – it can be entered before its devi
 
 A company or club the lab depends on: an ISP, a hoster, a service bought from outside, the hackerspace.
 
-| Field | Type | | Meaning |
-| --- | --- | --- | --- |
-| `name` | string | required | Display name |
-| `url` | string | | Website or customer portal |
-| `contact` | string | | Support address, phone, ticket system |
-| `note` | string | | Free text |
+All fields with type, default and meaning: [Inventory schema → providers](inventory-schema.md#providers).
 
 ### contracts
 
 What is paid to a provider. One provider may have several – two VMs and an extra IPv4 at one hoster are three contracts. Hosts, lines and services name their contracts (`contracts: [...]`); what a contract covers is derived.
 
-| Field | Type | | Meaning |
-| --- | --- | --- | --- |
-| `provider` | provider id | required | Who it is with |
-| `product` | string | | Plan name as the provider calls it |
-| `cost` | object, see below | | Leave out until known – the contract is then listed in `pending` |
-| `since` | date `YYYY-MM-DD` | | Start |
-| `renews` | date `YYYY-MM-DD` | | Next date it renews or ends unless cancelled; not before `since` |
-| `notice` | string | | Notice period, as the contract words it |
-| `note` | string | | Free text |
-
-`cost`:
-
-| Field | Type | | Meaning |
-| --- | --- | --- | --- |
-| `amount` | integer ≥ 0 | required | Per period, **in cents** (`899` = 8.99) – whole numbers, no rounding errors |
-| `currency` | `EUR` `USD` `CHF` `GBP` | required | Totals are kept per currency, never converted |
-| `period` | `month` `year` `once` | required | How often it is charged |
-| `dueMonth` | integer 1–12 | required with `year` | The month the yearly amount is charged in; only with `year` |
+All fields with type, default and meaning: [Inventory schema → contracts](inventory-schema.md#contracts). The cost is in whole cents per month, per year – with the month it is charged in – or once, in its own currency; totals are kept per currency and never converted.
 
 Customer and contract numbers do **not** go into `inventory.json`: they are in `inventory.secrets.yaml` (sops, workstation and admin key), keyed by contract id. Nothing reads that file automatically.
 
@@ -176,40 +103,7 @@ realtox-grammi:
 
 What the hosts run, and what is bought from outside. Per-host plumbing (sshd, exporters, vmagent, Vector, CrowdSec, the mesh client) is not a service here – it is the same on every host and lives in the modules.
 
-| Field | Type | | Meaning |
-| --- | --- | --- | --- |
-| `name` | string | required | Display name |
-| `software` | string | | The software (Paperless-ngx, Garage) |
-| `hosts` | list of host ids, ≥ 1 | one of `hosts`/`provider` | The machines it runs on |
-| `provider` | provider id | one of `hosts`/`provider` | For a service from outside: who runs it |
-| `package` | string | | Only on managed hosts: option path of the package in the host's configuration (`services.paperless.package`). Version, license and language come from there |
-| `version` | string | | By hand, only without `package` (Home Assistant OS, a NanoKVM) |
-| `criticality` | `core` `service` `lab` | default `service` | As for hosts |
-| `endpoints` | list, see below | | How it is reached |
-| `dependsOn` | list of service ids | | Cannot work without them |
-| `uses` | list of service ids | | Works without them, degraded (new logins fail, a feature is missing) |
-| `data` | `stateful` `stateless` | required | `stateless`: rebuilt from the repository, nothing to lose |
-| `backup` | list, see below | | Only for `stateful` |
-| `contracts` | list of contract ids | | Only with `provider` – a service on hosts is paid through them |
-| `note` | string | | Free text |
-
-`endpoints[]`:
-
-| Field | Type | | Meaning |
-| --- | --- | --- | --- |
-| `fqdn` | lower-case domain | required | Unique lab-wide |
-| `exposure` | `public` `proxy` `mesh` `lan` `loopback` | required | `public`: open from its own host; `proxy`: through a reverse proxy; `mesh`: inside the overlay only; `lan`: a local network only; `loopback`: the host itself |
-| `via` | service id | required with `proxy` | The service it is reached through – counts as a dependency. Not with `loopback` |
-| `port` | integer 1–65535 | | When it is not the protocol's default |
-| `note` | string | | Free text |
-
-`backup[]`:
-
-| Field | Type | | Meaning |
-| --- | --- | --- | --- |
-| `method` | `restic` `arq` `btrbk` `pgdump` `provider-snapshot` | required | `restic`/`arq` copy elsewhere; the rest stays on the machine or with the provider |
-| `to` | service id | required with `restic`/`arq` | Target service; must be `stateful`. Not with the other methods |
-| `note` | string | | Free text |
+All fields with type, default and meaning: [Inventory schema → services](inventory-schema.md#services).
 
 **Dependencies.** `dependsOn` and every `via` are the hard ones: together they must be free of cycles, and a service may not hard-depend on a less critical one (a `core` service on a `lab` one) – raise the other or move it to `uses`. `uses` is not part of the chain: when Pocket ID is gone, NetBird keeps its tunnels and only refuses new logins.
 
@@ -227,14 +121,7 @@ What the hosts run, and what is bought from outside. Per-host plumbing (sshd, ex
 }
 ```
 
-| Field | Type | | Meaning |
-| --- | --- | --- | --- |
-| `mac` | `aa:bb:cc:dd:ee:ff`, lower case | | Hardware address. Unique lab-wide, no multicast address |
-| `medium` | `ethernet` `wifi` | | Physical medium |
-| `linkLocal` | `eui64` `stable-privacy` `random` or an `fe80::` address | | How the IPv6 link-local address is formed |
-| `network` | network id | | Network it is in; at the same site as the host |
-| `ipv4` | `{ "mode": …, "address": … }` | | IPv4 addressing, needs `network` |
-| `note` | string | | Free text |
+All fields with type, default and meaning: [Inventory schema → hosts](inventory-schema.md#hosts).
 
 **Link-local.** Only with EUI-64 does the address follow from the MAC (`fe80::` + MAC with the U/L bit flipped and `ff:fe` in the middle); the derived `ipv6LinkLocal` is computed then. Many systems use `stable-privacy` instead (RFC 7217: stable, but not computable), macOS and tvOS do not derive it from the MAC either. When the address is stable and known, enter it directly (`"fe80::…"`); `just inventory-collect` does exactly that when it does not match EUI-64. `eui64` needs a `mac`; with a *locally administered* Wi-Fi MAC (private Wi-Fi address) it is an error, because that MAC – and with it the address – is usually random. A locally administered Ethernet MAC is fine (QEMU's `52:54:00:…` is one).
 
@@ -305,12 +192,7 @@ A changed host key should be a decision, hence `--force` – best with the host 
 "unlock": { "methods": ["tpm", "nbde"], "threshold": 1, "tang": ["nas"], "fallback": "remote-ssh" }
 ```
 
-| Field | Type | | Meaning |
-| --- | --- | --- | --- |
-| `methods` | list of `tpm`, `nbde` | required (may be empty) | Automatic methods. Empty: only a human can unlock |
-| `threshold` | integer ≥ 1 | default 1 | How many methods must succeed – the Clevis `sss` threshold. 1 = any, 2 = TPM **and** Tang |
-| `tang` | list of host ids | required with `nbde` | Tang servers; any one of them is enough |
-| `fallback` | `remote-ssh` `console` | | What a human does when the methods fail: SSH (initrd SSH, FileVault over SSH) or console/KVM |
+All fields with type, default and meaning: [Inventory schema → hosts](inventory-schema.md#hosts).
 
 | Case | `unlock` |
 | --- | --- |
@@ -544,7 +426,7 @@ locals {
 
 ## Tests
 
-`tests/inventory.nix` holds a complete, fictional inventory (the examples above) and 93 cases. Each case changes exactly one thing and states the expected errors – exact wording and order – or, for valid variants, values of the derived view. A case also fails if a broken inventory does not make `.inventory` throw.
+`tests/inventory.nix` holds a complete, fictional inventory (the examples above) and 94 cases. Each case changes exactly one thing and states the expected errors – exact wording and order – or, for valid variants, values of the derived view. A case also fails if a broken inventory does not make `.inventory` throw.
 
 | Group | Covers |
 | --- | --- |
@@ -564,7 +446,7 @@ locals {
 just inventory-test
 ```
 
-builds `checks.<system>.inventory` (the real file is valid), `inventory-tests` (all cases pass), `inventory-schema` (schema fresh) and `inventory-sops` (host keys ↔ `.sops.yaml`). On failure the message lists each failing case with "want" and "got".
+builds `checks.<system>.inventory` (the real file is valid), `inventory-tests` (all cases pass), `inventory-schema` (schema fresh), `inventory-diagram` (the [schema diagram](inventory-schema.md#all-fields-at-a-glance) fresh) and `inventory-sops` (host keys ↔ `.sops.yaml`). On failure the message lists each failing case with "want" and "got".
 
 **A new rule** gets a case in the same commit: change one thing in `base` with `set`/`del`, paste the exact message. **Changed wording** of an error fails the tests – adjust case and this page together.
 
@@ -578,5 +460,5 @@ builds `checks.<system>.inventory` (the real file is valid), `inventory-tests` (
 | Fill in a line's details | Fields in `uplinks.<id>`, nothing else to do |
 | New service | Entry in `services` with `hosts` (and `package` on a managed host) or `provider`, `endpoints`, `dependsOn`/`uses`, `data`, `backup`; `just inventory-test` – a missing off-host backup shows up under "worth a look" |
 | New contract | Entry in `contracts`, the id into `contracts` of the host, line or service it pays for; customer/contract number into `inventory.secrets.yaml` (`sops inventory.secrets.yaml`) |
-| New field or kind | `spec` in `inventory.nix`, then `just inventory-schema`, a test case in `tests/inventory.nix`, this page (de/en) |
+| New field or kind | `spec` in `inventory.nix`, then `just inventory-schema` and `just inventory-diagram`, a test case in `tests/inventory.nix`, this page (de/en); `docs/inventory-example.json` if the [schema page](inventory-schema.md)'s example should show it |
 | Look at it | `just inventory` |

@@ -79,6 +79,15 @@ Regenerate inventory.schema.json (editor completion/hover for
 inventory.json) from the spec in inventory.nix. Run after changing a field
 there; `nix flake check` fails until you do. Via a temp file, like topology.
 
+## `just inventory-diagram`
+
+Render the inventory's format as a diagram - every section with its
+fields, an arrow per reference - into
+docs/site/common/diagrams/inventory-schema.svg, for the docs page
+reference/inventory-schema.md. The Graphviz source comes from the spec in
+inventory.nix; its hash is stamped into the SVG, and
+checks.inventory-diagram fails until you rerun this after a format change.
+
 ## `just inventory-collect *args`
 
 Collect what the devices can tell about themselves into inventory.json:

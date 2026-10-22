@@ -8,6 +8,7 @@
 | `just inventory` | Show the validated inventory with everything derived ([Inventory](inventory.md)) |
 | `just inventory-test` | Check `inventory.json`, run the validator tests, check the schema is fresh |
 | `just inventory-schema` | Regenerate `inventory.schema.json` after a format change |
+| `just inventory-diagram` | Regenerate the diagram of all fields on [Inventory schema](inventory-schema.md) after a format change |
 | `just inventory-collect [--force] [host …]` | Fetch SSH host keys, interfaces (MAC, medium, link-local) and hardware (vendor, model, product id, serial) from the devices into `inventory.json` – fills gaps and reports differences; `--force` takes the device values |
 | `just services [--json]` | What the inventory's services run, from the host configurations: version, license, language ([Software view](inventory.md#software)) |
 | `just sbom [host …]` | SBOM (CycloneDX, SPDX, CSV) of the running system of each host into `sbom/` ([Software view](inventory.md#software)) |
