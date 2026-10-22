@@ -344,13 +344,6 @@ service has its certificate; runs at the end of `just netbird-apply`.
 A new name has to be in public DNS first (DNSControl, a few minutes
 ahead), or Let's Encrypt cannot reach the proxy for it.
 
-## `just netbird-pocketid-api-key`
-
-Store a Pocket ID API key (Pocket ID admin UI -> Settings -> API Keys,
-name "netbird-tofu") in terraform/netbird/secrets.yaml - used by
-terraform/netbird/people.tf for the person groups. Pocket ID keys expire:
-create a new one before the old one's date and run this again.
-
 ## `just dokumente-share-pin`
 
 The NetBird reverse proxy service dokumente (terraform/netbird/
@@ -415,6 +408,27 @@ dns01proxy.nix): random, onto the Mac's clipboard for the Let's Encrypt
 add-on (httpreq_password), its bcrypt hash into hosts/grammi/
 dns01proxy.yaml. The old password stops working with the next deploy of
 grammi. Needs no 1Password - encrypting only takes the public keys.
+
+## `just pocketid-plan`
+
+(ohne Kommentar)
+
+## `just pocketid-apply`
+
+(ohne Kommentar)
+
+## `just pocketid-api-key`
+
+Store a Pocket ID API key (Pocket ID admin UI -> Settings -> API Keys) in
+terraform/secrets.yaml, for terraform/pocket-id and terraform/netbird.
+Pocket ID keys expire: create a new one before the old one's date and run
+this again.
+
+## `just pocketid-api-key-move`
+
+Once, 2026-10-22: move the Pocket ID API key from terraform/netbird/
+secrets.yaml, where it sat while netbird was its only user, to the shared
+terraform/secrets.yaml. Refuses if the shared file already exists.
 
 ## `just github-plan`
 
