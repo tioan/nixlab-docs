@@ -138,7 +138,10 @@ the runtime itself is not affected.
 Fonts pinned from the flake (DejaVu Sans, Bold, Mono) through a dedicated
 FONTCONFIG_FILE: without it WeasyPrint on the Mac saw only regular DejaVu
 Sans - no bold headings, no monospace code - and with macOS' own fonts the
-PDF would depend on the machine it is built on.
+PDF would depend on the machine it is built on. Liberation Sans for the
+inventory schema diagram: Graphviz measures its cells with Helvetica,
+and Liberation Sans has the same widths - with DejaVu long field names
+ran over their cells.
 
 ## `just docs-serve`
 

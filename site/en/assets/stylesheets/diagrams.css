@@ -50,3 +50,12 @@ figure.nx-diagram > svg { cursor: zoom-in; }
 .glightbox-container .gslide-inline { background: var(--md-default-bg-color); border-radius: 8px; }
 .glightbox-container .gslide-inline .ginlined-content { padding: 16px; }
 .glightbox-container figure.nx-diagram-enlarged { margin: 0; }
+
+/* The schema diagram is far wider than the 680 of the drawn ones
+   (Graphviz, inlined by gen-reference.py): the whole content width. Its
+   linked cells are polygons, not rects. */
+figure.nx-diagram.nx-diagram-wide > svg { max-width: 100%; }
+/* Graphviz draws a linked cell's outline unfilled (the fill belongs to the
+   table) - without this only its text would take the click. */
+.nx-diagram a[data-target] polygon { pointer-events: all; }
+.nx-diagram-wide a[data-target]:hover, .nx-diagram-wide a[data-target]:focus-visible { opacity: .6; }
