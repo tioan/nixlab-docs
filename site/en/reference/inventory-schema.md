@@ -61,7 +61,7 @@ The arrows point from the field that holds the reference to the section it names
 
 Every section with all its fields – **bold** ones are required, nested objects are spelled out (`unlock.methods`, `endpoints[].fqdn`, `interfaces.<name>.mac`), and every reference field has its arrow (references inside a section only in the type column: `→ hosts`).
 
-[![All fields of the inventory, by section](../assets/diagrams/inventory-schema.svg)](../assets/diagrams/inventory-schema.svg)
+![All fields of the inventory, by section](../assets/diagrams/inventory-schema.svg)
 
 ## Conventions
 

@@ -15,8 +15,11 @@ figure.nx-diagram { display: block; width: 100%; margin: 1.5em 0; }
 figure.nx-diagram > svg { display: block; width: 100%; max-width: 680px; height: auto; margin: 0 auto; }
 
 /* Boxes that are links get no underline from the theme, just a hover and
-   a pointer - they have no href (diagram-links.js does the jump), so the
-   browser would not show one by itself. */
+   a pointer - they have no href (diagrams.js does the jump), so the
+   browser would not show one by itself. Anywhere else on a diagram a click
+   enlarges it, hence the magnifier. */
+figure.nx-diagram > svg { cursor: zoom-in; }
+.glightbox-container figure.nx-diagram > svg { cursor: default; max-width: none; }
 .nx-diagram a { text-decoration: none; }
 .nx-diagram [data-target] { cursor: pointer; }
 .nx-diagram [data-target]:focus { outline: none; }
@@ -40,3 +43,10 @@ figure.nx-diagram > svg { display: block; width: 100%; max-width: 680px; height:
 [data-md-color-scheme="slate"] .nx-diagram .nx-coral rect { fill: #712b13; stroke: #f0997b; }
 [data-md-color-scheme="slate"] .nx-diagram .nx-coral .nx-t { fill: #f5c4b3; }
 [data-md-color-scheme="slate"] .nx-diagram .nx-coral .nx-s { fill: #f0997b; }
+
+/* The enlarged copy in the lightbox (diagrams.js): on the page's own
+   background, so the dark scheme above applies there too, without the
+   white panel GLightbox gives inline content. */
+.glightbox-container .gslide-inline { background: var(--md-default-bg-color); border-radius: 8px; }
+.glightbox-container .gslide-inline .ginlined-content { padding: 16px; }
+.glightbox-container figure.nx-diagram-enlarged { margin: 0; }

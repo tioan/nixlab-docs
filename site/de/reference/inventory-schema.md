@@ -63,7 +63,7 @@ Die Pfeile zeigen von dem Feld, das den Verweis enthält, auf den Abschnitt, den
 
 Jeder Abschnitt mit allen Feldern – **fett** sind Pflichtfelder, verschachtelte Objekte ausgeschrieben (`unlock.methods`, `endpoints[].fqdn`, `interfaces.<name>.mac`), und jedes Verweisfeld hat seinen Pfeil (Verweise innerhalb eines Abschnitts nur in der Typspalte: `→ hosts`).
 
-[![Alle Felder des Inventars, nach Abschnitt](../assets/diagrams/inventory-schema.svg)](../assets/diagrams/inventory-schema.svg)
+![Alle Felder des Inventars, nach Abschnitt](../assets/diagrams/inventory-schema.svg)
 
 ## Konventionen
 
