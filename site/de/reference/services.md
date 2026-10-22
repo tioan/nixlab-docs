@@ -15,6 +15,8 @@ Dienste sind nach Funktion benannt, nicht nach Produkt. Es gibt drei Arten der E
 | `s3-admin` | garage-ui | aldrin | nur Mesh |
 | `dokumente` | Paperless + paperless-gpt (`/paperless-gpt/`) | ursalia | im Mesh direkt; von außen über den Reverse Proxy Freigabelinks per PIN und die App per SSO ([warum](../explanation/secrets-network-access.md#paperless-von-auen-freigabelinks-pin-und-app-sso)) |
 | `llm` | Ollama (hinter Caddy) | zorlock | nur Mesh |
+| `mqtt` | Mosquitto (Home-Assistant-Add-on) | Home Assistant (Heim-LAN, NetBird-Peer) | Port 8883, MQTT über TLS: zu Hause direkt zu HA (der Heimrouter (OPNsense) beantwortet den Namen lokal), von außen über den Reverse Proxy als TLS-Passthrough zum Peer, ohne SSO ([warum](../explanation/secrets-network-access.md#mqtt-von-auen-tls-passthrough-zu-home-assistant)) |
+| `acme` | dns01proxy (DNS-01 für Home Assistant) | grammi | nur Mesh, Port 8446; HA löst ihn über den Heimrouter (OPNsense) auf ([warum](../explanation/secrets-network-access.md#mqtt-von-auen-tls-passthrough-zu-home-assistant)) |
 | `doku` | Diese Dokumentation (private Fassung) | aldrin + ursalia | im Mesh nur Admin-Geräte ([warum](../explanation/secrets-network-access.md#private-doku-nur-admin-gerate)), ein A-Record je Host; von außen über den Reverse Proxy eine Weiterleitung auf die öffentliche Doku |
 
 **Reverse Proxy:** Traefik auf grammi besitzt Port 443. `mesh.homelab.example` terminiert es selbst, alles andere reicht es per TCP-Passthrough mit PROXY-Protokoll v2 an `netbird-proxy` weiter, das TLS und ACME (tls-alpn-01) selbst macht. Login am Proxy ist SSO gegen Pocket ID, begrenzt auf die NetBird-Gruppen der jeweiligen App; `dokumente` zusätzlich mit PIN (nur Freigabelinks).

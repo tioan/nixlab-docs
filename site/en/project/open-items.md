@@ -7,3 +7,6 @@
 - [ ] Update notifications for the inputs pinned by hand (NetBird, Pocket ID)
 - [ ] Declarative root passwords via sops
 - [ ] Keep the host list in one place instead of `flake.nix`, the Tofu modules and `justfile`
+- [ ] gusto: after the first switch check whether the NetBird app updates itself (or follows the dashboard's auto-update) and switch that off, so the version comes from `netbirdio-tap` only
+- [ ] gusto: default git address `admin@homelab.example` instead of `mail@admin.org`, together with a new layout of `~/Projects`
+- [ ] Inventory: a field for a device's DNS name (arkkvm answers as `arkkvm01`, today only in its note), and public addresses for the managed hosts – then `hosts/gusto/ssh.nix` derives its fallback names from them

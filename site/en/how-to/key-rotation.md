@@ -17,7 +17,7 @@ A host's age key is derived from its SSH host key. A new host key therefore also
 1. Derive the new age key with `ssh-to-age` and replace it in `.sops.yaml`.
 2. Re-encrypt the host's files with `sops updatekeys` – this needs a key that can still read them (the old host key or `admin`).
 3. Put the new public key into `inventory.json`: `just inventory-collect --force <host>`. `nix flake check` (`checks.inventory-sops`) fails until the inventory and `.sops.yaml` agree.
-4. Commit and deploy before the old key is gone – every host's known_hosts comes from the inventory. On the MacBook: `just known-hosts`.
+4. Commit and deploy before the old key is gone – every host's known_hosts comes from the inventory. On gusto: `just mac-switch`.
 
 ## After a rotation
 

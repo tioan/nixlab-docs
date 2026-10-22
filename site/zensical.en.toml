@@ -29,6 +29,7 @@ nav = [
     "explanation/secrets-network-access.md",
     "explanation/deployment.md",
     "explanation/monitoring.md",
+    "explanation/macos-hosts.md",
   ] },
   { "How-to guides" = [
     "how-to/new-host.md",
@@ -42,6 +43,7 @@ nav = [
     "reference/host-directory.md",
     "reference/inputs.md",
     "reference/hosts.md",
+    "reference/gusto.md",
     "reference/inventory.md",
     "reference/services.md",
     "reference/modules.md",

@@ -134,18 +134,23 @@ in
     # `netbird up --enable-rosenpass --rosenpass-permissive`; zorlock sets
     # them in its login job, MacBook and iPhone in the app.
     #
-    # Strict since 2026-10-19: a peer without Rosenpass cannot connect at
-    # all, there is no silent fallback to plain WireGuard. Rolled out in two
-    # stages - first permissive on every peer, then strict once every pair
-    # (servers, cuckoosegg across its narrow policies, MacBook, iPhone)
-    # reported quantum resistance in `netbird-mesh status -d`. Rosenpass
-    # listens on a random UDP port and is reached via the peer's mesh
-    # address, i.e. inside the tunnel; NetBird's ACLs let that through
-    # across the narrow policies too. A new device has to enable it (app:
-    # "Enable Quantum-Resistance") before it can reach anything; to debug
-    # a peer that cannot, set this back to true.
+    # Permissive since 2026-10-21 (strict from 2026-10-19): peers that both
+    # run Rosenpass still use it; a peer without it can connect as well,
+    # over plain WireGuard. Reason: four times in three days a tunnel to
+    # the MacBook stayed "Connected (P2P)" for hours without a single
+    # WireGuard handshake - the Rosenpass key expired without renewal, the
+    # wg_watcher fired once, ICE reconnected at once and the watcher was
+    # never re-armed (upstream netbirdio/netbird#3107, #3121). Test from
+    # 2026-10-21: Rosenpass off on the MacBook only, everything else on +
+    # permissive. If the dead tunnels still come back after a week,
+    # Rosenpass goes off everywhere for a week (RosenpassEnabled = false
+    # here and in hosts/zorlock/netbird.nix, the apps by hand).
+    #
+    # Rosenpass listens on a random UDP port and is reached via the peer's
+    # mesh address, i.e. inside the tunnel; NetBird's ACLs let that through
+    # across the narrow policies too.
     RosenpassEnabled = true;
-    RosenpassPermissive = false;
+    RosenpassPermissive = true;
   };
   services.metricsShipping.exporterPorts.netbird = metricsPort;
 

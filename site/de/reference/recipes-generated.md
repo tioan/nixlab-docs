@@ -163,21 +163,39 @@ the seconds this runs. Rotating = run it again, then deploy cuckoosegg
 (new public key) before ursalia (new private key) - or the next night's
 push fails.
 
+## `just nanokvm-mcp-key`
+
+Store the NanoKVM Go+'s MCP API key for the Claude Code bridge on ursalia
+(hosts/ursalia/claude-remote.nix). The key is shown in the KVM's web UI
+under Settings > MCP once MCP is on; it is read silently here and goes
+straight into hosts/ursalia/nanokvm-mcp.yaml (sops, ursalia + admin -
+encrypting needs only the public keys). Commit, then deploy ursalia.
+
+## `just mac-upgrade`
+
+Update the Homebrew pins (Homebrew itself and every tap: flake inputs
+nix-homebrew, homebrew-core, homebrew-cask, netbirdio-tap), switch, then
+`brew upgrade` what is installed - and print the NetBird client version
+here next to the mesh's (nixpkgs-netbird; bump that one deliberately,
+server first, see flake.nix). Only on the workstation: the result is a
+flake.lock change to commit like any other update; zorlock has no
+Homebrew. Nothing else in flake.lock moves.
+
 ## `just sync-zorlock`
 
 Pull the latest config on zorlock, no rebuild
 
 ## `just rebuild-zorlock`
 
-Rebuild zorlock from its current /etc/nixos checkout
+Rebuild zorlock from its current /etc/nixos checkout (no pull, no summary)
 
 ## `just check-zorlock`
 
-Pull + build on zorlock without switching
+Pull + show what a switch would change on zorlock
 
 ## `just deploy-zorlock`
 
-Pull + rebuild on zorlock in one go
+Pull + switch zorlock, with the summary
 
 ## `just ship-zorlock message`
 
@@ -382,6 +400,21 @@ hands it to the iPhone, whose keyboard prompt for the Apple TV can paste
 it (Settings > Change Server > https://mesh.homelab.example:443 > Add this
 device with a setup key). Reusable for two registrations, valid for 24 h;
 run it again when an Apple TV has to re-register.
+
+## `just netbird-key-homeassistant`
+
+Setup key for Home Assistant's NetBird add-on (terraform/netbird/
+home-assistant.tf): creates group and key only - the rest of the module
+needs the registered peer - and puts the key on the Mac's clipboard.
+One-off, valid for 24 h; run again if HA ever has to re-register.
+
+## `just dns01proxy-key-homeassistant`
+
+Password for Home Assistant's account on dns01proxy (hosts/grammi/
+dns01proxy.nix): random, onto the Mac's clipboard for the Let's Encrypt
+add-on (httpreq_password), its bcrypt hash into hosts/grammi/
+dns01proxy.yaml. The old password stops working with the next deploy of
+grammi. Needs no 1Password - encrypting only takes the public keys.
 
 ## `just github-plan`
 

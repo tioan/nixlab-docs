@@ -34,12 +34,12 @@ Derive the age key from the new host's SSH host key (`ssh-to-age` on `/etc/ssh/s
 | `just desec-key <host>` | `hosts/<host>/desec.yaml` | only for hosts with their own certificates |
 | `just github-key <host>` | `hosts/<host>/github.yaml` + `github-deploy.pub` | pull hosts only |
 
-Recipes that need sops on the MacBook run with the 1Password sign-in in front (see [just recipes](../reference/recipes.md)).
+Recipes that need sops take the workstation key from 1Password (on gusto set up by home-manager, see [just recipes](../reference/recipes.md)).
 
 ## 6. Deploy and check
 
 - First deploy within 24 h of `netbird-key`. The host registers itself in the mesh at startup; Tofu finds it by name through `data "netbird_peer"`.
 - Run `just topology` and commit the result – otherwise `nix flake check` fails.
-- `just inventory-collect` (host key, interfaces), set `network`/`ipv4` by hand, then `just inventory-test`; `just known-hosts` on the MacBook.
+- `just inventory-collect` (host key, interfaces), set `network`/`ipv4` by hand, then `just inventory-test`; `just mac-switch` on gusto (its known_hosts comes from the inventory) – a new managed host also gets its SSH block there automatically, with `hosts/gusto/ssh/<host>.homelab.example.pub`.
 - Add app secrets once the host is running: [Add secrets](secrets.md).
 - Update the docs: [Hosts & roles](../reference/hosts.md), [Services](../reference/services.md).
