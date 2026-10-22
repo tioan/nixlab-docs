@@ -417,7 +417,7 @@ Recipes that need sops take the workstation key from 1Password (on gusto set up 
 - Run `just topology` and commit the result – otherwise `nix flake check` fails.
 - `just inventory-collect` (host key, interfaces), set `network`/`ipv4` by hand, then `just inventory-test`; `just mac-switch` on gusto (its known_hosts comes from the inventory) – a new managed host also gets its SSH block there automatically, with `hosts/gusto/ssh/<host>.homelab.example.pub`.
 - Add app secrets once the host is running: [Add secrets](#add-secrets).
-- Update the docs: [Hosts & roles](#hosts--roles), [Services](#services).
+- Update the docs: [Hosts & roles](#hosts--roles), [Services](#services-1).
 
 ## Publish a new service
 
@@ -454,7 +454,7 @@ nginx vhost on the host (ACME via DNS-01), A/AAAA records in DNSControl, CrowdSe
 
 ### Afterwards
 
-- Docs: [Services](#services), and [Contents of hosts/&lt;host&gt;/](#contents-of-hostshost) if new files appear there.
+- Docs: [Services](#services-1), and [Contents of hosts/&lt;host&gt;/](#contents-of-hostshost) if new files appear there.
 - Dual stack wherever possible (A and AAAA).
 
 ## Add secrets
@@ -822,7 +822,7 @@ All `mac-*` recipes take the host as an optional parameter (default `gusto`; `zo
 
 ## Inventory
 
-`inventory.json` lists every machine of the lab, whether this flake configures it or not: what kind of device it is (vendor, model, serial), where it stands, how that place reaches the internet, what it runs on or is built into, where its power comes from, how its disk gets unlocked after a reboot, its networks, interfaces and addresses, and its SSH host keys. These are the facts a NixOS config does not hold. Today the host keys are used: every host's known_hosts comes from here, and `nix flake check` ties them to the age keys in `.sops.yaml`. Later the rest is meant for grouping in the topology and for alert dependencies (an uplink is down, so don't page for every host behind it).
+`inventory.json` lists every machine of the lab, whether this flake configures it or not: what kind of device it is (vendor, model, serial), where it stands, how that place reaches the internet, what it runs on or is built into, where its power comes from, how its disk gets unlocked after a reboot, its networks, interfaces and addresses, and its SSH host keys. On top of the machines: the services they run and the ones bought from outside, what each service needs, where its data is backed up to, and the providers and contracts behind hosts, lines and services. These are the facts a NixOS config does not hold. Today the host keys are used: every host's known_hosts comes from here, and `nix flake check` ties them to the age keys in `.sops.yaml`. Later the rest is meant for grouping in the topology and for alert dependencies (an uplink is down, so don't page for every host behind it).
 
 | File | Role |
 | --- | --- |
@@ -830,20 +830,24 @@ All `mac-*` recipes take the host as an optional parameter (default `gusto`; `zo
 | `inventory.nix` | Format (`spec`), validation, derived view, JSON Schema generator. Exposed as `lib.inventory` in `flake.nix`. |
 | `inventory.schema.json` | JSON Schema for the editor (completion, hover help, inline errors). Generated, never edited. |
 | `tests/inventory.nix` | Tests for the validator: a complete example inventory and one case per rule. |
+| `software.nix` | What the services run, read from the host configurations (`lib.software`, `just services`). |
 | `flake.nix` | `lib.inventory`, the checks, and `programs.ssh.knownHosts` for every host (NixOS and nix-darwin). |
 
-Rule of thumb for what goes in: **only what cannot be derived from a config.** OS, architecture, CPU/RAM, mesh address, exporters and backup targets stay out; `topology.nix` reads those from `nixosConfigurations`. Every relation is stored in **one direction only**; the reverse is derived, so the two cannot disagree.
+Rule of thumb for what goes in: **only what cannot be derived from a config.** OS, architecture, CPU/RAM, mesh address and exporters stay out; `topology.nix` reads those from `nixosConfigurations`. A service's version, license and language are read from its package, not written down. What a service *needs* and where its data *should* go is intent, not config – that is in here (`dependsOn`, `backup`). Every relation is stored in **one direction only**; the reverse is derived, so the two cannot disagree.
 
 ### Structure
 
-Five sections, each an object of entries keyed by id. Ids are lower-case letters, digits and dashes (usable unchanged as Graphviz node or label values).
+Eight sections, each an object of entries keyed by id. Ids are lower-case letters, digits and dashes (usable unchanged as Graphviz node or label values).
 
 ```
-owners   ◄──────── hosts.owner
-uplinks  ◄──────── sites.uplinks[]
-sites    ◄──────── hosts.site, networks.site
-networks ◄──────── hosts.interfaces.<name>.network
-hosts    ◄──────── hosts.runsOn / inside / power / manages[] / unlock.tang[], networks.dhcpServer
+owners    ◄──────── hosts.owner
+providers ◄──────── uplinks.provider, sites.provider, services.provider, contracts.provider
+contracts ◄──────── hosts.contracts[], uplinks.contracts[], services.contracts[]
+uplinks   ◄──────── sites.uplinks[]
+sites     ◄──────── hosts.site, networks.site
+networks  ◄──────── hosts.interfaces.<name>.network
+hosts     ◄──────── hosts.runsOn / inside / power / manages[] / unlock.tang[], networks.dhcpServer, services.hosts[]
+services  ◄──────── services.dependsOn[] / uses[] / endpoints[].via / backup[].to
 ```
 
 A `"$schema": "./inventory.schema.json"` key at the top is allowed and ignored; it tells the editor where the schema is.
@@ -864,7 +868,7 @@ An internet line. Several sites may share one (rarely), one site may have severa
 
 | Field | Type | | Meaning |
 | --- | --- | --- | --- |
-| `isp` | string | | Provider; for a data centre the hoster |
+| `provider` | provider id | | Provider; for a data centre the hoster |
 | `asn` | integer ≥ 1 | | AS number of the provider's network, without "AS" |
 | `medium` | `fiber` `dsl` `cable` `lte` `satellite` `datacenter` | | Kind of line |
 | `bandwidth` | `{ "down": int, "up": int }` | | Booked bandwidth in Mbit/s, both values required |
@@ -873,6 +877,7 @@ An internet line. Several sites may share one (rarely), one site may have severa
 | `ipv6` | boolean | | Native IPv6 |
 | `ipv6PrefixLength` | integer 1–128 | | Size of the delegated IPv6 prefix (56 for a /56); only with `ipv6` |
 | `ipv6Static` | boolean | | Fixed IPv6 prefix; only with `ipv6` |
+| `contracts` | list of contract ids | | What the line is paid by; with the line's `provider` |
 | `note` | string | | Free text |
 
 All fields are optional, so a line can be entered before its details are known.
@@ -885,7 +890,7 @@ A place where devices stand.
 | --- | --- | --- | --- |
 | `city` | string | required | City |
 | `kind` | `residential` `hackerspace` `datacenter` | required | Kind of place |
-| `provider` | string | | Who runs the place (hoster, club); empty for a home |
+| `provider` | provider id | | Who runs the place (hoster, club); empty for a home |
 | `uplinks` | list of uplink ids | required, ≥ 1 | Internet lines, **primary first**, backups after it |
 | `note` | string | | Free text |
 
@@ -912,9 +917,10 @@ Every device with an address that matters: servers, VMs, routers, APs, KVMs, PDU
 | `manages` | list of host ids | | Only `kvm`: machines it gives out-of-band access to |
 | `sshHostKeys` | list of strings | | SSH host public keys, `"<type> <base64>"` without comment, see [SSH host keys](#ssh-host-keys) |
 | `interfaces` | object: name → interface | | Network interfaces, see [Interfaces](#interfaces) |
+| `contracts` | list of contract ids | | What it is paid by (a rented VM, its extra IPv4); with the provider of its site |
 | `note` | string | | Free text |
 
-##### Kinds { #kinds }
+##### Kinds
 
 | Kind | For |
 | --- | --- |
@@ -946,7 +952,92 @@ A layer-2 network with its IPv4 prefix: the home LAN, a VLAN in the hackerspace.
 
 A network without any interface is allowed – it can be entered before its devices are.
 
-### Interfaces { #interfaces }
+#### providers
+
+A company or club the lab depends on: an ISP, a hoster, a service bought from outside, the hackerspace.
+
+| Field | Type | | Meaning |
+| --- | --- | --- | --- |
+| `name` | string | required | Display name |
+| `url` | string | | Website or customer portal |
+| `contact` | string | | Support address, phone, ticket system |
+| `note` | string | | Free text |
+
+#### contracts
+
+What is paid to a provider. One provider may have several – two VMs and an extra IPv4 at one hoster are three contracts. Hosts, lines and services name their contracts (`contracts: [...]`); what a contract covers is derived.
+
+| Field | Type | | Meaning |
+| --- | --- | --- | --- |
+| `provider` | provider id | required | Who it is with |
+| `product` | string | | Plan name as the provider calls it |
+| `cost` | object, see below | | Leave out until known – the contract is then listed in `pending` |
+| `since` | date `YYYY-MM-DD` | | Start |
+| `renews` | date `YYYY-MM-DD` | | Next date it renews or ends unless cancelled; not before `since` |
+| `notice` | string | | Notice period, as the contract words it |
+| `note` | string | | Free text |
+
+`cost`:
+
+| Field | Type | | Meaning |
+| --- | --- | --- | --- |
+| `amount` | integer ≥ 0 | required | Per period, **in cents** (`899` = 8.99) – whole numbers, no rounding errors |
+| `currency` | `EUR` `USD` `CHF` `GBP` | required | Totals are kept per currency, never converted |
+| `period` | `month` `year` `once` | required | How often it is charged |
+| `dueMonth` | integer 1–12 | required with `year` | The month the yearly amount is charged in; only with `year` |
+
+Customer and contract numbers do **not** go into `inventory.json`: they are in `inventory.secrets.yaml` (sops, workstation and admin key), keyed by contract id. Nothing reads that file automatically.
+
+```yaml
+realtox-grammi:
+  customer: "…"
+  contract: "…"
+```
+
+#### services
+
+What the hosts run, and what is bought from outside. Per-host plumbing (sshd, exporters, vmagent, Vector, CrowdSec, the mesh client) is not a service here – it is the same on every host and lives in the modules.
+
+| Field | Type | | Meaning |
+| --- | --- | --- | --- |
+| `name` | string | required | Display name |
+| `software` | string | | The software (Paperless-ngx, Garage) |
+| `hosts` | list of host ids, ≥ 1 | one of `hosts`/`provider` | The machines it runs on |
+| `provider` | provider id | one of `hosts`/`provider` | For a service from outside: who runs it |
+| `package` | string | | Only on managed hosts: option path of the package in the host's configuration (`services.paperless.package`). Version, license and language come from there |
+| `version` | string | | By hand, only without `package` (Home Assistant OS, a NanoKVM) |
+| `criticality` | `core` `service` `lab` | default `service` | As for hosts |
+| `endpoints` | list, see below | | How it is reached |
+| `dependsOn` | list of service ids | | Cannot work without them |
+| `uses` | list of service ids | | Works without them, degraded (new logins fail, a feature is missing) |
+| `data` | `stateful` `stateless` | required | `stateless`: rebuilt from the repository, nothing to lose |
+| `backup` | list, see below | | Only for `stateful` |
+| `contracts` | list of contract ids | | Only with `provider` – a service on hosts is paid through them |
+| `note` | string | | Free text |
+
+`endpoints[]`:
+
+| Field | Type | | Meaning |
+| --- | --- | --- | --- |
+| `fqdn` | lower-case domain | required | Unique lab-wide |
+| `exposure` | `public` `proxy` `mesh` `lan` `loopback` | required | `public`: open from its own host; `proxy`: through a reverse proxy; `mesh`: inside the overlay only; `lan`: a local network only; `loopback`: the host itself |
+| `via` | service id | required with `proxy` | The service it is reached through – counts as a dependency. Not with `loopback` |
+| `port` | integer 1–65535 | | When it is not the protocol's default |
+| `note` | string | | Free text |
+
+`backup[]`:
+
+| Field | Type | | Meaning |
+| --- | --- | --- | --- |
+| `method` | `restic` `arq` `btrbk` `pgdump` `provider-snapshot` | required | `restic`/`arq` copy elsewhere; the rest stays on the machine or with the provider |
+| `to` | service id | required with `restic`/`arq` | Target service; must be `stateful`. Not with the other methods |
+| `note` | string | | Free text |
+
+**Dependencies.** `dependsOn` and every `via` are the hard ones: together they must be free of cycles, and a service may not hard-depend on a less critical one (a `core` service on a `lab` one) – raise the other or move it to `uses`. `uses` is not part of the chain: when Pocket ID is gone, NetBird keeps its tunnels and only refuses new logins.
+
+**Backups.** A copy counts as *off-host* when its target runs on none of the service's own hosts, or is a service from outside. A `stateful` service on hosts without an off-host copy is not an error but is listed in `gaps` – local snapshots on the same disk are no backup.
+
+### Interfaces
 
 `hosts.<id>.interfaces` maps interface names to their data. The name is what the OS calls it (`eno1`, `wlp2s0f0`, `en0`); for an appliance any label (`lan`, `wan`). A VLAN interface on a trunk (`eno1.20`) is an entry of its own; its VLAN id comes from its network.
 
@@ -981,7 +1072,7 @@ Every `address` lies inside the network's `ipv4` prefix, is neither network nor 
 
 **IPv6** is in here only as link-local and as a fixed prefix per network: DHCPv6 reservations hang on the DUID, not the MAC, and an ISP prefix (SLAAC) changes.
 
-### SSH host keys { #ssh-host-keys }
+### SSH host keys
 
 `sshHostKeys` holds a device's public host keys – for managed and unmanaged devices alike – as `"<type> <base64>"` without the comment: `ssh-ed25519`, `ecdsa-sha2-nistp256/384/521` or `ssh-rsa`. One ed25519 key is enough; others only when the device has no ed25519 (Dropbear, KVMs). Checked: the format, that the key data matches its type (the base64 starts with the encoded type name), and that no key occurs twice – a cloned VM that kept its host key would show up that way.
 
@@ -1062,13 +1153,13 @@ Not checked: whether a Tang server actually runs Tang. That lives in its config,
 
 **1. Structure** – top level first, on its own, then every entry:
 
-- only `$schema`, `owners`, `uplinks`, `sites`, `networks`, `hosts` at the top, all five sections present
+- only `$schema` and the eight sections at the top, all of them present
 - valid ids and interface names, no unknown fields (catches typos), required fields present
 - types, enums, minimums/maximums, formats (MAC, IPv4 address and prefix, IPv6 prefix, link-local, SSH key), no duplicates in lists
 - references point at an existing entry of the right section
 
 ```
-hosts.vps.critcality: unknown field (known: availability, criticality, inside, interfaces, kind, managed, manages, model, note, owner, power, productId, runsOn, serial, site, sshHostKeys, unlock, vendor)
+hosts.vps.critcality: unknown field (known: availability, contracts, criticality, inside, interfaces, kind, managed, manages, model, note, owner, power, productId, runsOn, serial, site, sshHostKeys, unlock, vendor)
 hosts.nas.interfaces.eno1.mac: "52-54-00-12-34-56" is not a lower-case MAC address like aa:bb:cc:dd:ee:ff
 hosts.app.runsOn: "pve2" is not in hosts
 uplinks.fiber-home.asn: expected a whole number, got "AS64496"
@@ -1087,6 +1178,8 @@ uplinks.fiber-home.asn: expected a whole number, got "AS64496"
 - SSH keys: key data matches the type, no key on two devices
 - interfaces: network at the host's site; `ipv4` needs a network, `address` according to the mode, inside the prefix, not network/broadcast, static outside the pool, unique per network; `reserved` needs `mac` and a `dhcpServer`; MAC unique and not multicast; `eui64` needs a MAC and no private Wi-Fi MAC
 - networks: prefix without host bits; pool inside the prefix, start ≤ end, only with `ipv4` and `dhcpServer`; `dhcpServer` at the site and with an interface in the network; VLAN id unique per site
+- services: exactly one of `hosts`/`provider`; `package` only on managed hosts and not with `version`; no `core`/`service` service on an `intermittent` host; no reference to itself, nothing in both `dependsOn` and `uses`, no hard dependency on a less critical service; `dependsOn`/`via` without cycles; `via` with `proxy`, not with `loopback`; every `fqdn` once; `backup` only for `stateful`, `to` exactly with `restic`/`arq` and at a `stateful` target; `contracts` only with `provider`
+- contracts: `dueMonth` exactly with `year`; `renews` not before `since`; a contract named by a host, line or service is with that one's provider (a host: the provider of its site); no provider nothing refers to
 
 ```
 hosts.app.runsOn: a vm cannot run on nas (kind nas; allowed: hypervisor)
@@ -1095,6 +1188,11 @@ hosts.laptop.managed: true, but flake.nix has no configuration of that name
 hosts.router.interfaces.lan.ipv4.address: 192.0.2.150 is static but inside the DHCP pool of network lan
 networks.lan.vlan: 20 is also used by networks.iot at site home
 hosts.router.sshHostKeys[0]: same key as hosts.nas.sshHostKeys[0] - a cloned machine that kept its host key?
+services.auth.dependsOn: docs is lab, less critical than this core service - raise it or move it to uses
+services.proxy: a core service cannot run on laptop (availability intermittent) - make it lab or move it
+services: dependsOn/via form a cycle through notes, proxy
+hosts.vps.contracts: isp-fiber is with isp, the site dc with hoster
+contracts.vps-plan.cost.dueMonth: required with period year - the month it is charged in
 ```
 
 **3. Unlock chains** – see [Disk unlock](#disk-unlock):
@@ -1120,9 +1218,14 @@ The schema in `inventory.schema.json` only covers stage 1 (without references) a
 | `owners.<id>` | `hosts` – the hosts it administers |
 | `uplinks.<id>` | `sites` – the sites on this line |
 | `sites.<id>` | `hosts` – everything there, inherited sites included |
-| `hosts.<id>` | `site` (effective, inherited along `runsOn`/`inside`), `virtual`, `uplinks` (of its site, primary first), `guests`, `contains`, `powers`, `managedBy`, `tangClients`, `upstream` (transitive, nearest first), `unattendedBoot` |
+| `hosts.<id>` | `site` (effective, inherited along `runsOn`/`inside`), `virtual`, `uplinks` (of its site, primary first), `guests`, `contains`, `powers`, `managedBy`, `tangClients`, `upstream` (transitive, nearest first), `unattendedBoot`, `services` (running on it) |
 | `hosts.<id>.interfaces.<name>` | `name`, `vlan` (from its network), `ipv6LinkLocal` (computed for `eui64`, as given for a fixed address, otherwise `null`) |
-| `pending` | every placeholder MAC still to replace; `just inventory-test` prints the list |
+| `pending` | every placeholder MAC still to replace, every contract without `cost`; `just inventory-test` prints the list |
+| `gaps` | allowed, but worth a look: `stateful` services without an off-host backup, contracts nothing refers to; printed by `just inventory-test` |
+| `services.<id>` | `external` (has a `provider`), `sites` (of its hosts), `requires` (`dependsOn` + `via`), `upstream` (transitive over `requires`, nearest first), `upstreamHosts` (its hosts, those of its upstream, and what all of them run on / sit in / draw power from – the input for alert dependencies), `neededBy`, `usedBy`, `backup[].offsite`, `offsiteBackup` |
+| `providers.<id>` | `services`, `contracts`, `sites`, `uplinks`, `affects` (what stops with it: services on hosts at a site it runs or behind lines that are all its, and everything that hard-depends on those or on its own services), `degrades` (services that only `use` them or what needs them), `monthly` (per currency) |
+| `contracts.<id>` | `monthly` (a yearly amount divided by 12, rounded down to the cent; `null` for `once` or without cost), `covers` (`hosts`, `uplinks`, `services` naming it) |
+| `costs` | `monthly` – the lab per month, per currency; `byMonth` – twelve entries, what is charged in each calendar month (monthly amounts every month, yearly ones in their `dueMonth`). One-off payments are left out |
 | `networks.<id>` | `interfaces` – every interface in it (`host`, `interface`, `mac`, `address`, `mode`); `reservations` – what `dhcpServer` has to hand out by MAC (`host`, `interface`, `mac`, `address`), sorted by address |
 
 Besides `inventory`: `lib.inventory.knownHosts` (the `programs.ssh.knownHosts` value) and `lib.inventory.knownHostsFile` (the same as known_hosts text).
@@ -1130,6 +1233,22 @@ Besides `inventory`: `lib.inventory.knownHosts` (the `programs.ssh.knownHosts` v
 Optional fields are always present in the derived view: defaults filled in (`criticality`, `availability`, `unlock.threshold`), otherwise `null` or `[]`. A consumer never has to write `or`.
 
 If the inventory is invalid, `inventory` throws with **all** errors at once; `lib.inventory.errors` is the list itself (empty when valid).
+
+### Software view
+
+`lib.software.services` (on the console: `just services`, everything with `just services --json`) follows every service's `package` path into the configurations of its hosts and reports what is there – nothing is written down, nothing is built:
+
+| Field | Meaning |
+| --- | --- |
+| `name`, `version` | Of the package (the first host's; `perHost` has each host's) |
+| `license` | SPDX ids from `meta.license` |
+| `language` | Guessed from how it was built: `goModules` → Go, `cargoDeps` → Rust, the JS builders' caches → JavaScript, a `dist` output → Python, a C compiler in its stdenv → C/C++ (`languageGuessed` true), otherwise `null` (a static site) |
+| `dependencies` | Direct dependencies as the package declares them (`name`, `version`): Python packages of a Python application, libraries of a C/C++ program. Go and Rust modules are fetched in one piece and do not show up – the SBOM per host has the full closure |
+| `perHost` | The same per host, without dependencies – hosts on different pins differ here |
+
+`checks.inventory-packages` fails when a `package` path leads to no package on one of the service's hosts (a renamed option, a host that lost the service). Unlike the other inventory checks it evaluates the hosts, so it is not part of `just inventory-test`.
+
+**SBOM per host.** `just sbom [host …]` (without hosts: every managed host) writes the full runtime closure of what a host runs – `/run/current-system` – as CycloneDX (`sbom/<host>.cdx.json`), SPDX and CSV, made by sbomnix. It runs where the system is: on gusto itself, on the others over the mesh, pinned to the host's own nixpkgs (the first run fetches it there, about 180 MB, until the next GC); a Linux system cannot be read on the Mac. `sbom/` is ignored by git – the files change with every upgrade. Not in it: nixpkgs metadata such as licenses (sbomnix only has that for a flake reference, not for a running system – the services' licenses are in the software view) and the Go and Rust modules inside a package.
 
 ### Examples
 
@@ -1190,7 +1309,7 @@ Derived: `networks.lan.reservations` = `nas/eno1` (192.0.2.10) and `app/ens18` (
 
 ```json
 "uplinks": {
-  "fiber-home": { "isp": "Example ISP", "asn": 64496, "medium": "fiber",
+  "fiber-home": { "provider": "isp", "contracts": ["isp-fiber"], "asn": 64496, "medium": "fiber",
                   "bandwidth": { "down": 1000, "up": 500 }, "ipv4": "cgnat", "ipv6": true },
   "lte-backup": { "medium": "lte" }
 },
@@ -1198,6 +1317,37 @@ Derived: `networks.lan.reservations` = `nas/eno1` (192.0.2.10) and `app/ens18` (
   "home": { "city": "Exampletown", "kind": "residential", "uplinks": ["fiber-home", "lte-backup"] }
 }
 ```
+
+**A provider with two contracts on one VM, a yearly one charged in March:**
+
+```json
+"providers": { "hoster": { "name": "Example Hosting", "url": "https://hosting.example" } },
+"contracts": {
+  "vps-plan": { "provider": "hoster", "product": "VPS M", "since": "2025-03-01", "renews": "2027-03-01",
+                "cost": { "amount": 12000, "currency": "EUR", "period": "year", "dueMonth": 3 } },
+  "vps-ipv4": { "provider": "hoster", "cost": { "amount": 150, "currency": "EUR", "period": "month" } }
+},
+"vps": { "kind": "vm", "site": "dc", "contracts": ["vps-plan", "vps-ipv4"], … }
+```
+
+Derived: `contracts.vps-plan.monthly` = `1000`, `providers.hoster.monthly` = `{"EUR": 1150}`; in `costs.byMonth` March carries the 120.00.
+
+**Services: a login, a reverse proxy, something behind it, a backup target and mail from outside:**
+
+```json
+"auth":    { "name": "Login", "hosts": ["vps"], "criticality": "core", "package": "services.auth.package",
+             "endpoints": [{ "fqdn": "auth.example.org", "exposure": "public" }], "uses": ["mail"],
+             "data": "stateful", "backup": [{ "method": "restic", "to": "storage" }] },
+"proxy":   { "name": "Reverse proxy", "hosts": ["vps"], "criticality": "core", "data": "stateless", … },
+"docs":    { "name": "Docs", "hosts": ["app", "nas"], "criticality": "lab", "uses": ["auth"], "data": "stateless",
+             "endpoints": [{ "fqdn": "docs.example.org", "exposure": "proxy", "via": "proxy" }] },
+"notes":   { "name": "Notes", "hosts": ["app"], "dependsOn": ["auth"], "data": "stateful",
+             "backup": [{ "method": "pgdump" }, { "method": "restic", "to": "storage" }] },
+"storage": { "name": "S3", "hosts": ["nas"], "version": "2.1", "data": "stateful", "backup": [{ "method": "btrbk" }] },
+"mail":    { "name": "Mail", "provider": "mail", "contracts": ["mail-plan"], "data": "stateful" }
+```
+
+Derived: `docs.upstreamHosts` = `app, nas, pve, ups1, vps`; `auth.neededBy` = `notes`, `auth.usedBy` = `docs`; `providers.mail.degrades` = `auth`; `gaps` lists `storage` (only btrbk on its own disk).
 
 **Reading it elsewhere.** In Nix (another flake output, a module via `specialArgs`):
 
@@ -1216,7 +1366,7 @@ locals {
 
 ### Tests
 
-`tests/inventory.nix` holds a complete, fictional inventory (the examples above) and 72 cases. Each case changes exactly one thing and states the expected errors – exact wording and order – or, for valid variants, values of the derived view. A case also fails if a broken inventory does not make `.inventory` throw.
+`tests/inventory.nix` holds a complete, fictional inventory (the examples above) and 93 cases. Each case changes exactly one thing and states the expected errors – exact wording and order – or, for valid variants, values of the derived view. A case also fails if a broken inventory does not make `.inventory` throw.
 
 | Group | Covers |
 | --- | --- |
@@ -1229,6 +1379,8 @@ locals {
 | SSH keys | Wrong format, with comment, key data of another type, same key on two hosts; derived known_hosts entries and file |
 | interfaces | MAC format, interface name, link-local value, MAC twice, multicast MAC, `eui64` from a private Wi-Fi MAC and without MAC, network at another site, `ipv4` without network, address per mode, reserved without MAC or DHCP server, address outside/broadcast/in pool/without prefix/twice; derived link-local (EUI-64 of a QEMU MAC, fixed, random) and VLAN |
 | networks | Prefix format, VLAN range and duplicate per site (same id at another site allowed), host bits, pool outside/backwards/without server, DHCP server without interface or at another site; derived reservations |
+| services | Neither/both of `hosts` and `provider`, empty `hosts`, `package` with `version`/without hosts/on an unmanaged host, critical service on an intermittent host (a `lab` one allowed), self references, `uses` doubling `dependsOn`, weaker hard dependency, cycles over `dependsOn` and `via`, endpoint rules and duplicate names, domain format, every backup rule; derived dependencies, upstream hosts, off-host backups, `gaps` |
+| providers, contracts | Contract with the wrong provider on a host, line and service, on a line without provider, on a service on hosts; `dueMonth`, `renews` before `since`, amount not in whole cents, date format; unused and unknown provider; derived totals per currency and per month, `pending` for a missing cost |
 
 ```
 just inventory-test
@@ -1246,6 +1398,8 @@ builds `checks.<system>.inventory` (the real file is valid), `inventory-tests` (
 | Host key changed (reinstall) | `just inventory-collect --force <host>`, `.sops.yaml` + `sops updatekeys` (see [Rotate keys](#rotate-keys)), deploy, `just known-hosts` |
 | New DHCP reservation | Interface with `mac`, `network`, `ipv4.mode: reserved` + `address`; the list for the router: `networks.<id>.reservations` in `just inventory` |
 | Fill in a line's details | Fields in `uplinks.<id>`, nothing else to do |
+| New service | Entry in `services` with `hosts` (and `package` on a managed host) or `provider`, `endpoints`, `dependsOn`/`uses`, `data`, `backup`; `just inventory-test` – a missing off-host backup shows up under "worth a look" |
+| New contract | Entry in `contracts`, the id into `contracts` of the host, line or service it pays for; customer/contract number into `inventory.secrets.yaml` (`sops inventory.secrets.yaml`) |
 | New field or kind | `spec` in `inventory.nix`, then `just inventory-schema`, a test case in `tests/inventory.nix`, this page (de/en) |
 | Look at it | `just inventory` |
 
@@ -1311,6 +1465,8 @@ The 17 modules under `modules/` carry the configuration shared by all hosts; eve
 | `just inventory-test` | Check `inventory.json`, run the validator tests, check the schema is fresh |
 | `just inventory-schema` | Regenerate `inventory.schema.json` after a format change |
 | `just inventory-collect [--force] [host …]` | Fetch SSH host keys, interfaces (MAC, medium, link-local) and hardware (vendor, model, product id, serial) from the devices into `inventory.json` – fills gaps and reports differences; `--force` takes the device values |
+| `just services [--json]` | What the inventory's services run, from the host configurations: version, license, language ([Software view](#software-view)) |
+| `just sbom [host …]` | SBOM (CycloneDX, SPDX, CSV) of the running system of each host into `sbom/` ([Software view](#software-view)) |
 | `just known-hosts` | Write `~/.ssh/known_hosts.nixlab` from the inventory – for a workstation outside this repo; gusto gets the keys system-wide |
 | `just netbird-plan` / `netbird-apply` | Change the NetBird account; apply also rewrites `expected-peers.json` (commit it, deploy grammi) and `admin-peers.json` (commit it, deploy aldrin and ursalia) |
 | `just netbird-proxy-certs` | Get proxy services without a certificate one and bring the dashboard up to date (NetBird #7118); runs at the end of `netbird-apply` |
@@ -1354,6 +1510,9 @@ eval $(op signin) && export SOPS_AGE_KEY_CMD='op read "op://<vault>/<item>/passw
 - Code comments explain the *why*, including the mistakes that led to a decision, with a date.
 - Code comments, commit messages and changelogs in English; the project documentation exists in German and English.
 - The docs site loads nothing from third parties: the fonts and glightbox ship with the site (`docs/assets.nix`) instead of coming from Google Fonts or unpkg.com. Why: GDPR, and private docs that work without internet access.
+- Infrastructure that mainly fills a role at one place (gateways, access points, switches) is named `<role>-<site>`: `gw-hq`, `ap-flur`. The role comes first so devices of the same role sit next to each other in lists and dashboards; the site is in the inventory anyway. The lab's own servers keep their Gummi Bears names.
+- Interface names are limited to 15 characters on Linux. For `tun-<site>-uplink<n>` (`tun-hq-uplink1`) that means a site code of at most three characters.
+- Diagrams in the docs are inline SVG in `<figure class="nx-diagram">` (viewBox 680 wide, no `width`/`height`), so boxes can link to sections of the page. No markers for arrowheads, but paths in the line's colour, since WeasyPrint cannot do `context-stroke` in the PDF. Light colours sit in the SVG's own `<style>`, the dark scheme in `site/common/stylesheets/diagrams.css`, which only the site loads. Check with `just docs-serve` (both colour schemes) and in the PDF.
 
 ## Open items
 

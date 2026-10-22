@@ -42,7 +42,8 @@ fails until you do. Via a temp file, so a failed eval leaves the old JSON.
 ## `just inventory`
 
 Show the validated lab inventory (inventory.json) with everything derived
-from it - effective sites, reverse relations, upstream, unattended boot.
+from it - effective sites, reverse relations, upstream, unattended boot,
+service dependencies, costs.
 Fails with the list of all errors if inventory.json is invalid.
 
 ## `just inventory-test`
@@ -50,6 +51,27 @@ Fails with the list of all errors if inventory.json is invalid.
 Check inventory.json, run the validator's tests (tests/inventory.nix) and
 compare the host keys with .sops.yaml - the inventory part of
 `nix flake check`, without evaluating any host.
+
+## `just services *args`
+
+What the inventory's services run, read from the host configurations
+(software.nix): per service name, version, license and language, as a
+table; `just services --json` gives everything, the direct dependencies
+included. Evaluates every host with a service that has a package path,
+so it takes a while; fails if one of those paths leads nowhere.
+
+## `just sbom *hosts`
+
+SBOM of what runs on a host: CycloneDX, SPDX and CSV of the runtime
+closure of /run/current-system, by sbomnix, into sbom/<host>.* (ignored
+by git). Without hosts: every managed host. sbomnix runs where the system
+is - on gusto itself, on the others over the mesh (root, zorlock as
+admin) - pinned to the host's own nixpkgs, so the first run there
+fetches it (~180 MB, collected by the next GC). Nixpkgs metadata
+(licenses, descriptions) is left out: it is only there for a flake
+reference, not for a running system; `just services` has the licenses of
+the services. Go and Rust modules inside a package are not in the SBOM -
+Nix fetches them in one piece.
 
 ## `just inventory-schema`
 

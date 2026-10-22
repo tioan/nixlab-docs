@@ -1,0 +1,37 @@
+/* Inline SVG diagrams: <figure class="nx-diagram"><svg ...></figure> in a
+   page (convention: project/conventions.md). The site loads this sheet, the
+   PDF does not - so each SVG carries its own light colours in a <style> of
+   its own, and only the dark scheme and the figure's size live here.
+
+   Why the split (tested 2026-10-22 against WeasyPrint 68.1, which renders
+   the PDFs): WeasyPrint applied rules like
+   `[data-md-color-scheme="slate"] .x` inside an SVG although no such
+   ancestor exists in the PDF, and turned lines dark. Kept out of the SVG,
+   the dark rules cannot reach the PDF at all. */
+
+/* The theme shrink-wraps figures; an SVG without a fixed size (it has
+   none, so it scales down on phones) would collapse to a few pixels. */
+figure.nx-diagram { display: block; width: 100%; margin: 1.5em 0; }
+figure.nx-diagram > svg { display: block; width: 100%; max-width: 680px; height: auto; margin: 0 auto; }
+
+/* Boxes that are links get no underline from the theme, just a hover. */
+.nx-diagram a { text-decoration: none; }
+.nx-diagram a rect { transition: opacity .15s; }
+.nx-diagram a:hover rect, .nx-diagram a:focus rect { opacity: .75; }
+
+/* Dark scheme. Same ramps as the light colours in the SVGs: fill 800,
+   stroke 200, title 100, subtitle 200. */
+[data-md-color-scheme="slate"] .nx-diagram .nx-t { fill: #e8e6e3; }
+[data-md-color-scheme="slate"] .nx-diagram .nx-s { fill: #a8a6a0; }
+[data-md-color-scheme="slate"] .nx-diagram .nx-line,
+[data-md-color-scheme="slate"] .nx-diagram .nx-frame { stroke: #5f5e5a; }
+[data-md-color-scheme="slate"] .nx-diagram .nx-box { fill: #2a2a28; stroke: #5f5e5a; }
+[data-md-color-scheme="slate"] .nx-diagram .nx-gray rect { fill: #444441; stroke: #b4b2a9; }
+[data-md-color-scheme="slate"] .nx-diagram .nx-gray .nx-t { fill: #d3d1c7; }
+[data-md-color-scheme="slate"] .nx-diagram .nx-gray .nx-s { fill: #b4b2a9; }
+[data-md-color-scheme="slate"] .nx-diagram .nx-purple rect { fill: #3c3489; stroke: #afa9ec; }
+[data-md-color-scheme="slate"] .nx-diagram .nx-purple .nx-t { fill: #cecbf6; }
+[data-md-color-scheme="slate"] .nx-diagram .nx-purple .nx-s { fill: #afa9ec; }
+[data-md-color-scheme="slate"] .nx-diagram .nx-coral rect { fill: #712b13; stroke: #f0997b; }
+[data-md-color-scheme="slate"] .nx-diagram .nx-coral .nx-t { fill: #f5c4b3; }
+[data-md-color-scheme="slate"] .nx-diagram .nx-coral .nx-s { fill: #f0997b; }
