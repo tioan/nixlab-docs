@@ -20,9 +20,10 @@ site_dir = "_site"
 # Fonts and the lightbox from the site itself, not from Google or unpkg -
 # docs/assets.nix. glightbox.min.js has to be there before the theme looks
 # for GLightbox; then it never loads its own copy from unpkg.com.
-# diagrams.css: dark scheme of the inline SVG diagrams (conventions page).
+# diagrams.css: dark scheme of the inline SVG diagrams (conventions page);
+# diagram-links.js makes their boxes jump to sections of the page.
 extra_css = ["assets/stylesheets/fonts.css", "assets/stylesheets/diagrams.css", "assets/vendor/glightbox/glightbox.min.css"]
-extra_javascript = ["assets/vendor/glightbox/glightbox.min.js"]
+extra_javascript = ["assets/vendor/glightbox/glightbox.min.js", "assets/javascripts/diagram-links.js"]
 nav = [
   { "Home" = "index.md" },
   { "Explanation" = [

@@ -14,8 +14,13 @@
 figure.nx-diagram { display: block; width: 100%; margin: 1.5em 0; }
 figure.nx-diagram > svg { display: block; width: 100%; max-width: 680px; height: auto; margin: 0 auto; }
 
-/* Boxes that are links get no underline from the theme, just a hover. */
+/* Boxes that are links get no underline from the theme, just a hover and
+   a pointer - they have no href (diagram-links.js does the jump), so the
+   browser would not show one by itself. */
 .nx-diagram a { text-decoration: none; }
+.nx-diagram [data-target] { cursor: pointer; }
+.nx-diagram [data-target]:focus { outline: none; }
+.nx-diagram [data-target]:focus-visible rect { stroke-width: 2.5; }
 .nx-diagram a rect { transition: opacity .15s; }
 .nx-diagram a:hover rect, .nx-diagram a:focus rect { opacity: .75; }
 
