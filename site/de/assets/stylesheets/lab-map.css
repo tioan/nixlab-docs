@@ -1,0 +1,133 @@
+/* The lab map (reference/lab-map.md, docs/gen-lab-map.py, lab-map.js):
+   sites as labelled panels, hosts as cards inside, services as chips, and
+   an SVG layer for the relations of the selection. Only the site loads
+   this sheet; the PDF gets a plain version from doc.css.
+
+   Colours are tokens on the figure, light here and dark under the theme's
+   slate scheme, so the copy in the lightbox follows the page. */
+figure.nx-labmap {
+  --lm-bg: #e9edf1; --lm-panel: #f7f9fb; --lm-card: #ffffff; --lm-ink: #131a23; --lm-muted: #5a6574; --lm-line: #cbd2db;
+  --lm-accent: #2a52c4; --lm-accent-soft: #dfe6fa;
+  --lm-dep: #2a52c4; --lm-use: #8656bf; --lm-bak: #b8700c; --lm-via: #127d72;
+  --lm-core: #b8333a; --lm-core-soft: #f8e1e2; --lm-lab: #6b7380; --lm-lab-soft: #e6e9ed; --lm-ok: #1d7a4a; --lm-ok-soft: #dcf0e4;
+  --lm-mono: var(--md-code-font-family, "JetBrains Mono", ui-monospace, monospace);
+  container: nx-labmap / inline-size;
+  display: block; width: 100%; margin: 1.5em 0; padding: 14px; box-sizing: border-box;
+  background: var(--lm-bg); color: var(--lm-ink); border-radius: 8px;
+  font-size: 13px; line-height: 1.45; text-align: left;
+}
+[data-md-color-scheme="slate"] figure.nx-labmap {
+  --lm-bg: #10151b; --lm-panel: #171e27; --lm-card: #1d2631; --lm-ink: #e3e8ee; --lm-muted: #93a0b0; --lm-line: #2c3746;
+  --lm-accent: #86a2f5; --lm-accent-soft: #24304d;
+  --lm-dep: #86a2f5; --lm-use: #bd98ea; --lm-bak: #e8a640; --lm-via: #3ec4b3;
+  --lm-core: #f0787d; --lm-core-soft: #3d2226; --lm-lab: #9aa3af; --lm-lab-soft: #283240; --lm-ok: #5fcf92; --lm-ok-soft: #1c3528;
+}
+/* The page of the map uses the whole window, not the theme's 61rem: the
+   map and its detail panel side by side need the room. */
+.md-main__inner.md-grid:has(figure.nx-labmap) { max-width: 100rem; }
+.nx-labmap * { box-sizing: border-box; }
+.nx-labmap p { margin: 0; }
+
+.nx-labmap .stats { display: flex; flex-wrap: wrap; gap: 4px 20px; margin-bottom: 12px; font-variant-numeric: tabular-nums; }
+.nx-labmap .stats div { display: flex; align-items: baseline; gap: 6px; }
+.nx-labmap .stats b { font-size: 22px; font-weight: 700; }
+.nx-labmap .stats span { color: var(--lm-muted); }
+
+.nx-lm-layout { display: grid; gap: 14px; grid-template-columns: minmax(0, 1fr); }
+@container nx-labmap (min-width: 1000px) { .nx-lm-layout { grid-template-columns: minmax(0, 1fr) 290px; } }
+.nx-lm-map { position: relative; min-width: 0; }
+.nx-lm-map, .nx-lm-map .site { cursor: zoom-in; }
+.nx-labmap-enlarged .nx-lm-map, .nx-labmap-enlarged .nx-lm-map .site { cursor: default; }
+.nx-lm-sites { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-start; }
+
+.nx-labmap .site { min-width: 0; max-width: 100%; background: var(--lm-panel); border: 1px solid var(--lm-line); border-radius: 6px; }
+.nx-labmap .site-head { padding: 9px 11px 7px; border-bottom: 1px solid var(--lm-line); display: grid; gap: 2px; }
+.nx-labmap .row { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.nx-labmap .site-code { font-weight: 700; font-size: 15px; letter-spacing: .08em; text-transform: uppercase; }
+.nx-labmap .site-city { color: var(--lm-muted); }
+.nx-labmap .uplink { font-family: var(--lm-mono); font-size: 11px; color: var(--lm-muted); overflow-wrap: anywhere; }
+.nx-labmap .nets { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 3px; }
+.nx-labmap .net { font-family: var(--lm-mono); font-size: 10.5px; border: 1px dashed var(--lm-line); border-radius: 3px; padding: 0 6px; color: var(--lm-muted); }
+.nx-labmap .hosts { padding: 9px; display: grid; gap: 9px; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }
+.nx-labmap .hosts.one { grid-template-columns: minmax(0, 1fr); }
+
+.nx-labmap .host { background: var(--lm-card); border: 1px solid var(--lm-line); border-radius: 5px; padding: 7px 8px 8px; display: grid; gap: 5px; align-content: start; min-width: 0; cursor: pointer; transition: opacity .15s, border-color .15s; }
+.nx-labmap .host.wide { grid-column: span 2; }
+@container nx-labmap (max-width: 520px) { .nx-labmap .host.wide { grid-column: auto; } }
+.nx-labmap .host:hover { border-color: var(--lm-muted); }
+.nx-labmap .host.sel { border-color: var(--lm-accent); box-shadow: 0 0 0 1px var(--lm-accent); }
+.nx-labmap .host-top { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.nx-labmap .host-name { font-family: var(--lm-mono); font-weight: 600; font-size: 13.5px; overflow-wrap: anywhere; }
+.nx-labmap .host-kind { font-size: 11.5px; color: var(--lm-muted); }
+.nx-labmap .ip { font-family: var(--lm-mono); font-size: 10.5px; color: var(--lm-muted); }
+.nx-labmap .guest { border-left: 2px solid var(--lm-line); padding-left: 8px; margin-top: 2px; display: grid; gap: 6px; }
+
+.nx-labmap .pills { display: flex; flex-wrap: wrap; gap: 4px; }
+.nx-labmap .pill { font-size: 10px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; border-radius: 3px; padding: 1px 5px; background: var(--lm-lab-soft); color: var(--lm-lab); }
+.nx-labmap .pill.core { background: var(--lm-core-soft); color: var(--lm-core); }
+.nx-labmap .pill.service { background: var(--lm-accent-soft); color: var(--lm-accent); }
+.nx-labmap .pill.managed { background: var(--lm-ok-soft); color: var(--lm-ok); }
+.nx-labmap .pill.ext { background: transparent; border: 1px solid var(--lm-line); color: var(--lm-muted); }
+
+.nx-labmap .chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.nx-labmap .svc { font-family: inherit; font-size: 11.5px; font-weight: 500; line-height: 1.2; color: var(--lm-ink); background: var(--lm-panel); border: 1px solid var(--lm-line); border-radius: 3px; padding: 3px 6px; cursor: pointer; display: inline-flex; align-items: center; gap: 5px; transition: opacity .15s, background .15s; }
+.nx-labmap .svc::before { content: ""; width: 6px; height: 6px; border-radius: 50%; border: 1.5px solid var(--lm-muted); flex: none; }
+.nx-labmap .svc.stateful::before { background: var(--lm-muted); }
+.nx-labmap .svc.c-core { border-color: color-mix(in srgb, var(--lm-core) 45%, var(--lm-line)); }
+.nx-labmap .svc:hover { background: var(--lm-accent-soft); }
+.nx-labmap .svc.sel { background: var(--lm-accent); color: var(--lm-card); border-color: var(--lm-accent); }
+.nx-labmap .svc.sel::before { border-color: var(--lm-card); }
+.nx-labmap .svc.sel.stateful::before { background: var(--lm-card); }
+.nx-labmap .svc .x { font-family: var(--lm-mono); font-size: 9.5px; color: var(--lm-muted); }
+.nx-labmap .svc.sel .x { color: var(--lm-card); }
+.nx-labmap .svc.demo { pointer-events: none; }
+.nx-labmap :is(.svc, .host, .pick, .nx-lm-zoom, input):focus-visible { outline: 2px solid var(--lm-accent); outline-offset: 2px; }
+
+.nx-labmap.focus .nx-lm-map .svc:not(.rel):not(.sel) { opacity: .28; }
+.nx-labmap.focus .nx-lm-map .host:not(.rel):not(.sel) { opacity: .55; }
+
+.nx-labmap .ext-groups { padding: 9px; display: grid; gap: 9px; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); }
+.nx-labmap .prov { background: var(--lm-card); border: 1px dashed var(--lm-line); border-radius: 5px; padding: 7px 8px; display: grid; gap: 5px; align-content: start; min-width: 0; }
+.nx-labmap .prov-name { font-weight: 600; }
+.nx-labmap .contract { font-family: var(--lm-mono); font-size: 10.5px; color: var(--lm-muted); }
+
+.nx-lm-edges { position: absolute; inset: 0; pointer-events: none; overflow: visible; z-index: 2; }
+.nx-labmap svg path { fill: none; stroke-width: 1.6; }
+.nx-labmap svg path.faint { stroke-width: 1; opacity: .35; }
+.nx-labmap svg path.head { stroke-dasharray: none; stroke-linecap: round; stroke-linejoin: round; }
+.nx-labmap .e-dep { stroke: var(--lm-dep); }
+.nx-labmap .e-use { stroke: var(--lm-use); stroke-dasharray: 5 3; }
+.nx-labmap .e-bak { stroke: var(--lm-bak); stroke-dasharray: 1.5 3; stroke-linecap: round; }
+.nx-labmap .e-via { stroke: var(--lm-via); stroke-dasharray: 7 3 1.5 3; }
+
+.nx-lm-aside { display: grid; gap: 12px; align-content: start; min-width: 0; }
+@container nx-labmap (min-width: 1000px) {
+  /* Below the theme's sticky header and tabs; in the lightbox its own top. */
+  .nx-lm-aside { position: sticky; top: 5.6rem; max-height: calc(100vh - 6.4rem); overflow-y: auto; }
+  .nx-labmap-enlarged .nx-lm-aside { top: 0; max-height: none; }
+}
+.nx-labmap .box { background: var(--lm-panel); border: 1px solid var(--lm-line); border-radius: 6px; padding: 11px 13px; min-width: 0; }
+.nx-labmap .box-title { font-weight: 600; font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--lm-muted); margin-bottom: 6px; }
+.nx-labmap .legend { display: grid; gap: 6px; font-size: 12px; }
+.nx-labmap .legend > div { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.nx-labmap .legend svg { flex: none; }
+.nx-labmap .toggle { display: flex; align-items: center; gap: 8px; margin-top: 10px; cursor: pointer; }
+.nx-lm-zoom { margin-top: 10px; font: inherit; font-weight: 600; color: var(--lm-accent); background: var(--lm-card); border: 1px solid var(--lm-line); border-radius: 4px; padding: 4px 10px; cursor: zoom-in; }
+.nx-labmap-enlarged .nx-lm-zoom { display: none; }
+.nx-labmap .ttl { font-size: 16px; font-weight: 600; overflow-wrap: anywhere; }
+.nx-labmap .sub { color: var(--lm-muted); margin: 1px 0 6px; }
+.nx-labmap dl { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 12px; margin: 8px 0 0; }
+.nx-labmap dt { color: var(--lm-muted); font-weight: 400; margin: 0; }
+.nx-labmap dd { margin: 0; overflow-wrap: anywhere; }
+.nx-labmap .note { background: var(--lm-card); border: 1px solid var(--lm-line); border-radius: 4px; padding: 6px 8px; margin-top: 9px; }
+.nx-labmap .mono { font-family: var(--lm-mono); font-size: 12px; }
+.nx-labmap .pick { font: inherit; color: var(--lm-accent); background: none; border: 0; padding: 0; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; text-decoration-color: color-mix(in srgb, var(--lm-accent) 40%, transparent); }
+.nx-labmap .list { display: inline-flex; flex-wrap: wrap; gap: 2px 10px; }
+.nx-labmap .hint { color: var(--lm-muted); }
+.nx-labmap .none { color: var(--lm-core); }
+
+/* The copy in the lightbox: its own background, no white panel. */
+.glightbox-container .gslide-inline:has(.nx-labmap) { background: transparent; }
+.glightbox-container .gslide-inline:has(.nx-labmap) .ginlined-content { padding: 0; }
+.glightbox-container figure.nx-labmap-enlarged { margin: 0; }
+@media (prefers-reduced-motion: reduce) { .nx-labmap * { transition: none !important; } }

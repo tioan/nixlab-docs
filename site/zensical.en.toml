@@ -22,9 +22,10 @@ site_dir = "_site"
 # for GLightbox; then it never loads its own copy from unpkg.com.
 # diagrams.css: dark scheme of the inline SVG diagrams (conventions page);
 # diagrams.js: their boxes jump to sections of the page, a click elsewhere
-# on one opens it enlarged (GLightbox, like an image).
-extra_css = ["assets/stylesheets/fonts.css", "assets/stylesheets/diagrams.css", "assets/vendor/glightbox/glightbox.min.css"]
-extra_javascript = ["assets/vendor/glightbox/glightbox.min.js", "assets/javascripts/diagrams.js"]
+# on one opens it enlarged (GLightbox, like an image). lab-map.css/.js:
+# the interactive map of reference/lab-map.md (docs/gen-lab-map.py).
+extra_css = ["assets/stylesheets/fonts.css", "assets/stylesheets/diagrams.css", "assets/stylesheets/lab-map.css", "assets/vendor/glightbox/glightbox.min.css"]
+extra_javascript = ["assets/vendor/glightbox/glightbox.min.js", "assets/javascripts/diagrams.js", "assets/javascripts/lab-map.js"]
 nav = [
   { "Home" = "index.md" },
   { "Explanation" = [
@@ -51,6 +52,7 @@ nav = [
     "reference/gusto.md",
     "reference/inventory.md",
     "reference/inventory-schema.md",
+    "reference/lab-map.md",
     "reference/services.md",
     "reference/modules.md",
     "reference/modules-generated.md", # generated
