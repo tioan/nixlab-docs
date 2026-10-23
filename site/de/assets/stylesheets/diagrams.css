@@ -43,6 +43,9 @@ figure.nx-diagram > svg { cursor: zoom-in; }
 [data-md-color-scheme="slate"] .nx-diagram .nx-coral rect { fill: #712b13; stroke: #f0997b; }
 [data-md-color-scheme="slate"] .nx-diagram .nx-coral .nx-t { fill: #f5c4b3; }
 [data-md-color-scheme="slate"] .nx-diagram .nx-coral .nx-s { fill: #f0997b; }
+[data-md-color-scheme="slate"] .nx-diagram .nx-teal rect { fill: #085041; stroke: #5dcaa5; }
+[data-md-color-scheme="slate"] .nx-diagram .nx-teal .nx-t { fill: #9fe1cb; }
+[data-md-color-scheme="slate"] .nx-diagram .nx-teal .nx-s { fill: #5dcaa5; }
 
 /* The enlarged copy in the lightbox (diagrams.js): on the page's own
    background, so the dark scheme above applies there too, without the

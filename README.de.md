@@ -75,6 +75,12 @@ Der Workstation-Key liegt in 1Password und wird über `SOPS_AGE_KEY_CMD` gelesen
 
 Öffentlich offen sind nur 22/80/443. root-SSH lässt `modules/ssh.nix` nur von Mesh- oder Tailscale-Adressen zu; jeder Host hat ein eigenes Login-Keypair. Das Mesh ist derzeit nur IPv4, Dual-Stack ist als offener Punkt notiert.
 
+#### Apps auf grammi: nur über Traefik `:8090`
+
+Mealie, Grist, logchef und Grafana lauschen auf grammi nur auf `127.0.0.1`. Der Reverse Proxy erreicht sie über den Traefik-Entrypoint `apps` (Port 8090), der vor jede App Wartungsschalter und Fehlerseiten setzt ([Wartungsmodus](#wartungsmodus)). VictoriaMetrics (8428) und VictoriaLogs (9428) lauschen weiter auf allen Adressen, weil die anderen Hosts ihre Metriken und Logs über das Mesh dorthin schicken.
+
+**Bewusste Lücke:** `:8090` selbst ist für jeden Mesh-Peer offen (`nb-mesh` ist vertrauenswürdig), ohne die SSO des Proxys. Wer im Mesh ist, erreicht mit dem passenden `Host`-Header jede App direkt, VictoriaMetrics/-Logs sogar ohne Login, weil sie keinen eigenen haben. Das ist so gewollt (2026-10-23): Wer grammi erreicht, entscheiden die NetBird-Policies, und Mealie, Grist, logchef und Grafana verlangen ihren eigenen Login. Neu bewerten, wenn ins Mesh Peers kommen, denen man weniger traut, oder sobald der Proxy per `direct_upstream` auf Loopback zugreifen kann ([offener Punkt](#offene-punkte)).
+
 #### Private Doku: nur Admin-Geräte
 
 Die private Fassung dieser Doku (`doku.homelab.example`, auf aldrin und ursalia) enthält jede interne Adresse und beschreibt, wie das Lab betrieben wird. Das ist mehr, als jedes Gerät im Mesh sehen muss. Deshalb liefert nginx sie nur an die Mesh-Adressen der Admin-Geräte aus; alle anderen bekommen 403 – mit einer eigenen Seite, die sagt, warum, von welcher Adresse die Anfrage kam und wie man ein Gerät freischaltet (ohne Navigation, damit die Seitentitel nicht sichtbar werden). Der Name selbst löst für alle Peers auf.
@@ -132,6 +138,25 @@ Im Mesh löst `dokumente.homelab.example` über die NetBird-Zone direkt zu ursal
 - Die Unterscheidung PIN/SSO hängt an einem Verhalten des Proxys, nicht an einer dokumentierten Schnittstelle.
 - CrowdSec sieht weder PIN-Versuche noch Anfragen an die App (TCP-Passthrough, kein HTTP-Log auf grammi), wie bei allen Proxy-Namen; es bleiben die Sperre des Proxys und der Login von Paperless.
 - ursalias nginx loggt als Absender die Mesh-Adresse des Proxys, nicht die des Besuchers (kein `realip`: es würde die Adresse vor `allow`/`deny` umschreiben).
+
+#### Grafana: öffentliche Dashboards über `dash`
+
+Seit 2026-10-23 lassen sich Dashboards nach außen teilen („Share externally“, in Grafana „öffentliche Dashboards“). Das Recht dazu hat nur die Grafana-Rolle Admin. Die vergibt der SSO-Login an die Pocket-ID-Gruppe `grafana_admins` (eigens dafür, `terraform/netbird/people.tf`; Mitglieder in Pocket ID pflegen, wirksam beim nächsten Grafana-Login), alle anderen bleiben Editor.
+
+**Der Weg:** `dash.homelab.example` ist ein eigener Dienst im Reverse Proxy, **ohne Login**. Sein Ziel ist derselbe Entrypoint `apps` von Traefik auf grammi wie bei `metrics`, aber für diesen Namen lässt Traefik nur `/public-dashboards/`, `/api/public/` und `/public/` (Assets) zu Grafana durch. Alles andere beantwortet Traefik mit 404. Dieser Router hält die App von anonymen Besuchern fern, nicht der Proxy.
+
+| Wer | Weg | Ergebnis |
+| --- | --- | --- |
+| Jeder mit Link | Reverse Proxy → Traefik `apps` (Host `dash`) → Grafana | nur das freigegebene Dashboard, lesend |
+| SSO | `metrics.homelab.example` | volle App |
+
+**Link weitergeben:** Grafana baut den Link aus `root_url`, er lautet also `https://metrics.homelab.example/public-dashboards/<token>` – unter `metrics` landet ein Gast beim SSO-Login. Den Link für Gäste zeigt das Dashboard „Homelab / Shared dashboards“: ein Timer auf grammi fragt jede Minute die Grafana-API ab und schreibt jede Freigabe mit ihrer `dash`-Adresse als Metrik `grafana_public_dashboard_info` (`hosts/grammi/grafana-shares.nix`). Jedes Dashboard verlinkt oben rechts dorthin („Nach außen teilen“). Die Tokens liegen damit in VictoriaMetrics, sichtbar für alle, die Grafana öffnen können.
+
+**Was das bewusst in Kauf nimmt:**
+
+- Der Token im Link ist das einzige Geheimnis, keine PIN davor. Ein öffentliches Dashboard ist nur lesbar, und in Grafana lässt es sich jederzeit pausieren oder löschen.
+- Dashboards mit Template-Variablen kann Grafana nicht öffentlich teilen (etwa Dashboards mit `$job`); dafür braucht es eine Kopie ohne Variablen. Außerdem braucht jedes Panel die UID seiner Datenquelle; die UIDs sind deshalb in der Provisionierung festgelegt und in allen Dashboards eingetragen (`hosts/grammi/configuration.nix`).
+- Wie bei allen Proxy-Namen sieht CrowdSec auf grammi nur, was Traefik im Entrypoint `apps` loggt, nicht den TLS-Teil davor.
 
 #### MQTT von außen: TLS-Passthrough zu Home Assistant
 
@@ -195,9 +220,12 @@ Alles landet auf grammi: **vmagent** auf jedem Host schickt Metriken an Victoria
 | `fwupd_updates_*` | ursalia | `fwupdmgr get-updates` nach jedem Metadaten-Refresh |
 | `wifi_link_*` | ursalia | `iw dev wlp2s0f0 link` (PHY-Modus, Breite, MCS, NSS), alle 30 s |
 | `node_wifi_*`, `wifi_link_*` | zorlock | `system_profiler SPAirPortDataType -json` alle 60 s, dieselben Namen wie auf ursalia (unter macOS ohne Empfangsrate, Retries und eigenen PHY-Modus für den Empfang; SSID/BSSID schwärzt macOS ohne Ortungsdienste auch für root, im Dashboard „n/a“), dazu `wifi_link_noise_dbm` |
+| `unit_cgroup_*` | alle Linux-Hosts | CPU-Zeit und Speicher je systemd-Dienst aus seiner cgroup, alle 15 s (`unit-metrics` in `modules/metrics.nix`); zählt alle Prozesse der Unit, Container mit `--cgroups=split` eingeschlossen |
+| `esphome_builder_data_bytes` | ursalia | Größe von `/var/lib/esphome-builder` (Toolchain-Cache), stündlich |
+| `grafana_public_dashboard_info` | grammi | öffentliche Dashboards aus der Grafana-API mit ihrem `dash`-Link, jede Minute |
 | `netbird_expected_peers` | grammi | `terraform/netbird/expected-peers.json`, beim Bauen ins System übernommen |
 
-Die Dashboards liegen als JSON in `hosts/grammi/dashboards/` und werden aus dem Repo provisioniert (Änderungen nur per Commit + Deploy von grammi). `topology.json` erzeugt `just topology`.
+Die Dashboards liegen als JSON in `hosts/grammi/dashboards/` und werden aus dem Repo provisioniert (Änderungen nur per Commit + Deploy von grammi). `topology.json` erzeugt `just topology`. „Export als Bild“ rendert der Grafana Image Renderer auf grammi (Headless-Chromium, nur Loopback `127.0.0.1:8082`); Teilen nach außen siehe [Zugriff](#grafana-öffentliche-dashboards-über-dash).
 
 | Dashboard | Zeigt |
 | --- | --- |
@@ -208,12 +236,16 @@ Die Dashboards liegen als JSON in `hosts/grammi/dashboards/` und werden aus dem 
 | Disk Health | SMART/NVMe von ursalia: Status, kritische Warnungen, Verschleiß, Reserve, Temperatur, geschriebene Daten |
 | Paperless | Zustand (Celery, Redis, DB, Index, Classifier), Dokumente, Inbox, fehlgeschlagene Tasks, Speicher, Log-Warnungen |
 | paperless-gpt | OCR- und Vorschlags-Rückstau, OCR-Zeit je Seite, LLM-Anfragen, -Dauern, -Tokens, -Fehler; GPU und Speicher von zorlock |
+| ESPHome builds | Build-Server auf ursalia: Zustand, ESPHome-Version, Builds und Erfolgsquote, Dauer je Build und Gerät, CPU und Speicher neben Paperless, Größe des Toolchain-Caches, Warnungen. Builds und Dauern kommen per LogsQL aus den Log-Zeilen „Starting job …“ / „Job … completed/failed“, device-builder hat keinen Metrik-Endpunkt |
+| Shared dashboards | Alle öffentlichen Dashboards mit dem Link für Gäste (`dash.homelab.example`) und ob sie pausiert sind; jedes Dashboard verlinkt oben rechts hierher |
 | Web & Security | Anfragen an nginx und Traefik, Statuscodes, Dauern; CrowdSec-Bans, -Alerts, Parser-Treffer |
 | Garage (S3 storage) | Garage auf aldrin: Cluster-Zustand, Platte, S3-Anfragen/-Fehler/-Dauer, Resync- und GC-Warteschlangen |
 | VictoriaMetrics & VictoriaLogs | Ingest-Rate, Plattenbelegung, Abfragedauer, aktive Serien |
 | zorlock (Mac mini) | mactop: Thermal State, CPU/GPU, Leistung, Temperaturen, Speicher, Lüfter; Ollama-Anfragen, -Geschwindigkeit, Ladezeiten der Modelle |
 
 **Soll gegen known (NetBird):** „expected“ berechnet OpenTofu aus den Policies mit der Gruppenmitgliedschaft beim letzten `just netbird-apply` (Beispiel: aldrin 6, grammi 8, cuckoosegg 4). „known“ ist, was der Management-Server tatsächlich verteilt. Ein später hinzukommendes Gerät erhöht known sofort, das Soll erst nach dem nächsten Apply + Deploy von grammi – gewollt, damit ein neuer Peer auffällt. Das Modell ignoriert Posture Checks; siehe Kopf von `expected-peers.tf`.
+
+**Log-Level:** Vector macht aus journalds `PRIORITY` das Feld `level`. Python-Dienste schreiben ihr Log nach stderr, journald stuft dann jede Zeile als Fehler ein. Zeilen im Format `<Datum> <Zeit> INFO|WARNING|ERROR …` bekommen deshalb das Level aus dem Text, ohne Farbcodes (`modules/log-shipping.nix`).
 
 **Grafana-Falle:** State-Timelines mit `mergeValues` und Farbmodus „thresholds“ machen aus Zahlen Schwellwert-Stufen („1+“, „< 1“), bevor die Wert-Zuordnungen greifen. Farbmodus „fixed“ verwenden und Text und Farbe in die Zuordnungen legen.
 
@@ -227,6 +259,7 @@ Zwei Maschinen in diesem Repo laufen mit macOS und nix-darwin statt NixOS: **zor
 | Konfiguration | `hosts/zorlock/` | `hosts/gusto/` (System) + `home.nix`, `ssh.nix` (home-manager) |
 | Gebaut und geschaltet | auf zorlock, aus `/etc/nixos` (`just mac-switch zorlock`) | auf gusto, aus der Arbeitskopie (`just mac-switch`) |
 | Homebrew | aus | an – die Apps sind Casks |
+| Softwareliste | in `configuration.nix` | `hosts/gusto/apps.json` – `apps`, `apps-rm` |
 | home-manager | nein | ja, für admins Dotfiles |
 | NetBird-Client | nix-darwin `services.netbird`, Client aus `nixpkgs-netbird` | Homebrew-Cask `netbird-ui` aus NetBirds Tap |
 | NetBird-Anmeldung | Setup-Key aus sops, unbeaufsichtigt | SSO (Pocket ID) in der App |
@@ -253,7 +286,7 @@ und `homebrew.taps` (die Liste, die nix-darwin in den Brewfile schreibt) ergibt 
 
 - `onActivation.autoUpdate = false`: kein `brew update` beim Switch.
 - `onActivation.upgrade = false`: auch kein `brew upgrade` beim Switch; ein installierter Cask bleibt auf seiner Version, bis er gezielt aktualisiert wird.
-- `onActivation.cleanup = "zap"`: Was installiert, aber nicht deklariert ist, wird entfernt, Casks samt ihren App-Daten (`brew uninstall --zap`). Eine Zeile aus `homebrew.casks` zu löschen, deinstalliert die App also wirklich mit ihren Einstellungen. `just mac-diff` zeigt das, bevor es passiert.
+- `onActivation.cleanup = "zap"`: Was installiert, aber nicht deklariert ist, wird entfernt, Casks samt ihren App-Daten (`brew uninstall --zap`). Einen Cask aus der Konfiguration (`apps.json`) zu löschen, deinstalliert die App also wirklich mit ihren Einstellungen. `just mac-diff` zeigt das, bevor es passiert.
 - `global.autoUpdate = false` und `global.brewfile = true`: dasselbe für `brew` von Hand, und `HOMEBREW_BUNDLE_FILE` zeigt auf den erzeugten Brewfile, sodass ein einfaches `brew bundle check` gegen die Konfig vergleicht.
 
 Apps mit eigenem Updater und Mac-App-Store-Apps aktualisieren sich weiter selbst; die Richtlinie betrifft nur, was Homebrew tut.
@@ -277,6 +310,14 @@ Ein Tool aus Nix gewinnt immer gegen dasselbe Tool aus Homebrew, Homebrew gegen 
 Standard-Host ist `gusto`, gebaut aus der Arbeitskopie (auch mit nicht committeten Änderungen – nix sieht aber nur Dateien, die git kennt, neue also erst `git add`). `zorlock` wird per SSH erreicht: `git pull` in `/etc/nixos`, dann dasselbe Skript mit sudo. `deploy-zorlock` und `check-zorlock` sind jetzt Kurzformen von `mac-switch zorlock` und `mac-diff zorlock`. Die eigentliche Arbeit macht `modules/darwin/rebuild.sh` auf dem Mac.
 
 `mac-upgrade` gibt es nur für gusto: Es ändert `flake.lock`, und das wird auf der Workstation committet; zorlock hat kein Homebrew.
+
+#### Software als Daten: apps.json
+
+Was ein Mac installiert – Casks, Homebrew-Formeln, Mac-App-Store-Apps und nixpkgs-Pakete – steht nicht in seiner `configuration.nix`, sondern in `hosts/<host>/apps.json` (entschieden 2026-10-22; heute gusto, zorlock nutzt es nicht). `modules/darwin/apps.nix` macht daraus `homebrew.casks`, `homebrew.brews`, `homebrew.masApps`, `environment.systemPackages`, die `home.packages` des Benutzers und `fonts.packages`. Jeder Eintrag heißt so wie in seiner Quelle und trägt eine `note` (warum er da ist) und das Datum `added`; nixpkgs-Einträge zusätzlich einen `scope` (`system`, `user`, `font`). Taps bleiben Nix, in der Konfiguration des Hosts – sie sind Flake-Inputs.
+
+Die Datei ist mit Absicht Daten: Ein Werkzeug kann Einträge hinzufügen und entfernen, ohne Nix zu parsen, und die Konfiguration prüft sie bei jeder Auswertung – unbekannte Quellen oder Felder, ein nixpkgs-Attribut, das es nicht gibt, ein Eintrag aus einem Tap, den der Host nicht pinnt – und listet alle Probleme auf einmal (`checks.darwin-apps`). `modules/darwin/apps.schema.json` liefert im Editor Vervollständigung und Hover-Hilfe.
+
+`apps` ist dieses Werkzeug (`pkgs/nixlab-apps`): eine Runde aus Suchen, Hinzufügen und Entfernen, dann ein Switch und ein Commit. Es sucht online in nixpkgs, Homebrew und dem Mac App Store, fasst Treffer derselben Software zusammen und markiert die empfohlene Quelle – für eine GUI-App Cask vor App Store vor nixpkgs (signiert, in `/Applications`, aktualisiert sich selbst), für ein Kommandozeilenwerkzeug nixpkgs vor einer Formel. Die Auswahl wird dann gegen den **Pin** geprüft, denn ein Switch installiert, was in `flake.lock` steht, nicht was die Suche gezeigt hat: Ein nixpkgs-Paket muss in `nixpkgs-darwin` auswertbar sein (verfügbar, nicht unfree), ein Cask oder eine Formel muss im gepinnten Tap liegen. Fehlt ein Cask oder eine Formel, kann das Werkzeug `homebrew-cask` / `homebrew-core` in einem eigenen Commit aktualisieren – harmlos, `upgrade = false` lässt installierte Casks in Ruhe. `nixpkgs-darwin` wird dort nie angefasst: Das ist das ganze System beider Macs. Schritte: [Software auf den Macs](#software-auf-den-macs).
 
 ### NetBird auf den beiden Macs
 
@@ -323,7 +364,7 @@ Hier die Gründe hinter gustos Aufbau; die vollständige Liste, was darauf ist, 
 
 #### Nackt starten
 
-gusto wurde bewusst schlank aufgesetzt (2026-10-21): keine App-Liste aus der alten Installation übernommen, nur eine kleine Grundausstattung. Alles Weitere kommt dazu, sobald es gebraucht wird – eine Zeile in `hosts/gusto/configuration.nix` (Cask) oder `home.nix` (CLI-Tool), `just mac-switch`, und falls es Daten gibt, kommen sie aus dem Backup zurück.
+gusto wurde bewusst schlank aufgesetzt (2026-10-21): keine App-Liste aus der alten Installation übernommen, nur eine kleine Grundausstattung. Alles Weitere kommt dazu, sobald es gebraucht wird – `apps` (in `hosts/gusto/apps.json`, Switch, Commit), und falls es Daten gibt, kommen sie aus dem Backup zurück.
 
 | Wo | Was |
 | --- | --- |
@@ -441,8 +482,8 @@ Dienste heißen nach ihrer Funktion (`rezepte`, nicht `mealie`); neue Webdienste
 
 Für Dienste auf grammi:
 
-1. Eintrag in `hosts/grammi/proxy-services.json`: Name → App, Port, Pocket-ID-Gruppen. Tofu (`reverse-proxy.tf`) und `topology.nix` lesen dieselbe Datei.
-2. Der Dienst lauscht auf allen Adressen; öffentlich sind nur 80/443 offen, `nb-mesh` ist vertrauenswürdig.
+1. Eintrag in `hosts/grammi/proxy-services.json`: Name → App, Port, Pocket-ID-Gruppen, optional `start` (wohin `/` weiterleitet). Tofu (`reverse-proxy.tf`), Traefik und `topology.nix` lesen dieselbe Datei; der Proxy erreicht jede App über Traefik `:8090`.
+2. Der Dienst lauscht nur auf `127.0.0.1` – Traefik verbindet sich über Loopback, mehr braucht es nicht ([Apps auf grammi](#apps-auf-grammi-nur-über-traefik-8090)).
 3. In DNSControl einen CNAME `<name>` → `proxy.homelab.example` pushen – einige Minuten vor dem Apply, sonst cacht der Resolver NXDOMAIN.
 4. Erst grammi deployen, dann `just netbird-apply`. Das ruft am Ende `just netbird-proxy-certs` auf: Es fragt jeden neuen Namen einmal von außen ab, damit der Proxy sein Zertifikat holt, und startet `netbird-proxy` danach einmal neu – sonst hängt das Dashboard bei „Issuing certificate…“ (NetBird-Diskussion #7118).
 
@@ -456,6 +497,177 @@ nginx-vHost auf dem Host (ACME per DNS-01), A/AAAA-Records in DNSControl, CrowdS
 
 - Doku: [Services](#services-2), bei neuem Host-Verzeichnis-Inhalt auch [Inhalt von hosts/&lt;host&gt;/](#inhalt-von-hostshost).
 - Dual-Stack, wo es geht (A und AAAA).
+- Wartungsschalter und Fehlerseiten: [Wartungsmodus](#neuen-dienst-aufnehmen) – auf grammi automatisch, auf anderen Hosts ein Eintrag im Host.
+
+## Wartungsmodus
+
+Ein Dienst lässt sich für eine Wartung abschalten, ohne ihn anzuhalten: Wer ihn aufruft, bekommt eine Seite mit Status 503, dem Grund und `Retry-After`; der Dienst selbst läuft weiter und ist für Tests erreichbar. Dieselbe Seite erscheint mit 502 oder 504, wenn der Dienst gerade nicht antwortet – etwa während eines `switch`. Modul: `modules/maintenance.nix`.
+
+### Wie es funktioniert
+
+Jeder HTTP-Weg zu einem Dienst endet an nginx oder Traefik auf dem Host, auf dem der Dienst läuft – auch der Weg über den NetBird-Reverse-Proxy, der nur weiterreicht. Dort sitzen Wartungsschalter und Fehlerseiten; die Software davor ist ein Detail pro Host.
+
+<figure class="nx-diagram">
+<svg viewBox="0 0 680 530" role="img" aria-label="Wege zu den Diensten: jeder HTTP-Weg endet an nginx oder Traefik auf dem Ziel-Host, dort sitzen Wartungsschalter und Fehlerseiten" xmlns="http://www.w3.org/2000/svg">
+<style>.nx-t{font-family:'DejaVu Sans',sans-serif;font-size:14px;font-weight:bold;fill:#2c2c2a}.nx-s{font-family:'DejaVu Sans',sans-serif;font-size:11px;fill:#5f5e5a}.nx-line{fill:none;stroke:#888780;stroke-width:1.4}.nx-gray rect{fill:#f1efe8;stroke:#888780}.nx-gray .nx-t{fill:#2c2c2a}.nx-gray .nx-s{fill:#5f5e5a}.nx-teal rect{fill:#e1f5ee;stroke:#0f6e56}.nx-teal .nx-t{fill:#04342c}.nx-teal .nx-s{fill:#0f6e56}</style>
+<text class="nx-s" x="62" y="30" text-anchor="middle">Quelle</text>
+<text class="nx-s" x="172" y="30" text-anchor="middle">Eingang grammi</text>
+<text class="nx-s" x="298" y="30" text-anchor="middle">Proxy</text>
+<text class="nx-s" x="432" y="30" text-anchor="middle">Front am Ziel</text>
+<text class="nx-s" x="584" y="30" text-anchor="middle">Dienste</text>
+<g class="nx-gray"><rect x="20" y="48" width="84" height="50" rx="8" stroke-width="1"/><text class="nx-t" x="62" y="78" text-anchor="middle">Internet</text></g>
+<path class="nx-line" d="M104 73 H368"/><path class="nx-line" d="M362 69 L368 73 L362 77"/>
+<a data-target="nginx" tabindex="0" role="link" class="nx-teal"><rect x="370" y="48" width="124" height="50" rx="8" stroke-width="1"/><text class="nx-t" x="432" y="70" text-anchor="middle">nginx</text><text class="nx-s" x="432" y="87" text-anchor="middle">aldrin, zummi</text></a>
+<path class="nx-line" d="M494 73 H506"/><path class="nx-line" d="M500 69 L506 73 L500 77"/>
+<g class="nx-gray"><rect x="508" y="48" width="152" height="50" rx="8" stroke-width="1"/><text class="nx-s" x="584" y="69" text-anchor="middle">s3.aldrin, cloud,</text><text class="nx-s" x="584" y="85" text-anchor="middle">auth</text></g>
+<g class="nx-gray"><rect x="20" y="110" width="84" height="50" rx="8" stroke-width="1"/><text class="nx-t" x="62" y="140" text-anchor="middle">Internet</text></g>
+<path class="nx-line" d="M104 135 H116"/><path class="nx-line" d="M110 131 L116 135 L110 139"/>
+<g class="nx-gray"><rect x="118" y="110" width="108" height="50" rx="8" stroke-width="1"/><text class="nx-t" x="172" y="140" text-anchor="middle">Traefik :443</text></g>
+<path class="nx-line" d="M226 135 H238"/><path class="nx-line" d="M232 131 L238 135 L232 139"/>
+<g class="nx-gray"><rect x="240" y="110" width="116" height="50" rx="8" stroke-width="1"/><text class="nx-t" x="298" y="140" text-anchor="middle">netbird-proxy</text></g>
+<path class="nx-line" d="M356 135 H368"/><path class="nx-line" d="M362 131 L368 135 L362 139"/>
+<a data-target="nginx" tabindex="0" role="link" class="nx-teal"><rect x="370" y="110" width="124" height="50" rx="8" stroke-width="1"/><text class="nx-t" x="432" y="132" text-anchor="middle">nginx</text><text class="nx-s" x="432" y="149" text-anchor="middle">ursalia :8092</text></a>
+<path class="nx-line" d="M494 135 H506"/><path class="nx-line" d="M500 131 L506 135 L500 139"/>
+<g class="nx-gray"><rect x="508" y="110" width="152" height="50" rx="8" stroke-width="1"/><text class="nx-s" x="584" y="140" text-anchor="middle">dokumente</text></g>
+<g class="nx-gray"><rect x="20" y="172" width="84" height="50" rx="8" stroke-width="1"/><text class="nx-t" x="62" y="202" text-anchor="middle">Internet</text></g>
+<path class="nx-line" d="M104 197 H116"/><path class="nx-line" d="M110 193 L116 197 L110 201"/>
+<g class="nx-gray"><rect x="118" y="172" width="108" height="50" rx="8" stroke-width="1"/><text class="nx-t" x="172" y="202" text-anchor="middle">Traefik :443</text></g>
+<path class="nx-line" d="M226 197 H238"/><path class="nx-line" d="M232 193 L238 197 L232 201"/>
+<g class="nx-gray"><rect x="240" y="172" width="116" height="50" rx="8" stroke-width="1"/><text class="nx-t" x="298" y="202" text-anchor="middle">netbird-proxy</text></g>
+<path class="nx-line" d="M356 197 H368"/><path class="nx-line" d="M362 193 L368 197 L362 201"/>
+<a data-target="traefik" tabindex="0" role="link" class="nx-teal"><rect x="370" y="172" width="124" height="50" rx="8" stroke-width="1"/><text class="nx-t" x="432" y="194" text-anchor="middle">Traefik :8090</text><text class="nx-s" x="432" y="211" text-anchor="middle">alle grammi-Apps</text></a>
+<path class="nx-line" d="M494 197 H506"/><path class="nx-line" d="M500 193 L506 197 L500 201"/>
+<g class="nx-gray"><rect x="508" y="172" width="152" height="50" rx="8" stroke-width="1"/><text class="nx-s" x="584" y="193" text-anchor="middle">vm, vl, rezepte,</text><text class="nx-s" x="584" y="209" text-anchor="middle">grist, logs, metrics</text></g>
+<g class="nx-gray"><rect x="20" y="234" width="84" height="50" rx="8" stroke-width="1"/><text class="nx-t" x="62" y="264" text-anchor="middle">Mesh</text></g>
+<path class="nx-line" d="M104 259 H368"/><path class="nx-line" d="M362 255 L368 259 L362 263"/>
+<a data-target="nginx" tabindex="0" role="link" class="nx-teal"><rect x="370" y="234" width="124" height="50" rx="8" stroke-width="1"/><text class="nx-t" x="432" y="256" text-anchor="middle">nginx</text><text class="nx-s" x="432" y="273" text-anchor="middle">ursalia :443</text></a>
+<path class="nx-line" d="M494 259 H506"/><path class="nx-line" d="M500 255 L506 259 L500 263"/>
+<g class="nx-gray"><rect x="508" y="234" width="152" height="50" rx="8" stroke-width="1"/><text class="nx-s" x="584" y="264" text-anchor="middle">dokumente</text></g>
+<g class="nx-gray"><rect x="20" y="296" width="84" height="50" rx="8" stroke-width="1"/><text class="nx-t" x="62" y="326" text-anchor="middle">Internet</text></g>
+<path class="nx-line" d="M104 321 H238"/><path class="nx-line" d="M232 317 L238 321 L232 325"/>
+<g class="nx-gray"><rect x="240" y="296" width="116" height="50" rx="8" stroke-width="1"/><text class="nx-t" x="298" y="318" text-anchor="middle">netbird-proxy</text><text class="nx-s" x="298" y="335" text-anchor="middle">:8883, nur TCP</text></g>
+<path class="nx-line" d="M356 321 H368"/><path class="nx-line" d="M362 317 L368 321 L362 325"/>
+<g class="nx-gray"><rect x="370" y="296" width="124" height="50" rx="8" stroke-width="1" stroke-dasharray="5 4"/><text class="nx-t" x="432" y="326" text-anchor="middle">keine</text></g>
+<path class="nx-line" d="M494 321 H506"/><path class="nx-line" d="M500 317 L506 321 L500 325"/>
+<g class="nx-gray"><rect x="508" y="296" width="152" height="50" rx="8" stroke-width="1"/><text class="nx-s" x="584" y="326" text-anchor="middle">mqtt (Home Assistant)</text></g>
+<g class="nx-gray"><rect x="20" y="358" width="84" height="50" rx="8" stroke-width="1"/><text class="nx-t" x="62" y="388" text-anchor="middle">Internet</text></g>
+<path class="nx-line" d="M104 383 H116"/><path class="nx-line" d="M110 379 L116 383 L110 387"/>
+<g class="nx-gray"><rect x="118" y="358" width="108" height="50" rx="8" stroke-width="1"/><text class="nx-t" x="172" y="388" text-anchor="middle">Traefik :443</text></g>
+<path class="nx-line" d="M226 383 H238"/><path class="nx-line" d="M232 379 L238 383 L232 387"/>
+<g class="nx-gray"><rect x="240" y="358" width="116" height="50" rx="8" stroke-width="1"/><text class="nx-t" x="298" y="380" text-anchor="middle">netbird-proxy</text><text class="nx-s" x="298" y="397" text-anchor="middle">Ziel umgestellt</text></g>
+<path class="nx-line" d="M356 383 H368" stroke-dasharray="5 4"/><path class="nx-line" d="M362 379 L368 383 L362 387"/>
+<a data-target="proxy-maintenance" tabindex="0" role="link" class="nx-teal"><rect x="370" y="358" width="124" height="50" rx="8" stroke-width="1" stroke-dasharray="5 4"/><text class="nx-t" x="432" y="380" text-anchor="middle">Wartungsseite</text><text class="nx-s" x="432" y="397" text-anchor="middle">grammi :8090</text></a>
+<g class="nx-gray"><rect x="508" y="358" width="152" height="50" rx="8" stroke-width="1"/><text class="nx-s" x="584" y="379" text-anchor="middle">wenn der Ziel-Host</text><text class="nx-s" x="584" y="395" text-anchor="middle">ganz aus ist</text></g>
+<a data-target="switching" tabindex="0" role="link" class="nx-teal"><rect x="20" y="430" width="640" height="56" rx="8" stroke-width="1"/><text class="nx-t" x="340" y="453" text-anchor="middle">Gemeinsam auf jedem Host mit Front</text><text class="nx-s" x="340" y="472" text-anchor="middle">Flag in /var/lib/maintenance · Seite 503/502/504 · Bypass-Cookie</text></a>
+<g class="nx-teal"><rect x="20" y="504" width="14" height="14" rx="3" stroke-width="1"/></g><text class="nx-s" x="42" y="515">Wartungs-Check und Fehlerseiten</text>
+<g class="nx-gray"><rect x="340" y="504" width="14" height="14" rx="3" stroke-width="1" stroke-dasharray="3 2"/></g><text class="nx-s" x="362" y="515">gestrichelt: Proxy-Wartung, nur bei Bedarf</text>
+</svg>
+</figure>
+
+- **Flag**: `/var/lib/maintenance/<fqdn>` (oder `all` für den ganzen Host). Der Inhalt der Datei ist der Grund auf der Seite. Die Flags überstehen einen Neustart – eine Wartung bleibt zu, bis sie jemand beendet.
+- **Seite**: ein kleines Programm auf jedem Host (`maintenance-responder`, nur 127.0.0.1:8089, startet bei Bedarf über systemd). Es entscheidet für nginx und Traefik gleich zwischen Wartung (503) und Störung (502/504).
+- **Bypass**: ein Cookie für alle Namen unter `homelab.example`, mit dem der Dienst trotz Wartung im Browser erreichbar bleibt.
+
+### Ein- und ausschalten
+
+Vom Arbeitsrechner; der Host wird über `inventory.json` gefunden:
+
+```bash
+just maintenance dokumente on "Paperless-Upgrade, bis ca. 22 Uhr"
+```
+
+```bash
+just maintenance dokumente off
+```
+
+```bash
+just maintenance-list
+```
+
+Ein Name ohne Punkt bekommt `.homelab.example` angehängt. Ein ganzer Host (alle Namen mit Wartungsschalter dort):
+
+```bash
+just maintenance all on "Umzug auf neue Hardware" aldrin
+```
+
+```bash
+just maintenance all off "" aldrin
+```
+
+Auf dem Host selbst geht dasselbe mit `maintenance on|off|status`. Ein Neuladen von nginx oder Traefik ist nicht nötig; nginx prüft das Flag bei jeder Anfrage, Traefik übernimmt die Änderung nach zwei bis vier Sekunden.
+
+Welche Namen einen Wartungsschalter haben:
+
+| Host | Namen | Front |
+| --- | --- | --- |
+| aldrin | `s3.aldrin`, `cloud` | nginx |
+| zummi | `auth` | nginx |
+| ursalia | `dokumente` (443 und der Proxy-Listener 8092) | nginx |
+| grammi | alle Namen aus `hosts/grammi/proxy-services.json` | Traefik `:8090` |
+
+Nebenwirkungen: `s3.aldrin` in Wartung heißt, dass die nächtlichen restic-Backups aller Hosts scheitern; `auth` in Wartung heißt, dass sich niemand neu per Pocket ID anmelden kann. `s3-admin` (garage-ui) hat nur die Fehlerseiten: Sein 443 ist öffentlich offen, und die Wartungsprüfung liefe vor dessen Mesh-Sperre (`allow`/`deny`).
+
+### Dienst trotzdem sehen
+
+1. Token in die Zwischenablage holen (wird nie angezeigt):
+
+    ```bash
+    just maintenance-key
+    ```
+
+2. `https://<name>/_maintenance/bypass` öffnen, z. B. `https://dokumente.homelab.example/_maintenance/bypass`, Token einfügen.
+
+Das Cookie gilt 12 Stunden für alle Namen unter `homelab.example`, auch für den Rückweg nach dem Login bei Pocket ID. Löschen: `https://<name>/_maintenance/clear`. Der Bypass ist Komfort, keine Sicherheitsgrenze – Login, SSO am Proxy und Mesh-Sperren gelten weiter. Das Token liegt per sops in `hosts/<host>/maintenance.yaml` (gleiches Token auf allen vier Hosts); neu erzeugen: alle vier Dateien löschen, `just maintenance-token`, committen, die vier Hosts deployen.
+
+Der Schlüssel wird per Formular geschickt, nicht als `?key=` in der Adresse: Adressen stehen in den Zugriffsprotokollen, und die landen in VictoriaLogs.
+
+### Hinter der Wartung testen mit ssh -L
+
+Für Prüfungen ohne Browser – Healthcheck, API, Versionsabfrage – reicht ein Tunnel direkt zum Dienst, an nginx und Traefik vorbei:
+
+```bash
+ssh -L 8000:127.0.0.1:8000 root@ursalia.peer.homelab.example
+```
+
+```bash
+curl -sI http://localhost:8000/api/
+```
+
+Weitere Beispiele: Grafana `ssh -L 3000:127.0.0.1:3000 root@grammi.peer.homelab.example`, Garage-S3 `ssh -L 3900:127.0.0.1:3900 root@aldrin.peer.homelab.example` (dann ein S3-Client gegen `http://localhost:3900`).
+
+Für einen Test im Browser taugt das meist nicht: Dienste, die ihre eigene Adresse prüfen, lehnen `localhost` ab. paperless vergleicht beim Login den `Origin` mit `PAPERLESS_URL` (CSRF), OpenCloud und alles mit OIDC leiten nach der Anmeldung auf ihre echte Adresse zurück – die gerade in Wartung ist. Für den Browser ist der [Bypass](#dienst-trotzdem-sehen) da.
+
+### Wenn der Host ganz aus ist
+
+Ist der Ziel-Host selbst aus (Neustart, Umzug), fehlt auch seine Wartungsseite, und der NetBird-Proxy zeigt seinen eigenen Fehler. Für die Dienste außerhalb von grammi (`dokumente`, `doku`) lässt sich das Proxy-Ziel deshalb auf grammi umstellen, wo Traefik jeden Namen, den es nicht selbst bedient, mit der Wartungsseite beantwortet:
+
+```bash
+just proxy-maintenance dokumente on "ursalia wird neu installiert"
+```
+
+```bash
+just proxy-maintenance dokumente off
+```
+
+Das schreibt `terraform/netbird/proxy-maintenance.json`, ruft `just netbird-apply` auf und setzt bzw. löscht das Flag auf grammi. Danach `proxy-maintenance.json` und `expected-peers.json` committen (solange umgestellt ist, fällt der Host aus den Zielen des Proxys). Der Login (SSO, PIN) bleibt davor; aus dem Mesh direkt bleibt der Host natürlich unerreichbar.
+
+### Fehlerseiten bei 502 und 504
+
+Ohne Schalter: Antwortet der Dienst nicht (502) oder zu langsam (504), zeigt die Front dieselbe Seite mit „Gerade nicht erreichbar“ und dem echten Statuscode.
+
+#### nginx
+
+nginx ersetzt nur seine eigenen Fehler (`error_page`). Fehlerantworten des Dienstes selbst kommen unverändert durch – `proxy_intercept_errors` bleibt aus, damit S3-Clients ihr XML und OIDC-Clients ihr JSON bekommen.
+
+#### Traefik
+
+Traefik ersetzt mit der `errors`-Middleware auch Antworten des Dienstes, deshalb nur 502 und 504, nicht 503. Die Wartungs-Router erzeugt `maintenance-traefik-sync` aus den Flags in `/run/traefik-dynamic/`, das Traefik beobachtet. Der Kontroll-Endpunkt `mesh.homelab.example` bekommt nie einen Wartungsschalter.
+
+### Neuen Dienst aufnehmen
+
+- **nginx**: den vHost (Attributname) in `services.maintenance.nginx.vhosts` des Hosts eintragen, oder in `nginx.errorPagesOnly` für nur die Fehlerseiten. Nicht für vHosts mit `allow`/`deny`, deren Port auch Abgewiesene erreichen – die Wartungsprüfung läuft vor `allow`/`deny`.
+- **grammi**: jeder Eintrag in `hosts/grammi/proxy-services.json` ist automatisch dabei.
+- **Neuer Host**: `./modules/maintenance.nix` in `flake.nix` importieren, `services.maintenance.enable = true`, den Host in `.sops.yaml` (`maintenance`) und in `just maintenance-token` aufnehmen und das Token neu erzeugen.
 
 ## Secrets eintragen
 
@@ -504,6 +716,92 @@ Der age-Schlüssel eines Hosts ist aus seinem SSH-Host-Key abgeleitet. Ein neuer
 
 - Alte Schlüssel beim Gegenüber löschen (GitHub, deSEC und NetBird erledigt das Rezept per Tofu).
 - `just docs`, falls sich Namen oder Abläufe geändert haben.
+
+## Software auf den Macs
+
+Alles, was auf gusto installiert ist – Casks, Homebrew-Formeln, Mac-App-Store-Apps, nixpkgs-Pakete und Schriften – steht in `hosts/gusto/apps.json`. Drei Befehle verwalten sie – `apps`, `apps-list` und `apps-rm`, auf gusto installiert und in jedem Ordner nutzbar; im Repo-Ordner tun `just apps`, `just apps-list` und `just apps-rm` dasselbe. Den Hintergrund (warum eine Datendatei, warum die Pin-Prüfung) erklärt [macOS-Hosts](#software-als-daten-appsjson).
+
+### Eine Runde: hinzufügen und entfernen
+
+```bash
+apps obsidian
+```
+
+Der Suchbegriff ist optional (`apps` allein startet mit leerer Suche). Eine Runde sind beliebig viele Änderungen und endet mit einem Switch und einem Commit:
+
+```
+╭──────────── search: obsidian  filter: export ─╮   ← beide Felder
+│ filter> export                                 │   ← das aktive
+╰────────────────────────────────────────────────╯
+  this round:  + ripgrep (nixpkgs, user)   − shottr (cask) ZAP
+  enter: add / remove   tab: search ⇄ filter   ctrl-s: done   esc: cancel
+  nixpkgs ✓ 12  Homebrew ✓ 2  App Store ✓ 10
+   nixpkgs  obsidian-export   25.3.0   CLI  Rust library and CLI to export …
+…
+  [ Done · ctrl-s ]  [ Cancel · esc ]     shift-tab: buttons
+```
+
+- **Zwei Felder, `tab` wechselt.** `search>` sucht online; `filter>` (optional) grenzt die Treffer dieser Suche in fzf unscharf ein, ohne neu zu suchen (`'wort` für einen exakten Treffer). Ein neuer Suchbegriff leert den Filter – er gehörte zu den alten Treffern. Der Rahmen oben zeigt beide.
+- **Die Suche** läuft beim Tippen (ab 2 Zeichen, nach einer kurzen Pause) gegen nixpkgs (search.nixos.org, Release von `nixpkgs-darwin`), Homebrew (formulae.brew.sh) und den Mac App Store. Ist search.nixos.org nicht erreichbar, übernimmt `nix search` gegen den Pin – langsamer, aber immer verfügbar. Die Zeile über der Liste zeigt, was jede Quelle geliefert hat.
+- **★** markiert die empfohlene Quelle, wenn es dieselbe Software mehrfach gibt: für eine GUI-App Cask vor App Store vor nixpkgs, für ein Kommandozeilenwerkzeug nixpkgs vor einer Homebrew-Formel. Die Vorschau unten zeigt Beschreibung, Version, Lizenz, Homepage – und bei einem deklarierten Eintrag seine Notiz.
+- **Enter auf einen neuen Treffer fügt ihn hinzu.** Die Liste schließt sich für die Fragen:
+    1. Die Pin-Prüfung –
+
+        | Quelle | Prüfung | Wenn sie scheitert |
+        | --- | --- | --- |
+        | nixpkgs | auswertbar im gepinnten `nixpkgs-darwin`, verfügbar auf aarch64-darwin, nicht unfree | nicht hinzugefügt – kommt mit dem nächsten System-Update; unfree: den Cask nehmen |
+        | Cask / Formel | die `.rb`-Datei liegt im gepinnten Tap | bietet an, `homebrew-cask` / `homebrew-core` zu aktualisieren (eigener Commit) |
+        | App Store | – (kein Pin, der Store installiert die aktuelle Version) | – |
+
+    2. bei nixpkgs der Scope: `user` (admins `home.packages`, Standard), `system` (root und jede Shell) oder `font`;
+    3. eine Notiz – warum es da ist, auf Englisch, wie ein Kommentar in der Konfiguration; Enter lässt sie weg.
+
+    Danach ist die Liste mit derselben Suche und demselben Filter wieder da, im Feld, in dem du warst, bereit für das Nächste. Ctrl-C während der Fragen überspringt diesen Treffer.
+- **Enter auf einen deklarierten Eintrag (✓) merkt ihn zum Entfernen vor** (rot, durchgestrichen, `−`). Gelöscht wird noch nichts.
+- **Enter auf etwas, das in dieser Runde dazukam oder vorgemerkt wurde, nimmt es zurück.**
+- Die Kopfzeile listet die Runde: `+` grün, `−` rot, **ZAP** bei einem Cask – einen Cask zu entfernen löscht beim Switch die App *und ihre Daten* (Einstellungen, Caches, Container).
+
+**Fertig** – `ctrl-s`, oder mit `shift-tab` auf den Button *Done* und Enter (ein Klick geht auch):
+
+1. die Runde noch einmal, dann wird die Konfiguration ausgewertet; scheitert das, steht der Fehler da und du bist zurück in der Liste;
+2. zu zappende Casks: `just mac-diff` zeigt sie, dann *Continue? [y/N]* – Nein führt zurück in die Liste;
+3. auf gusto selbst: Switch? (Standard ja, nein wenn etwas gezappt wird);
+4. der Commit folgt auf einen erfolgreichen Switch – oder einen abgelehnten; ein gescheiterter Switch lässt alles uncommittet.
+
+Ein Commit pro Runde, nur `apps.json`: `gusto: add obsidian (cask), remove shottr (cask)`, mit einer Liste im Text; bei einer längeren Runde steht im Betreff die Anzahl (`gusto: add 3 and remove 1 apps`). Ein Tap-Bump ist ein eigener Commit davor (`flake.lock: bump homebrew-cask for …`).
+
+**Abbrechen** – `esc` oder der Button *Cancel*: Mit Änderungen in der Runde fragt es *Discard N change(s)?*, danach sind `apps.json` (und `flake.lock`) wieder wie vorher. Hat `apps.json` beim Start von `apps` schon uncommittete Änderungen, bricht es ab, bevor es etwas ändert.
+
+### Eins direkt entfernen
+
+```bash
+apps-rm shottr
+```
+
+Für ein einzelnes Entfernen ohne Suche. Ein Cask will zur Bestätigung den Namen getippt haben, dann `just mac-diff`, Switch (Standard nein), Commit. Eine **Mac-App-Store**-App bleibt installiert, wenn ihr Eintrag geht – bei Bedarf von Hand löschen. Ist ein Name aus zwei Quellen deklariert, mit `--source` wählen, z. B. `apps-rm obsidian --source nixpkgs`.
+
+### Auflisten
+
+```bash
+apps-list
+```
+
+Nach Quelle, mit dem Datum, an dem es dazukam, und der Notiz.
+
+### Von Hand
+
+`apps.json` lässt sich direkt bearbeiten (der Editor ergänzt die Felder über `modules/darwin/apps.schema.json`), danach `just mac-diff` und `just mac-switch`. Fehler zeigen sich bei der Auswertung mit der vollständigen Liste der Probleme; `nix build .#checks.aarch64-darwin.darwin-apps` prüft nur die Datei.
+
+Nicht in `apps.json`:
+
+- **Ein neuer Drittanbieter-Tap** – er ist ein Flake-Input: Input in `flake.nix` anlegen und `nix-homebrew.taps."<owner>/homebrew-<tap>" = inputs.<input>;` in `hosts/gusto/configuration.nix`. Seine Casks und Formeln heißen in `apps.json` dann `"<owner>/homebrew-<tap>/<name>"`.
+- **Ein Werkzeug mit Konfiguration** – `programs.<tool>` in `hosts/gusto/home.nix` (zsh, git, tmux, …).
+
+### Welcher Checkout, welcher Mac
+
+Die Befehle ändern den nixlab-Checkout (oder Worktree), in dem der aktuelle Ordner liegt; überall sonst den aus `NIXLAB_REPO` (`~/Projects/homelab/nixlab`, gesetzt in `home.nix`), oder `--repo <pfad>`. Sie sind das Paket `nixlab-apps` aus diesem Flake, installiert über `home.nix` – eine Änderung am Werkzeug selbst kommt mit dem nächsten `just mac-switch`; `just apps*` nutzt immer die Version aus der Arbeitskopie.
+
+Der Host ist standardmäßig gusto; `--host zorlock` geht, sofern der Host `nixlab.apps.file` setzt – zorlock tut das heute nicht. Für einen anderen Mac als den, an dem du sitzt, committet die Runde ohne Switch; danach `just push` und `just mac-switch <host>`.
 
 ## Repository-Struktur
 
@@ -570,6 +868,7 @@ Was in einem Host-Verzeichnis liegt und wer es schreibt. Nicht jeder Host hat je
 | `secrets.yaml` | App-Secrets, verschlüsselt für Host + admin | `just secrets <host>` |
 | `netbird.yaml` | NetBird-Setup-Key | `just netbird-key <host>` (Tofu) |
 | `desec.yaml` | deSEC-Token für DNS-01 | `just desec-key <host>` (Tofu) |
+| `maintenance.yaml` | Bypass-Token des [Wartungsmodus](#dienst-trotzdem-sehen), gleich auf aldrin, zummi, grammi, ursalia | `just maintenance-token` |
 | `github.yaml` | privater Teil des Deploy-Keys | `just github-key <host>` |
 | `github-deploy.pub` | öffentlicher Teil, von `terraform/github` gelesen | `just github-key <host>` |
 | weitere `*.yaml` | sops-Dateien einzelner Dienste, z. B. `netbird-server.yaml`, `netbird-proxy.yaml` (grammi), `push-cuckoosegg.yaml` (ursalia) | ihre Rezepte, z. B. `just netbird-server-secrets`, `just netbird-proxy-token` |
@@ -609,7 +908,7 @@ Drei gemietete VMs tragen die öffentlichen Dienste, ursalia und zorlock stehen 
 | grammi | NixOS, gemietete VM | NetBird-Server (`mesh.homelab.example`) + Reverse Proxy, Traefik, Monitoring (VictoriaMetrics/-Logs, Grafana, logchef), Mealie, Grist, PostgreSQL | Zentrale Senke für Metriken und Logs aller Hosts |
 | zummi | NixOS, gemietete VM | Pocket ID (`auth.homelab.example`) – Login für alle Dienste und NetBird | pocket-id separat gepinnt |
 | aldrin | NixOS, gemietete VM | Garage S3 (`s3.aldrin.homelab.example`), garage-ui (`s3-admin`), Backup-Ziel für restic, Doku-Site (`doku`) | Fork-Paket garage-ui mit Subpath-Support |
-| ursalia | NixOS, Bare Metal (ThinkCentre M720q) | Paperless-ngx 3 + paperless-gpt (`dokumente`), Doku-Site (`doku`), Samba für den Scanner, Routing-Peer ins Heim-LAN, Build-Host für cuckoosegg, Claude-Code-Brücke zum NanoKVM Go+ (nur bei Bedarf) | LUKS + btrfs via disko, TPM-Unlock, Secure Boot (lanzaboote), WLAN (Intel BE200), kein CrowdSec |
+| ursalia | NixOS, Bare Metal (ThinkCentre M720q) | Paperless-ngx 3 + paperless-gpt (`dokumente`), Doku-Site (`doku`), Samba für den Scanner, Routing-Peer ins Heim-LAN, Build-Host für cuckoosegg, ESPHome-Build-Server für Home Assistant (nur Heim-LAN, Port 6055), Claude-Code-Brücke zum NanoKVM Go+ (nur bei Bedarf) | LUKS + btrfs via disko, TPM-Unlock, Secure Boot (lanzaboote), WLAN (Intel BE200), kein CrowdSec |
 | cuckoosegg | NixOS, VM auf dem Subraum-Proxmox | NetBird-Routing-Peer in die Subraum-Netze | Gruppe `subraum-devices` statt `servers`, kein Repo/Deploy-Key, wird per Push deployed |
 | zorlock | macOS + nix-darwin, Mac mini M4 | Ollama auf der Apple-GPU (`llm`), genutzt von paperless-gpt | Keins der `modules/*.nix`; FileVault-Unlock nach Reboot per LAN-SSH |
 | gusto | macOS + nix-darwin + home-manager, MacBook Pro | Admin-Workstation: Deploys, Secrets, Tofu, Doku | Laptop, kein sshd, keine Secrets, nicht überwacht; Apps als Homebrew-Casks, NetBird als offizielle App – siehe [gusto](#gusto--die-admin-workstation) und [macOS-Hosts](#macos-hosts) |
@@ -626,7 +925,7 @@ gusto ist das MacBook Pro, von dem aus alles in diesem Repo läuft: Deploys, Sec
 | System | macOS (Englisch, Region Deutschland), FileVault an |
 | Konfiguration | `darwinConfigurations.gusto` in `flake.nix`: nix-darwin + home-manager (Benutzer `admin`) |
 | Gebaut und geschaltet | auf gusto selbst, aus dem Arbeitsklon `~/Projects/homelab/nixlab` – `just mac-switch` |
-| Apps | Homebrew-Casks; Homebrew und seine Taps in `flake.lock` festgeschrieben (`modules/darwin/homebrew.nix`) |
+| Apps | Homebrew-Casks; Homebrew und seine Taps in `flake.lock` festgeschrieben (`modules/darwin/homebrew.nix`); alle Software steht in `hosts/gusto/apps.json` |
 | Repo-Werkzeuge | aus der devShell des Flakes, von direnv im Repo-Ordner geladen |
 | SSH | nur Client, Schlüssel nur in 1Password; kein Remote Login (kein sshd) |
 | Mesh | NetBird-Peer `gusto` (Cask `netbird-ui`), Gruppe `admin-workstations` |
@@ -638,10 +937,13 @@ gusto ist das MacBook Pro, von dem aus alles in diesem Repo läuft: Deploys, Sec
 
 | Datei | Inhalt |
 | --- | --- |
-| `hosts/gusto/configuration.nix` | System: Hostname, Nix-Einstellungen, Touch ID für sudo, Casks, Systempakete, Schrift, SSH-Hostkeys, `SSH_AUTH_SOCK` für GUI-Apps, macOS-Einstellungen, Einbindung von home-manager |
+| `hosts/gusto/configuration.nix` | System: Hostname, Nix-Einstellungen, Touch ID für sudo, Taps, SSH-Hostkeys, `SSH_AUTH_SOCK` für GUI-Apps, macOS-Einstellungen, Einbindung von home-manager |
 | `hosts/gusto/home.nix` | admins Home: Umgebung, Links, zsh und Helfer, CLI-/TUI-Werkzeuge, Ghostty, git |
 | `hosts/gusto/ssh.nix` | `~/.ssh/config` und `~/.ssh/pub/` |
 | `hosts/gusto/ssh/*.pub` | Öffentliche Hälften der SSH-Schlüssel (einer pro Ziel), verlinkt nach `~/.ssh/pub/` |
+| `hosts/gusto/apps.json` | Alle Software: Casks, Formeln, Mac App Store, nixpkgs (System, Benutzer, Schrift), jeweils mit Notiz – `apps-list` |
+| `modules/darwin/apps.nix`, `apps.schema.json` | Macht aus `apps.json` die Optionen und prüft sie; Editor-Schema |
+| `pkgs/nixlab-apps/` | Das Werkzeug hinter `apps`, `apps-list`, `apps-rm` |
 | `modules/darwin/homebrew.nix` | Homebrew-Richtlinie, gemeinsam mit zorlock |
 | `modules/darwin/rebuild.sh` | Die Mechanik hinter den `mac-*`-Rezepten |
 | `.envrc` | `use flake` – direnv lädt die devShell im Repo-Ordner |
@@ -651,7 +953,7 @@ Flake-Inputs nur für gusto: `home-manager`, `nix-homebrew`, `homebrew-core`, `h
 
 ### Was installiert ist
 
-gusto wurde am 2026-10-21 bewusst „nackt“ aufgesetzt: keine App-Liste aus der vorherigen Installation übernommen, nur die Grundausstattung unten. Alles andere kommt dazu, wenn es gebraucht wird (siehe [Im Alltag](#im-alltag)).
+gusto wurde am 2026-10-21 bewusst „nackt“ aufgesetzt: keine App-Liste aus der vorherigen Installation übernommen, nur die Grundausstattung unten. Alles andere kommt dazu, wenn es gebraucht wird (siehe [Im Alltag](#im-alltag)). Die Tabellen beschreiben sie; die vollständige, aktuelle Liste ist `hosts/gusto/apps.json` – `apps-list`.
 
 #### Apps (Homebrew-Casks)
 
@@ -794,9 +1096,9 @@ Die offizielle App aus NetBirds Tap (Cask `netbird-ui`, Formula `netbird` für d
 
 | Aufgabe | Wie |
 | --- | --- |
-| App hinzufügen | Cask in `hosts/gusto/configuration.nix` → `just mac-diff` → `just mac-switch` |
-| CLI-Werkzeug hinzufügen | `programs.<tool>` oder `home.packages` in `hosts/gusto/home.nix` → `just mac-switch` |
-| Etwas entfernen | Zeile löschen → `just mac-switch`; Casks gehen samt Daten (`zap`) – `just mac-diff` zeigt es vorher |
+| Apps und CLI-Werkzeuge hinzufügen oder entfernen | `apps [suche]` (in jedem Ordner; im Repo auch `just apps`) – eine Runde: suchen, auswählen, Suche ändern, wieder auswählen …, dann ein Switch und ein Commit ([Anleitung](#software-auf-den-macs)); ein Werkzeug mit Konfiguration: `programs.<tool>` in `hosts/gusto/home.nix` |
+| Eins direkt entfernen | `apps-rm <name>`; Casks gehen samt Daten (`zap`) – vorher kommt `mac-diff` |
+| Sehen, was deklariert ist | `apps-list` |
 | Apps aktualisieren (Homebrew) | `just mac-upgrade` – aktualisiert nur die Tap-Inputs, Switch, `brew upgrade`, Zusammenfassung; danach `flake.lock` committen |
 | System aktualisieren (Nix) | `nix flake update nixpkgs-darwin nix-darwin home-manager` → `just mac-switch` → auch `just mac-switch zorlock` (gleiche Inputs) |
 | NixOS-Host deployen | `just ship <host> "<Nachricht>"` oder `just deploy <host>` – übers Mesh als root |
@@ -3586,7 +3888,8 @@ Dienste sind nach Funktion benannt, nicht nach Produkt. Es gibt drei Arten der E
 | `grist` | Grist | grammi | Reverse Proxy + SSO |
 | `logs` | logchef | grammi | Reverse Proxy + SSO |
 | `metrics` | Grafana | grammi | Reverse Proxy + SSO |
-| `vm` / `vl` | VictoriaMetrics / VictoriaLogs UI | grammi | Reverse Proxy + SSO (über Traefik-Entrypoint `apps`, Port 8090) |
+| `dash` | Grafana, nur öffentliche Dashboards | grammi | Reverse Proxy ohne Login, Traefik lässt nur die Pfade öffentlicher Dashboards durch ([warum](#grafana-öffentliche-dashboards-über-dash)) |
+| `vm` / `vl` | VictoriaMetrics / VictoriaLogs UI | grammi | Reverse Proxy + SSO |
 | `s3-admin` | garage-ui | aldrin | nur Mesh |
 | `dokumente` | Paperless + paperless-gpt (`/paperless-gpt/`) | ursalia | im Mesh direkt; von außen über den Reverse Proxy Freigabelinks per PIN und die App per SSO ([warum](#paperless-von-außen-freigabelinks-pin-und-app-sso)) |
 | `llm` | Ollama (hinter Caddy) | zorlock | nur Mesh |
@@ -3594,7 +3897,7 @@ Dienste sind nach Funktion benannt, nicht nach Produkt. Es gibt drei Arten der E
 | `acme` | dns01proxy (DNS-01 für Home Assistant) | grammi | nur Mesh, Port 8446; HA löst ihn über den Heimrouter (OPNsense) auf ([warum](#mqtt-von-außen-tls-passthrough-zu-home-assistant)) |
 | `doku` | Diese Dokumentation (private Fassung) | aldrin + ursalia | im Mesh nur Admin-Geräte ([warum](#private-doku-nur-admin-geräte)), ein A-Record je Host; von außen über den Reverse Proxy eine Weiterleitung auf die öffentliche Doku |
 
-**Reverse Proxy:** Traefik auf grammi besitzt Port 443. `mesh.homelab.example` terminiert es selbst, alles andere reicht es per TCP-Passthrough mit PROXY-Protokoll v2 an `netbird-proxy` weiter, das TLS und ACME (tls-alpn-01) selbst macht. Login am Proxy ist SSO gegen Pocket ID, begrenzt auf die NetBird-Gruppen der jeweiligen App; `dokumente` zusätzlich mit PIN (nur Freigabelinks).
+**Reverse Proxy:** Traefik auf grammi besitzt Port 443. `mesh.homelab.example` terminiert es selbst, alles andere reicht es per TCP-Passthrough mit PROXY-Protokoll v2 an `netbird-proxy` weiter, das TLS und ACME (tls-alpn-01) selbst macht. Login am Proxy ist SSO gegen Pocket ID, begrenzt auf die NetBird-Gruppen der jeweiligen App; `dokumente` zusätzlich mit PIN (nur Freigabelinks). Die Dienste auf grammi erreicht der Proxy alle über den Traefik-Entrypoint `apps` (Port 8090), der Wartungsschalter und Fehlerseiten davorsetzt ([Wartungsmodus](#wartungsmodus)).
 
 **Mesh-only-Namen:** Jeder Name ist eine eigene NetBird-DNS-Zone mit einem A-Record auf die Mesh-Adresse (192.0.2.x). Öffentliches DNS kennt sie nicht; das Zertifikat kommt per DNS-01 über deSEC.
 
@@ -3651,6 +3954,7 @@ Die 17 Module unter `modules/` tragen die gemeinsame Konfiguration aller Hosts; 
 | `just nanokvm-mcp-key` | MCP-API-Key des NanoKVM Go+ verschlüsselt für ursalia ablegen (danach committen, ursalia deployen) |
 | `just kvm-bridge setup\|start\|stop\|status\|log` | Claude-Code-Brücke zum NanoKVM Go+ auf ursalia: einmal einrichten, starten, stoppen, Zustand, Log |
 | `just mac-diff [host]` / `mac-switch [host]` | Macs (Standard gusto, oder zorlock per SSH): zeigen, was ein Switch ändern würde (nvd, Homebrew entfernt/installiert), oder schalten mit Zusammenfassung – siehe [macOS-Hosts](#macos-hosts) |
+| `just apps [suche] [--host h]` / `apps-list [host]` / `apps-rm <name> [host]` | Software eines Macs (`hosts/<host>/apps.json`): eine Runde aus Suchen in nixpkgs, Homebrew und App Store, Hinzufügen (nach Pin-Prüfung) und Entfernen, dann ein Switch und ein Commit; auflisten; einen Eintrag entfernen – auf gusto auch als `apps`, `apps-list`, `apps-rm` in jedem Ordner, siehe [Software auf den Macs](#software-auf-den-macs) |
 | `just mac-upgrade` | Auf gusto: Homebrew-Pins aktualisieren, schalten, `brew upgrade`, NetBird-Version neben dem Mesh-Pin; `flake.lock` committen |
 | `just gc <host>` | Store-Generationen älter als 7 Tage löschen |
 | `just docs` | Diese Doku bauen: private PDFs (de/en) und die anonymisierte öffentliche Fassung (README, PDFs, Site-Quellen, Module) in `public-docs/` (Clone von `nixlab-docs`, gitignored), dort committet und gepusht; GitHub baut daraus die Site |

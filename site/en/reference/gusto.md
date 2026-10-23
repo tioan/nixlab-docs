@@ -10,7 +10,7 @@ gusto is the MacBook Pro everything in this repo is run from: deploys, secrets, 
 | System | macOS (English, region Germany), FileVault on |
 | Configuration | `darwinConfigurations.gusto` in `flake.nix`: nix-darwin + home-manager (user `admin`) |
 | Built and switched | on gusto itself, from the working copy `~/Projects/homelab/nixlab` – `just mac-switch` |
-| Apps | Homebrew casks, Homebrew and its taps pinned in `flake.lock` (`modules/darwin/homebrew.nix`) |
+| Apps | Homebrew casks, Homebrew and its taps pinned in `flake.lock` (`modules/darwin/homebrew.nix`); all software listed in `hosts/gusto/apps.json` |
 | Repo tools | from the flake's devShell, loaded by direnv in the checkout |
 | SSH | client only, keys only in 1Password; no Remote Login (no sshd) |
 | Mesh | NetBird peer `gusto` (cask `netbird-ui`), group `admin-workstations` |
@@ -22,10 +22,13 @@ gusto is the MacBook Pro everything in this repo is run from: deploys, secrets, 
 
 | File | Content |
 | --- | --- |
-| `hosts/gusto/configuration.nix` | System: host name, Nix settings, Touch ID for sudo, casks, system packages, font, SSH known hosts, `SSH_AUTH_SOCK` for GUI apps, macOS settings, home-manager wiring |
+| `hosts/gusto/configuration.nix` | System: host name, Nix settings, Touch ID for sudo, taps, SSH known hosts, `SSH_AUTH_SOCK` for GUI apps, macOS settings, home-manager wiring |
 | `hosts/gusto/home.nix` | admin's home: environment, links, zsh and its helpers, CLI/TUI tools, Ghostty, git |
 | `hosts/gusto/ssh.nix` | `~/.ssh/config` and `~/.ssh/pub/` |
 | `hosts/gusto/ssh/*.pub` | Public halves of the SSH keys (one per target), linked to `~/.ssh/pub/` |
+| `hosts/gusto/apps.json` | All software: casks, formulae, Mac App Store, nixpkgs (system, user, font), each with a note – `apps-list` |
+| `modules/darwin/apps.nix`, `apps.schema.json` | Turns `apps.json` into the options and checks it; editor schema |
+| `pkgs/nixlab-apps/` | The tool behind `apps`, `apps-list`, `apps-rm` |
 | `modules/darwin/homebrew.nix` | Homebrew policy shared with zorlock |
 | `modules/darwin/rebuild.sh` | The engine of the `mac-*` recipes |
 | `.envrc` | `use flake` – direnv loads the devShell in the checkout |
@@ -35,7 +38,7 @@ Flake inputs used only by gusto: `home-manager`, `nix-homebrew`, `homebrew-core`
 
 ## What is installed
 
-gusto was set up deliberately bare on 2026-10-21: no app list taken over from the previous installation, only the base below. Anything else is added when it is needed (see [Day to day](#day-to-day)).
+gusto was set up deliberately bare on 2026-10-21: no app list taken over from the previous installation, only the base below. Anything else is added when it is needed (see [Day to day](#day-to-day)). The tables describe it; the complete, current list is `hosts/gusto/apps.json` – `apps-list`.
 
 ### Apps (Homebrew casks)
 
@@ -178,9 +181,9 @@ The official app from NetBird's tap (cask `netbird-ui`, formula `netbird` for th
 
 | Task | How |
 | --- | --- |
-| Add an app | cask in `hosts/gusto/configuration.nix` → `just mac-diff` → `just mac-switch` |
-| Add a CLI tool | `programs.<tool>` or `home.packages` in `hosts/gusto/home.nix` → `just mac-switch` |
-| Remove something | delete the line → `just mac-switch`; casks go with their data (`zap`) – `just mac-diff` shows it first |
+| Add or remove apps and CLI tools | `apps [term]` (any directory; `just apps` in the checkout) – one round: search, pick, change the search, pick again …, then one switch and one commit ([how-to](../how-to/software.md)); a tool with configuration: `programs.<tool>` in `hosts/gusto/home.nix` |
+| Remove one thing directly | `apps-rm <name>`; casks go with their data (`zap`) – `mac-diff` comes first |
+| See what is declared | `apps-list` |
 | Update apps (Homebrew) | `just mac-upgrade` – bumps only the tap inputs, switches, `brew upgrade`, summary; then commit `flake.lock` |
 | Update the system (Nix) | `nix flake update nixpkgs-darwin nix-darwin home-manager` → `just mac-switch` → also `just mac-switch zorlock` (same inputs) |
 | Deploy a NixOS host | `just ship <host> "<message>"` or `just deploy <host>` – over the mesh as root |

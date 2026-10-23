@@ -11,6 +11,7 @@ What a host directory contains and who writes it. Not every host has every file.
 | `secrets.yaml` | app secrets, encrypted for host + admin | `just secrets <host>` |
 | `netbird.yaml` | NetBird setup key | `just netbird-key <host>` (Tofu) |
 | `desec.yaml` | deSEC token for DNS-01 | `just desec-key <host>` (Tofu) |
+| `maintenance.yaml` | bypass token of the [maintenance mode](../how-to/maintenance.md#bypass), the same on aldrin, zummi, grammi, ursalia | `just maintenance-token` |
 | `github.yaml` | private half of the deploy key | `just github-key <host>` |
 | `github-deploy.pub` | public half, read by `terraform/github` | `just github-key <host>` |
 | further `*.yaml` | sops files of single services, e.g. `netbird-server.yaml`, `netbird-proxy.yaml` (grammi), `push-cuckoosegg.yaml` (ursalia) | their recipes, e.g. `just netbird-server-secrets`, `just netbird-proxy-token` |

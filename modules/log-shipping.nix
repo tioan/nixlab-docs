@@ -143,6 +143,20 @@ in
               } else {
                 "debug"
               }
+              # Python's logging writes to stderr, so journald files every
+              # line at PRIORITY 3 and the mapping above calls each one an
+              # error. Lines in logging's default-ish format
+              # ("2026-10-22 22:18:05.786 INFO (...)", e.g. the ESPHome
+              # builder on ursalia) carry their real level in the text -
+              # take that, and drop the colour codes colorlog wraps them in.
+              # string(...) ?? "" because MESSAGE may arrive as raw bytes.
+              msg = strip_ansi_escape_codes(string(.message) ?? "")
+              m, err = parse_regex(msg, r'^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}[.,]\d+ (?P<lvl>DEBUG|INFO|WARNING|ERROR|CRITICAL) ')
+              if err == null {
+                .message = msg
+                lvl = downcase(string(m.lvl) ?? "info")
+                .level = if lvl == "critical" { "error" } else { lvl }
+              }
             }
           '';
         };

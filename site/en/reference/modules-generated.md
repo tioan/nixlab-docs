@@ -208,6 +208,54 @@ the log level would blind the detection to save disk that is not scarce.
 
 [Source](https://github.com/tioan/nixlab-docs/blob/main/modules/logging.nix)
 
+## maintenance.nix
+
+Maintenance mode for the lab's web services, the same for nginx and
+Traefik: a flag file switches a name to a 503 page, and the proxy shows
+the same page (with 502/504) when the service behind it does not answer.
+Decided 2026-10-22 (idea from a blog post on an nginx toggle script);
+docs: docs/site/*/how-to/maintenance.md.
+
+The pieces:
+
+- Flags: /var/lib/maintenance/<fqdn> or /var/lib/maintenance/all, the
+  file's content is the reason shown on the page. Persistent on purpose:
+  a reboot in the middle of maintenance keeps the service closed.
+  Set with `maintenance on|off|status` on the host, or
+  `just maintenance <name> ...` from the workstation.
+- Responder (maintenance/responder.py): socket-activated, loopback only,
+  renders the page for both proxies - one place that decides between
+  maintenance and failure, instead of one nginx and one Traefik version.
+- nginx (option nginx.vhosts): checks the flag on every request -
+  `if (-f ...)` is evaluated per request (no open_file_cache here), so
+  switching needs no reload. Its own 502/504 go to the same page; the
+  service's own error responses pass untouched (proxy_intercept_errors
+  stays off - S3's XML errors, OIDC's JSON).
+- Traefik (option traefik.enable): has no file test, so a oneshot turns
+  the flags into routers in a watched directory (maintenance/
+  traefik-sync.py); Traefik picks them up without a restart.
+- Bypass: whoever holds the cookie (token from sops, hosts/<host>/
+  maintenance.yaml, the same on every host) sees the service anyway.
+  A convenience for testing in the browser, not a security boundary: the
+  service's own login, the proxy's SSO and allow/deny all still apply.
+
+Caveat for nginx vhosts with allow/deny: the check is a rewrite-phase
+`return`, which runs before allow/deny (modules/docs-site.nix has the
+details), so the page would also reach clients the vhost otherwise
+refuses. Only list vhosts whose port only allowed clients reach anyway.
+
+**Options** (`services.maintenance`):
+
+| Option | Description |
+| --- | --- |
+| `enable` | Enable: maintenance mode and error pages for the host's web front (nginx/Traefik) |
+| `port` | Loopback port of the responder that renders the maintenance and error pages. |
+| `retryAfter` | Retry-After (seconds) on the 503 maintenance page. |
+| `cookieDomain` | Domain of the bypass cookie: one cookie for every service below it. |
+| `cookieMaxAge` | Lifetime of the bypass cookie in seconds (default 12 h). |
+
+[Source](https://github.com/tioan/nixlab-docs/blob/main/modules/maintenance.nix)
+
 ## metrics-shipping.nix
 
 Reusable module: scrape this host's own Prometheus exporters with vmagent

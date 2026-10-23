@@ -10,7 +10,7 @@ gusto ist das MacBook Pro, von dem aus alles in diesem Repo läuft: Deploys, Sec
 | System | macOS (Englisch, Region Deutschland), FileVault an |
 | Konfiguration | `darwinConfigurations.gusto` in `flake.nix`: nix-darwin + home-manager (Benutzer `admin`) |
 | Gebaut und geschaltet | auf gusto selbst, aus dem Arbeitsklon `~/Projects/homelab/nixlab` – `just mac-switch` |
-| Apps | Homebrew-Casks; Homebrew und seine Taps in `flake.lock` festgeschrieben (`modules/darwin/homebrew.nix`) |
+| Apps | Homebrew-Casks; Homebrew und seine Taps in `flake.lock` festgeschrieben (`modules/darwin/homebrew.nix`); alle Software steht in `hosts/gusto/apps.json` |
 | Repo-Werkzeuge | aus der devShell des Flakes, von direnv im Repo-Ordner geladen |
 | SSH | nur Client, Schlüssel nur in 1Password; kein Remote Login (kein sshd) |
 | Mesh | NetBird-Peer `gusto` (Cask `netbird-ui`), Gruppe `admin-workstations` |
@@ -22,10 +22,13 @@ gusto ist das MacBook Pro, von dem aus alles in diesem Repo läuft: Deploys, Sec
 
 | Datei | Inhalt |
 | --- | --- |
-| `hosts/gusto/configuration.nix` | System: Hostname, Nix-Einstellungen, Touch ID für sudo, Casks, Systempakete, Schrift, SSH-Hostkeys, `SSH_AUTH_SOCK` für GUI-Apps, macOS-Einstellungen, Einbindung von home-manager |
+| `hosts/gusto/configuration.nix` | System: Hostname, Nix-Einstellungen, Touch ID für sudo, Taps, SSH-Hostkeys, `SSH_AUTH_SOCK` für GUI-Apps, macOS-Einstellungen, Einbindung von home-manager |
 | `hosts/gusto/home.nix` | admins Home: Umgebung, Links, zsh und Helfer, CLI-/TUI-Werkzeuge, Ghostty, git |
 | `hosts/gusto/ssh.nix` | `~/.ssh/config` und `~/.ssh/pub/` |
 | `hosts/gusto/ssh/*.pub` | Öffentliche Hälften der SSH-Schlüssel (einer pro Ziel), verlinkt nach `~/.ssh/pub/` |
+| `hosts/gusto/apps.json` | Alle Software: Casks, Formeln, Mac App Store, nixpkgs (System, Benutzer, Schrift), jeweils mit Notiz – `apps-list` |
+| `modules/darwin/apps.nix`, `apps.schema.json` | Macht aus `apps.json` die Optionen und prüft sie; Editor-Schema |
+| `pkgs/nixlab-apps/` | Das Werkzeug hinter `apps`, `apps-list`, `apps-rm` |
 | `modules/darwin/homebrew.nix` | Homebrew-Richtlinie, gemeinsam mit zorlock |
 | `modules/darwin/rebuild.sh` | Die Mechanik hinter den `mac-*`-Rezepten |
 | `.envrc` | `use flake` – direnv lädt die devShell im Repo-Ordner |
@@ -35,7 +38,7 @@ Flake-Inputs nur für gusto: `home-manager`, `nix-homebrew`, `homebrew-core`, `h
 
 ## Was installiert ist
 
-gusto wurde am 2026-10-21 bewusst „nackt“ aufgesetzt: keine App-Liste aus der vorherigen Installation übernommen, nur die Grundausstattung unten. Alles andere kommt dazu, wenn es gebraucht wird (siehe [Im Alltag](#im-alltag)).
+gusto wurde am 2026-10-21 bewusst „nackt“ aufgesetzt: keine App-Liste aus der vorherigen Installation übernommen, nur die Grundausstattung unten. Alles andere kommt dazu, wenn es gebraucht wird (siehe [Im Alltag](#im-alltag)). Die Tabellen beschreiben sie; die vollständige, aktuelle Liste ist `hosts/gusto/apps.json` – `apps-list`.
 
 ### Apps (Homebrew-Casks)
 
@@ -178,9 +181,9 @@ Die offizielle App aus NetBirds Tap (Cask `netbird-ui`, Formula `netbird` für d
 
 | Aufgabe | Wie |
 | --- | --- |
-| App hinzufügen | Cask in `hosts/gusto/configuration.nix` → `just mac-diff` → `just mac-switch` |
-| CLI-Werkzeug hinzufügen | `programs.<tool>` oder `home.packages` in `hosts/gusto/home.nix` → `just mac-switch` |
-| Etwas entfernen | Zeile löschen → `just mac-switch`; Casks gehen samt Daten (`zap`) – `just mac-diff` zeigt es vorher |
+| Apps und CLI-Werkzeuge hinzufügen oder entfernen | `apps [suche]` (in jedem Ordner; im Repo auch `just apps`) – eine Runde: suchen, auswählen, Suche ändern, wieder auswählen …, dann ein Switch und ein Commit ([Anleitung](../how-to/software.md)); ein Werkzeug mit Konfiguration: `programs.<tool>` in `hosts/gusto/home.nix` |
+| Eins direkt entfernen | `apps-rm <name>`; Casks gehen samt Daten (`zap`) – vorher kommt `mac-diff` |
+| Sehen, was deklariert ist | `apps-list` |
 | Apps aktualisieren (Homebrew) | `just mac-upgrade` – aktualisiert nur die Tap-Inputs, Switch, `brew upgrade`, Zusammenfassung; danach `flake.lock` committen |
 | System aktualisieren (Nix) | `nix flake update nixpkgs-darwin nix-darwin home-manager` → `just mac-switch` → auch `just mac-switch zorlock` (gleiche Inputs) |
 | NixOS-Host deployen | `just ship <host> "<Nachricht>"` oder `just deploy <host>` – übers Mesh als root |

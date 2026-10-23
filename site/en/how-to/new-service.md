@@ -20,8 +20,8 @@ Services are named by function (`rezepte`, not `mealie`); new web services on gr
 
 For services on grammi:
 
-1. An entry in `hosts/grammi/proxy-services.json`: name → app, port, Pocket ID groups. Tofu (`reverse-proxy.tf`) and `topology.nix` read the same file.
-2. The service listens on all addresses; only 80/443 are open publicly, `nb-mesh` is trusted.
+1. An entry in `hosts/grammi/proxy-services.json`: name → app, port, Pocket ID groups, optionally `start` (where `/` redirects to). Tofu (`reverse-proxy.tf`), Traefik and `topology.nix` read the same file; the proxy reaches every app through Traefik `:8090`.
+2. The service listens on `127.0.0.1` only – Traefik connects over loopback, nothing more is needed ([apps on grammi](../explanation/secrets-network-access.md#apps-on-grammi-only-through-traefik-8090)).
 3. Push a CNAME `<name>` → `proxy.homelab.example` in DNSControl – a few minutes before the apply, otherwise the resolver caches NXDOMAIN.
 4. Deploy grammi first, then `just netbird-apply`. At the end it runs `just netbird-proxy-certs`: it requests every new name once from outside so the proxy fetches its certificate, then restarts `netbird-proxy` once – otherwise the dashboard hangs at "Issuing certificate…" (NetBird discussion #7118).
 
@@ -35,3 +35,4 @@ nginx vhost on the host (ACME via DNS-01), A/AAAA records in DNSControl, CrowdSe
 
 - Docs: [Services](../reference/services.md), and [Contents of hosts/&lt;host&gt;/](../reference/host-directory.md) if new files appear there.
 - Dual stack wherever possible (A and AAAA).
+- Maintenance switch and error pages: [maintenance mode](maintenance.md#new-service) – automatic on grammi, one entry in the host elsewhere.

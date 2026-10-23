@@ -205,6 +205,25 @@ under Settings > MCP once MCP is on; it is read silently here and goes
 straight into hosts/ursalia/nanokvm-mcp.yaml (sops, ursalia + admin -
 encrypting needs only the public keys). Commit, then deploy ursalia.
 
+## `just maintenance-list`
+
+Every active maintenance flag on every NixOS host.
+
+## `just maintenance-key`
+
+Copy the bypass token to the clipboard - never printed. Taken from grammi's
+decrypted secret over SSH: the workstation has no key for the hosts' sops
+files. Paste it at https://<name>/_maintenance/bypass; the cookie then
+holds for every name under homelab.example for 12 h.
+
+## `just maintenance-token`
+
+Create the bypass token once and write it to every host that runs the
+module (hosts/<host>/maintenance.yaml, sops). The same token everywhere,
+since the cookie covers all of homelab.example. Refuses to overwrite: rotating
+means `rm hosts/*/maintenance.yaml`, running this again, and deploying all
+four hosts. Commit, then deploy.
+
 ## `just mac-upgrade`
 
 Update the Homebrew pins (Homebrew itself and every tap: flake inputs
@@ -214,6 +233,11 @@ here next to the mesh's (nixpkgs-netbird; bump that one deliberately,
 server first, see flake.nix). Only on the workstation: the result is a
 flake.lock change to commit like any other update; zorlock has no
 Homebrew. Nothing else in flake.lock moves.
+
+## `just apps *args`
+
+Search, add and remove software in one round, then switch and commit.
+Optional start term; another Mac with --host <host>.
 
 ## `just sync-zorlock`
 

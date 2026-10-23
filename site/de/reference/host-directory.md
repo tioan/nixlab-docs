@@ -11,6 +11,7 @@ Was in einem Host-Verzeichnis liegt und wer es schreibt. Nicht jeder Host hat je
 | `secrets.yaml` | App-Secrets, verschlüsselt für Host + admin | `just secrets <host>` |
 | `netbird.yaml` | NetBird-Setup-Key | `just netbird-key <host>` (Tofu) |
 | `desec.yaml` | deSEC-Token für DNS-01 | `just desec-key <host>` (Tofu) |
+| `maintenance.yaml` | Bypass-Token des [Wartungsmodus](../how-to/maintenance.md#bypass), gleich auf aldrin, zummi, grammi, ursalia | `just maintenance-token` |
 | `github.yaml` | privater Teil des Deploy-Keys | `just github-key <host>` |
 | `github-deploy.pub` | öffentlicher Teil, von `terraform/github` gelesen | `just github-key <host>` |
 | weitere `*.yaml` | sops-Dateien einzelner Dienste, z. B. `netbird-server.yaml`, `netbird-proxy.yaml` (grammi), `push-cuckoosegg.yaml` (ursalia) | ihre Rezepte, z. B. `just netbird-server-secrets`, `just netbird-proxy-token` |

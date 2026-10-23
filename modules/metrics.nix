@@ -139,4 +139,60 @@ in
       OnUnitActiveSec = "30s";
     };
   };
+
+  # CPU and memory per systemd service, read from its cgroup. node_exporter's
+  # systemd collector only knows unit states, and prometheus-systemd-exporter
+  # measures a unit's main process alone - for a podman unit that is conmon,
+  # not the compiler (checked 2026-10-23). The cgroup counts every process of
+  # the unit, containers included as long as they run with --cgroups=split
+  # (hosts/ursalia/esphome-builder.nix). Feeds the "Homelab / ESPHome builds"
+  # dashboard; the same per-unit view for any service on any host.
+  #
+  #   unit_cgroup_cpu_seconds_total{unit}  cpu.stat usage_usec, counter
+  #   unit_cgroup_memory_bytes{unit}       memory.current, page cache included
+  #   unit_cgroup_memory_anon_bytes{unit}  anon from memory.stat - what the
+  #                                        processes actually hold
+  systemd.services.unit-metrics = {
+    description = "Per-service cgroup CPU/memory for node_exporter's textfile collector";
+    path = [ pkgs.gawk pkgs.coreutils ];
+    serviceConfig.Type = "oneshot";
+    # The text format wants all samples of one family together, hence three
+    # buffers printed at the end. A unit that stops between the glob and the
+    # read is skipped rather than failing the run.
+    script = ''
+      set -euo pipefail
+      cpu="" mem="" anon=""
+      for d in /sys/fs/cgroup/system.slice/*.service; do
+        u=''${d##*/}
+        c=$(awk '$1 == "usage_usec" { printf "%.6f", $2 / 1e6 }' "$d/cpu.stat" 2>/dev/null) || continue
+        m=$(cat "$d/memory.current" 2>/dev/null) || continue
+        a=$(awk '$1 == "anon" { print $2 }' "$d/memory.stat" 2>/dev/null) || continue
+        [ -n "$c" ] && [ -n "$a" ] || continue
+        cpu+="unit_cgroup_cpu_seconds_total{unit=\"$u\"} $c"$'\n'
+        mem+="unit_cgroup_memory_bytes{unit=\"$u\"} $m"$'\n'
+        anon+="unit_cgroup_memory_anon_bytes{unit=\"$u\"} $a"$'\n'
+      done
+      {
+        echo "# HELP unit_cgroup_cpu_seconds_total CPU time of all processes in the unit's cgroup."
+        echo "# TYPE unit_cgroup_cpu_seconds_total counter"
+        printf '%s' "$cpu"
+        echo "# HELP unit_cgroup_memory_bytes Memory charged to the unit's cgroup, page cache included."
+        echo "# TYPE unit_cgroup_memory_bytes gauge"
+        printf '%s' "$mem"
+        echo "# HELP unit_cgroup_memory_anon_bytes Anonymous memory of the unit's cgroup."
+        echo "# TYPE unit_cgroup_memory_anon_bytes gauge"
+        printf '%s' "$anon"
+      } > ${textfileDir}/unit-cgroup.prom.tmp
+      chmod 0644 ${textfileDir}/unit-cgroup.prom.tmp
+      mv ${textfileDir}/unit-cgroup.prom.tmp ${textfileDir}/unit-cgroup.prom
+    '';
+  };
+  systemd.timers.unit-metrics = {
+    wantedBy = [ "timers.target" ];
+    timerConfig = {
+      OnBootSec = "1min";
+      OnUnitActiveSec = "15s";
+      AccuracySec = "1s";
+    };
+  };
 }

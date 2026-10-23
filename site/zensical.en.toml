@@ -37,8 +37,10 @@ nav = [
   { "How-to guides" = [
     "how-to/new-host.md",
     "how-to/new-service.md",
+    "how-to/maintenance.md",
     "how-to/secrets.md",
     "how-to/key-rotation.md",
+    "how-to/software.md",
   ] },
   { "Reference" = [
     "reference/repository.md",
