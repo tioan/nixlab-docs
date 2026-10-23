@@ -5,7 +5,9 @@
 # nixlab repo and is overwritten by every `just docs` there - change it
 # there. Actions are pinned to commits, Zensical to the version in
 # nixpkgs-unstable that builds the private copy of the site (it is still
-# before 1.0, so config keys may change between versions).
+# before 1.0, so config keys may change between versions). The runner image
+# is pinned too: ubuntu-latest moves to Ubuntu 26 from 2026-10-19 on, and the
+# move should be a deliberate change here, not GitHub's.
 name: Documentation
 
 on:
@@ -24,7 +26,7 @@ concurrency:
 
 jobs:
   deploy:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
