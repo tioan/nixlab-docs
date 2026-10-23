@@ -35,7 +35,7 @@ and `homebrew.taps` (the list nix-darwin writes into the Brewfile) is derived fr
 
 - `onActivation.autoUpdate = false`: no `brew update` during a switch.
 - `onActivation.upgrade = false`: no `brew upgrade` during a switch either; an installed cask stays at its version until it is upgraded on purpose.
-- `onActivation.cleanup = "zap"`: whatever is installed but not declared is removed, casks including their application data (`brew uninstall --zap`). Deleting a cask from the configuration (`apps.json`) therefore really uninstalls the app with its settings. `just mac-diff` shows this before it happens.
+- `onActivation.cleanup = "zap"`: whatever is installed but not declared is removed, casks including their application data (`brew uninstall --zap`). Deleting a cask from the configuration (`apps.json`) therefore really uninstalls the app with its settings. This applies to Mac App Store apps as well (Homebrew used to leave them alone). `just mac-diff` shows this before it happens, and `just mac-switch` stops before it: if the switch would remove anything, it lists it and asks `[y/N]`; without a terminal it aborts. `MAC_SWITCH_ALLOW_REMOVALS=1 just mac-switch` goes ahead without asking. Usually the fix is to declare what is missing in `apps.json` (decided on 2026-10-23, after a switch would have removed three App Store apps installed by hand).
 - `global.autoUpdate = false` and `global.brewfile = true`: the same for `brew` typed by hand, and `HOMEBREW_BUNDLE_FILE` points at the generated Brewfile, so a plain `brew bundle check` compares against the configuration.
 
 Apps with their own updater, and Mac App Store apps, keep updating themselves; the policy only concerns what Homebrew does.
@@ -53,7 +53,7 @@ A tool from Nix always wins over the same tool from Homebrew, Homebrew wins over
 | Recipe | What it does |
 | --- | --- |
 | `just mac-diff [host]` | Builds the configuration and shows what a switch would change: the Nix closure (`nvd diff`), the casks and formulae that would be **removed** (`brew bundle cleanup --zap` without `--force`) and those that would be **installed**. Changes nothing. |
-| `just mac-switch [host]` | Builds, switches, and ends with a compact summary: Nix packages added/removed/updated (nvd) and Homebrew `- removed` / `+ new`. |
+| `just mac-switch [host]` | Builds, stops if Homebrew would remove anything (see above), switches, and ends with a compact summary: Nix packages added/removed/updated (nvd) and Homebrew `- removed` / `+ new`. |
 | `just mac-upgrade` | Updates only the Homebrew pins (`nix-homebrew`, `homebrew-core`, `homebrew-cask`, `netbirdio-tap`), switches, runs `brew upgrade` and prints `old -> new` per upgraded item, plus the NetBird client version on gusto next to the mesh's pin. The result is a `flake.lock` change to commit. |
 
 The host defaults to `gusto`, which is built from the working copy (uncommitted changes included – but nix only sees files git knows, so `git add` new files first). `zorlock` is reached over SSH: `git pull` in `/etc/nixos`, then the same script under sudo. `deploy-zorlock` and `check-zorlock` are now short forms of `mac-switch zorlock` and `mac-diff zorlock`. The work itself is done by `modules/darwin/rebuild.sh` on the Mac.

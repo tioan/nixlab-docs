@@ -15,6 +15,23 @@
 # - each host gets its own; hosts whose deSEC token is limited to named
 # records need "doku" in their acme_names (terraform/desec-tokens/main.tf).
 #
+# Two more ways in, both optional and both only additions - the mesh way
+# above stays the one that does not depend on anything but the host
+# (decided 2026-10-23):
+#  - Login from the internet (option login): a NetBird reverse proxy
+#    service with SSO (terraform/netbird/reverse-proxy.tf, doku_login)
+#    forwards to a listener of its own here. The proxy sends a secret
+#    header, and only requests that carry it get the docs - every person's
+#    devices reach this port over the mesh (to-servers), and without the
+#    header the admin-only rule would end at the port. doku.homelab.example/login
+#    leads there; without zummi (Pocket ID) and grammi (proxy) it is gone,
+#    which is fine for a way meant for a device without NetBird.
+#  - The home LAN (option lan): the router answers doku.homelab.example with
+#    this host's LAN address, and every LAN device gets the docs except the
+#    ones on a deliberate deny list. A deny list by address only catches
+#    devices with a fixed one; guests and anything with a changing address
+#    are in.
+#
 # On more than one host on purpose: the docs are what you read when
 # something is broken, so they must not depend on a single machine - least
 # of all on grammi, which runs the NetBird server and the reverse proxy.
@@ -66,13 +83,13 @@ let
       <p class="code">403</p>
       <section lang="de">
         <h1>Kein Zugriff auf die Dokumentation</h1>
-        <p>Die private nixlab-Dokumentation ist nur von Admin-Geräten aus lesbar. Dieses Gerät gehört nicht dazu.</p>
+        <p>Die private nixlab-Dokumentation ist nur von Admin-Geräten im Mesh, aus dem Heimnetz und nach Login unter <code>/login</code> lesbar. Dieses Gerät gehört nicht dazu.</p>
         <h2>Gerät freischalten</h2>
         <p>Das Gerät in die NetBird-Gruppe <code>admin-workstations</code> aufnehmen (<code>terraform/netbird/subraum.tf</code>), dann <code>just netbird-apply</code> und aldrin und ursalia deployen.</p>
       </section>
       <section lang="en">
         <h1>No access to the documentation</h1>
-        <p>The private nixlab documentation can only be read from admin devices. This device is not one of them.</p>
+        <p>The private nixlab documentation can only be read from admin devices in the mesh, from the home LAN and after logging in at <code>/login</code>. This device is not one of them.</p>
         <h2>Letting a device in</h2>
         <p>Add the device to the NetBird group <code>admin-workstations</code> (<code>terraform/netbird/subraum.tf</code>), then run <code>just netbird-apply</code> and deploy aldrin and ursalia.</p>
       </section>
@@ -124,6 +141,63 @@ in
       '';
     };
 
+    login = {
+      port = lib.mkOption {
+        type = lib.types.nullOr lib.types.port;
+        default = null;
+        example = 8094;
+        description = ''
+          Port of a plain-HTTP listener that serves the docs to the NetBird
+          reverse proxy's login service (SSO) - only to requests carrying the
+          header X-Nixlab-Docs-Key with the value of the sops secret
+          login.secret, which the proxy adds. Mesh only, like redirectPort.
+          null: no listener.
+        '';
+      };
+
+      fqdn = lib.mkOption {
+        type = lib.types.str;
+        default = "";
+        example = "docs-login.example.org";
+        description = ''
+          Public name of the login service. /login on this site and on the
+          redirect listener leads there; empty: /login leads to the start
+          page.
+        '';
+      };
+
+      secret = lib.mkOption {
+        type = lib.types.str;
+        default = "docs_login_key";
+        description = "sops secret (in the host's default sops file) with the header value the proxy sends.";
+      };
+    };
+
+    lan = {
+      networks = lib.mkOption {
+        type = lib.types.listOf lib.types.str;
+        default = [ ];
+        example = [ "192.0.2.0/24" ];
+        description = ''
+          LAN networks that get the docs on top of the allow list - for a
+          router that answers the site's name with this host's LAN address.
+        '';
+      };
+
+      deny = lib.mkOption {
+        type = lib.types.listOf lib.types.str;
+        default = [ ];
+        description = "Addresses inside lan.networks that get the 403 page instead.";
+      };
+
+      interfaces = lib.mkOption {
+        type = lib.types.listOf lib.types.str;
+        default = [ ];
+        example = [ "eth0" ];
+        description = "Interfaces on which the firewall opens 443 for lan.networks.";
+      };
+    };
+
     redirectTo = lib.mkOption {
       type = lib.types.str;
       default = "";
@@ -144,11 +218,36 @@ in
         assertion = cfg.redirectPort == null || cfg.redirectTo != "";
         message = "services.docsSite.redirectPort is set but redirectTo is empty";
       }
+      {
+        assertion = cfg.login.port == null || cfg.login.fqdn != "";
+        message = "services.docsSite.login.port is set but login.fqdn is empty";
+      }
     ];
+
+    networking.firewall.interfaces = lib.genAttrs cfg.lan.interfaces (_: {
+      allowedTCPPorts = [ 443 ];
+    });
+
+    # The login listener's key stays out of the world-readable store: a map
+    # rendered by sops-nix at activation, included at runtime (as in
+    # modules/maintenance.nix).
+    sops.secrets.${cfg.login.secret} = lib.mkIf (cfg.login.port != null) { };
+    sops.templates."nginx-docs-login.conf" = lib.mkIf (cfg.login.port != null) {
+      owner = "nginx";
+      content = ''
+        map $http_x_nixlab_docs_key $nixlab_docs_key_ok {
+          default "";
+          "${config.sops.placeholder.${cfg.login.secret}}" 1;
+        }
+      '';
+      reloadUnits = [ "nginx.service" ];
+    };
 
     services.nginx = {
       enable = true;
       recommendedTlsSettings = true;
+      appendHttpConfig = lib.mkIf (cfg.login.port != null)
+        "include ${config.sops.templates."nginx-docs-login.conf".path};";
       # Wildcard instead of the host's defaults: the mesh address is
       # NetBird's to assign and nb-mesh may come up after nginx, and a host
       # may bind its public vhosts to its public addresses only (aldrin).
@@ -166,8 +265,14 @@ in
         # devices that are turned away - with the list on the server block,
         # nginx would deny its own error page and fall back to its bare one.
         extraConfig = "error_page 403 /_errors/403.html;\n";
+        # Deny list first: nginx takes the first rule that matches.
         locations."/".extraConfig =
-          lib.concatMapStrings (a: "allow ${a};\n") cfg.allow + "deny all;\n";
+          lib.concatMapStrings (a: "deny ${a};\n") cfg.lan.deny
+          + lib.concatMapStrings (a: "allow ${a};\n") (cfg.allow ++ cfg.lan.networks)
+          + "deny all;\n";
+        # doku.homelab.example/login is the way in from the internet; here, where
+        # the docs answer anyway, it just leads to the start page.
+        locations."~ ^/login/?$".return = "302 /";
         # Only reachable as the target of error_page (internal), so it is
         # not a page of its own; ssi fills in the client address.
         locations."^~ /_errors/" = {
@@ -196,12 +301,44 @@ in
         # runs in nginx's rewrite phase, before allow/deny are checked, so
         # the mesh restriction would never apply. try_files runs after the
         # access check and hands over to the named location.
-        locations."/".extraConfig = ''
+        locations = {
+          "/".extraConfig = ''
+            allow 192.0.2.0/24;
+            deny all;
+            try_files /.redirect-only @redirect;
+          '';
+          "@redirect".return = "301 ${cfg.redirectTo}$request_uri";
+        } // lib.optionalAttrs (cfg.login.fqdn != "") {
+          # /login: to the login service instead of the public docs.
+          "~ ^/login/?$".extraConfig = ''
+            allow 192.0.2.0/24;
+            deny all;
+            try_files /.redirect-only @login;
+          '';
+          "@login".return = "302 https://${cfg.login.fqdn}/";
+        };
+      };
+
+      # Login listener for the reverse proxy's SSO service (option login):
+      # the docs themselves, for requests with the proxy's key only. The
+      # key check is a return in the rewrite phase, the mesh check allow/
+      # deny after it - both have to pass. No TLS (the proxy terminates it).
+      virtualHosts."${cfg.fqdn}-login" = lib.mkIf (cfg.login.port != null) {
+        serverName = cfg.login.fqdn;
+        listen = [
+          { addr = "0.0.0.0"; port = cfg.login.port; }
+          { addr = "[::]"; port = cfg.login.port; }
+        ];
+        root = cfg.package;
+        extraConfig = ''
           allow 192.0.2.0/24;
           deny all;
-          try_files /.redirect-only @redirect;
+          if ($nixlab_docs_key_ok = "") { return 403; }
+          # Relative redirects: absolute ones would say http://...:port,
+          # this listener's side of the proxy.
+          absolute_redirect off;
         '';
-        locations."@redirect".return = "301 ${cfg.redirectTo}$request_uri";
+        locations."~ ^/login/?$".return = "302 /";
       };
     };
   };

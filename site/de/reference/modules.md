@@ -1,6 +1,6 @@
 # Module
 
-Die 17 Module unter `modules/` tragen die gemeinsame Konfiguration aller Hosts; jede Datei erklärt im Kopfkommentar, warum sie so ist. Die öffentliche Fassung enthält sie anonymisiert unter `modules/` – als Referenz, nicht direkt importierbar: einige lesen `hosts/<host>/*.yaml` und setzen sops-nix voraus. Vier haben eigene Optionen.
+Die 19 Module unter `modules/` tragen die gemeinsame Konfiguration aller Hosts; jede Datei erklärt im Kopfkommentar, warum sie so ist. Die öffentliche Fassung enthält sie anonymisiert unter `modules/` – als Referenz, nicht direkt importierbar: einige lesen `hosts/<host>/*.yaml` und setzen sops-nix voraus. Fünf haben eigene Optionen.
 
 | Modul | Zweck | Optionen / Besonderheiten |
 | --- | --- | --- |
@@ -20,4 +20,6 @@ Die 17 Module unter `modules/` tragen die gemeinsame Konfiguration aller Hosts; 
 | [qemu-guest.nix](https://github.com/tioan/nixlab-docs/blob/main/modules/qemu-guest.nix) | QEMU Guest Agent mit gesperrter RPC-Liste: Snapshots ja, Shell und Dateizugriff über den Kanal nein | |
 | [nix.nix](https://github.com/tioan/nixlab-docs/blob/main/modules/nix.nix) | Nix-Daemon, Garbage Collection, Store-Optimierung | |
 | [docs-site.nix](https://github.com/tioan/nixlab-docs/blob/main/modules/docs-site.nix) | Die private Doku-Site (Flake-Paket `docs-site`) unter `doku` im Mesh | `services.docsSite`: `enable`, `package`, `fqdn`, `allow` (Standard: das ganze Mesh; im Lab nur die Admin-Geräte aus `admin-peers.json`); auf aldrin und ursalia |
+| [maintenance.nix](https://github.com/tioan/nixlab-docs/blob/main/modules/maintenance.nix) | Wartungsmodus für nginx und Traefik: eine Flag-Datei schaltet einen Namen auf eine 503-Seite, dieselbe Seite bei 502/504 | `services.maintenance`, siehe [Wartungsmodus](../how-to/maintenance.md) |
+| [hotfixes.nix](https://github.com/tioan/nixlab-docs/blob/main/modules/hotfixes.nix) | Paket-Hotfixes, die sich selbst abschalten und warnen, sobald nixpkgs den Fix hat | Modul-Argument `hotfix`, Overlays aus `modules/hotfixes/`, siehe [Paket per Hotfix fixen](../how-to/hotfix.md) |
 | [base.nix](https://github.com/tioan/nixlab-docs/blob/main/modules/base.nix) | Locale, Konsole, Zeit und Werkzeuge zum Debuggen | |

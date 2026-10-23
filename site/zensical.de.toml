@@ -42,6 +42,7 @@ nav = [
     "how-to/secrets.md",
     "how-to/key-rotation.md",
     "how-to/software.md",
+    "how-to/hotfix.md",
   ] },
   { "Referenz" = [
     "reference/repository.md",

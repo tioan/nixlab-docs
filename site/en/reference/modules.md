@@ -1,6 +1,6 @@
 # Modules
 
-The 17 modules under `modules/` carry the configuration shared by all hosts; every file explains in its header comment why it is the way it is. The public version contains them anonymised under `modules/` – as a reference, not directly importable: some read `hosts/<host>/*.yaml` and assume sops-nix. Four have options of their own.
+The 19 modules under `modules/` carry the configuration shared by all hosts; every file explains in its header comment why it is the way it is. The public version contains them anonymised under `modules/` – as a reference, not directly importable: some read `hosts/<host>/*.yaml` and assume sops-nix. Five have options of their own.
 
 | Module | Purpose | Options / notes |
 | --- | --- | --- |
@@ -20,4 +20,6 @@ The 17 modules under `modules/` carry the configuration shared by all hosts; eve
 | [qemu-guest.nix](https://github.com/tioan/nixlab-docs/blob/main/modules/qemu-guest.nix) | QEMU guest agent with an RPC deny list: snapshots yes, shell and file access over the channel no | |
 | [nix.nix](https://github.com/tioan/nixlab-docs/blob/main/modules/nix.nix) | Nix daemon, garbage collection, store optimisation | |
 | [docs-site.nix](https://github.com/tioan/nixlab-docs/blob/main/modules/docs-site.nix) | The private docs site (flake package `docs-site`) under `doku` on the mesh | `services.docsSite`: `enable`, `package`, `fqdn`, `allow` (default: the whole mesh; in the lab only the admin devices from `admin-peers.json`); on aldrin and ursalia |
+| [maintenance.nix](https://github.com/tioan/nixlab-docs/blob/main/modules/maintenance.nix) | Maintenance mode for nginx and Traefik: a flag file switches a name to a 503 page, the same page on 502/504 | `services.maintenance`, see [Maintenance mode](../how-to/maintenance.md) |
+| [hotfixes.nix](https://github.com/tioan/nixlab-docs/blob/main/modules/hotfixes.nix) | Package hotfixes that switch themselves off and warn once nixpkgs has the fix | module argument `hotfix`, overlays from `modules/hotfixes/`, see [Hotfix a package](../how-to/hotfix.md) |
 | [base.nix](https://github.com/tioan/nixlab-docs/blob/main/modules/base.nix) | Locale, console, time and tools for debugging | |

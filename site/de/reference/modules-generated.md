@@ -120,6 +120,24 @@ vhost admits only mesh addresses. Certificate via DNS-01 (modules/acme.nix)
 - each host gets its own; hosts whose deSEC token is limited to named
   records need "doku" in their acme_names (terraform/desec-tokens/main.tf).
 
+Two more ways in, both optional and both only additions - the mesh way
+above stays the one that does not depend on anything but the host
+(decided 2026-10-23):
+
+- Login from the internet (option login): a NetBird reverse proxy
+  service with SSO (terraform/netbird/reverse-proxy.tf, doku_login)
+  forwards to a listener of its own here. The proxy sends a secret
+  header, and only requests that carry it get the docs - every person's
+  devices reach this port over the mesh (to-servers), and without the
+  header the admin-only rule would end at the port. doku.homelab.example/login
+  leads there; without zummi (Pocket ID) and grammi (proxy) it is gone,
+  which is fine for a way meant for a device without NetBird.
+- The home LAN (option lan): the router answers doku.homelab.example with
+  this host's LAN address, and every LAN device gets the docs except the
+  ones on a deliberate deny list. A deny list by address only catches
+  devices with a fixed one; guests and anything with a changing address
+  are in.
+
 On more than one host on purpose: the docs are what you read when
 something is broken, so they must not depend on a single machine - least
 of all on grammi, which runs the NetBird server and the reverse proxy.
@@ -153,6 +171,52 @@ here rather than in tailscale.nix so that the whole networking.firewall
 namespace stays in one place.
 
 [Quelltext](https://github.com/tioan/nixlab-docs/blob/main/modules/firewall.nix)
+
+## hotfixes.nix
+
+Package hotfixes that switch themselves off.
+
+A hotfix pins a package to a newer version (or adds a patch) until nixpkgs
+catches up. Written by hand, it has to be removed by hand too - and since
+the nightly auto-upgrade moves nixpkgs on its own, nobody notices the day
+it becomes dead weight, or worse, the day it starts pinning an OLDER
+version than nixpkgs ships. That happened with the paperless-ngx 3.3.2
+bump on ursalia: nixos-unstable had 3.3.2 by 2026-10-23, the override
+still said "drop me once it does" (found while adopting this module).
+
+`hotfix` (a module argument, usable by any host module) applies an
+override only while nixpkgs still needs it:
+
+
+```
+hotfix {
+name = "sudo CVE-2025-32463";   # for the warning
+pkg = prev.sudo;                # what nixpkgs ships
+fixedVersion = "1.9.17p1";      # first version with the fix
+fixPatch = "CVE-2025-32463";    # optional, see below
+override = pkg: pkg.overrideAttrs (old: { ... });
+}
+```
+
+
+It returns `pkg` untouched once pkg.version >= fixedVersion, or once one of
+pkg.patches has `fixPatch` in its name - stable releases usually backport a
+CVE as a patch without bumping the version. In both cases evaluation warns
+that the hotfix can go, so it does not linger; the override (and its src
+hash) is then not evaluated at all.
+
+Credits: the pattern is snowball's (BBBSnowball), offered for reuse on
+2026-10-23 - version check plus CVE patch detection, one overlay per file:
+https://github.com/BBBSnowball/nixcfg/tree/35264a74189686e8ce0231b4752f85225d0c9e00/hotfixes
+Ours adds the warning: there the override goes quiet without telling anyone.
+
+Hotfixes for packages from the host's own pkgs go into modules/hotfixes/,
+one overlay per file, as `hotfix: final: prev: { <pkg> = hotfix { ... }; }`;
+every file there is loaded on every NixOS host. Packages taken from another
+nixpkgs (`import nixpkgs-unstable { ... }`) do not see these overlays - call
+`hotfix` on them in the host module instead.
+
+[Quelltext](https://github.com/tioan/nixlab-docs/blob/main/modules/hotfixes.nix)
 
 ## log-shipping.nix
 

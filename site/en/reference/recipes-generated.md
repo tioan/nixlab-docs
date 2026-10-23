@@ -412,6 +412,15 @@ next `just netbird-apply`. Changing it locks out everyone who only knows
 the old one - share links themselves stay valid.
 New random PIN for Paperless' share links from outside the mesh.
 
+## `just docs-login-key`
+
+New key for the private docs from the internet: the NetBird proxy sends it
+to aldrin's login listener, which serves only requests that carry it
+(modules/docs-site.nix, terraform/netbird/reverse-proxy.tf). Written to
+both sides - aldrin's secrets.yaml only opens with aldrin's host key, so
+that one is set on aldrin and copied back (as in `just secrets`). Then
+commit both, just netbird-apply and deploy aldrin.
+
 ## `just dokumente-share-pin-show`
 
 Show the current share-link PIN, to pass on with a link.

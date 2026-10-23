@@ -81,7 +81,7 @@ Mealie, Grist, logchef and Grafana listen on `127.0.0.1` only on grammi. The rev
 
 **Deliberate gap:** `:8090` itself is open to every mesh peer (`nb-mesh` is trusted), without the proxy's SSO. Anyone in the mesh reaches every app directly with the matching `Host` header, VictoriaMetrics/-Logs even without a login, since they have none of their own. This is intended (2026-10-23): the NetBird policies decide who reaches grammi, and Mealie, Grist, logchef and Grafana ask for their own login. Revisit when peers that deserve less trust join the mesh, or once the proxy can reach loopback via `direct_upstream` ([open item](#open-items)).
 
-#### Private docs: admin devices only
+#### Private docs: admin devices, home LAN, login
 
 The private version of this documentation (`doku.homelab.example`, on aldrin and ursalia) contains every internal address and describes how the lab is run. That is more than every device in the mesh needs to see. So nginx serves it only to the mesh addresses of the admins' devices; everyone else gets 403 – with a page of its own that says why, which address the request came from and how a device gets in (without the navigation, so the page titles stay hidden). The name itself resolves for all peers.
 
@@ -92,6 +92,12 @@ The private version of this documentation (`doku.homelab.example`, on aldrin and
 | Outside, or NetBird off | reverse proxy (grammi) → aldrin:8091 | 301 to the public docs |
 | In the mesh, device in `admin-workstations` | straight to aldrin/ursalia | private docs |
 | In the mesh, any other device | straight to aldrin/ursalia | 403 page |
+| Outside, `doku.homelab.example/login` | aldrin:8091 → 302 to `doku-login.homelab.example` → reverse proxy with SSO (`docs-readers`) → aldrin:8094 | private docs |
+| Home LAN, through the router's own record | straight to ursalia's LAN address | private docs, except devices on the deny list |
+
+**Login from the internet** (decided 2026-10-23): for a device without NetBird, e.g. a work laptop. `doku.homelab.example/login` leads to `doku-login.homelab.example`, a reverse proxy service of its own with SSO for the Pocket ID group `docs-readers` – a name of its own because the proxy's login is per service, not per path, and SSO on `doku` itself would put the public docs behind it. Its target is a listener on aldrin (port 8094) that serves the private site. Because every person's devices reach that port over the mesh as well (`to-servers`), the proxy sends a secret header (`X-Nixlab-Docs-Key`) and aldrin serves only requests that carry it; new key: `just docs-login-key`. This way depends on grammi and zummi – it is an addition for when the mesh is not at hand, not a replacement for it.
+
+**Home LAN** (decided 2026-10-23): the home router answers `doku.homelab.example` with ursalia's LAN address (a record of its own, like `mqtt.homelab.example`), and ursalia serves the private docs to the whole main home network – except the addresses on a deliberate deny list (`services.docsSite.lan` in `hosts/ursalia/configuration.nix`, inventory devices with a fixed address). A deny list by address catches only devices with a reserved address; guests and anything with a changing address get in. The Apple TVs belong on it once they have a reservation: as NetBird fallback routers into the LAN they masquerade mesh peers to their own address. Mesh devices are not affected – for them the name keeps resolving to the mesh addresses.
 
 **Why through the proxy:** this way `doku` is listed with the other public names in the NetBird dashboard instead of being a public vhost of its own on aldrin. The proxy cannot redirect by itself, only forward – hence the redirect listener. It has a port of its own rather than the docs vhost recognising the proxy by its address: the proxy is a peer of its own whose mesh address Tofu does not know. Linking `homelab.example` to the public docs is accepted on purpose; the real addresses stay replaced there.
 
@@ -99,7 +105,7 @@ The private version of this documentation (`doku.homelab.example`, on aldrin and
 
 **Why nginx and not a NetBird policy:** `to-servers` lets the devices of all persons (`homelab` and `homelab_admins`) reach all ports on all servers. NetBird policies can only allow, never deny – a narrower rule for the docs would change nothing as long as `to-servers` stays as it is. Narrowing `to-servers` to a port list per service would work, but touches every service on every server for one static site. Moving the docs to a port of their own fails at the same point. So the policy still decides which hosts a device reaches, and nginx decides who gets the docs.
 
-**Why no login (Pocket ID):** you read the docs when something is broken. A login would tie them to zummi (Pocket ID) and, through the reverse proxy, to grammi – exactly the hosts they are meant to be independent of. An address list needs nothing at runtime but nginx on the host itself.
+**Why no login in the mesh (Pocket ID):** you read the docs when something is broken. A login would tie them to zummi (Pocket ID) and, through the reverse proxy, to grammi – exactly the hosts they are meant to be independent of. An address list needs nothing at runtime but nginx on the host itself. The login from the internet above does not change that: the mesh and LAN ways keep working without it.
 
 **What this deliberately accepts:**
 
@@ -286,7 +292,7 @@ and `homebrew.taps` (the list nix-darwin writes into the Brewfile) is derived fr
 
 - `onActivation.autoUpdate = false`: no `brew update` during a switch.
 - `onActivation.upgrade = false`: no `brew upgrade` during a switch either; an installed cask stays at its version until it is upgraded on purpose.
-- `onActivation.cleanup = "zap"`: whatever is installed but not declared is removed, casks including their application data (`brew uninstall --zap`). Deleting a cask from the configuration (`apps.json`) therefore really uninstalls the app with its settings. `just mac-diff` shows this before it happens.
+- `onActivation.cleanup = "zap"`: whatever is installed but not declared is removed, casks including their application data (`brew uninstall --zap`). Deleting a cask from the configuration (`apps.json`) therefore really uninstalls the app with its settings. This applies to Mac App Store apps as well (Homebrew used to leave them alone). `just mac-diff` shows this before it happens, and `just mac-switch` stops before it: if the switch would remove anything, it lists it and asks `[y/N]`; without a terminal it aborts. `MAC_SWITCH_ALLOW_REMOVALS=1 just mac-switch` goes ahead without asking. Usually the fix is to declare what is missing in `apps.json` (decided on 2026-10-23, after a switch would have removed three App Store apps installed by hand).
 - `global.autoUpdate = false` and `global.brewfile = true`: the same for `brew` typed by hand, and `HOMEBREW_BUNDLE_FILE` points at the generated Brewfile, so a plain `brew bundle check` compares against the configuration.
 
 Apps with their own updater, and Mac App Store apps, keep updating themselves; the policy only concerns what Homebrew does.
@@ -304,7 +310,7 @@ A tool from Nix always wins over the same tool from Homebrew, Homebrew wins over
 | Recipe | What it does |
 | --- | --- |
 | `just mac-diff [host]` | Builds the configuration and shows what a switch would change: the Nix closure (`nvd diff`), the casks and formulae that would be **removed** (`brew bundle cleanup --zap` without `--force`) and those that would be **installed**. Changes nothing. |
-| `just mac-switch [host]` | Builds, switches, and ends with a compact summary: Nix packages added/removed/updated (nvd) and Homebrew `- removed` / `+ new`. |
+| `just mac-switch [host]` | Builds, stops if Homebrew would remove anything (see above), switches, and ends with a compact summary: Nix packages added/removed/updated (nvd) and Homebrew `- removed` / `+ new`. |
 | `just mac-upgrade` | Updates only the Homebrew pins (`nix-homebrew`, `homebrew-core`, `homebrew-cask`, `netbirdio-tap`), switches, runs `brew upgrade` and prints `old -> new` per upgraded item, plus the NetBird client version on gusto next to the mesh's pin. The result is a `flake.lock` change to commit. |
 
 The host defaults to `gusto`, which is built from the working copy (uncommitted changes included – but nix only sees files git knows, so `git add` new files first). `zorlock` is reached over SSH: `git pull` in `/etc/nixos`, then the same script under sudo. `deploy-zorlock` and `check-zorlock` are now short forms of `mac-switch zorlock` and `mac-diff zorlock`. The work itself is done by `modules/darwin/rebuild.sh` on the Mac.
@@ -778,7 +784,7 @@ One commit per round, `apps.json` only: `gusto: add obsidian (cask), remove shot
 apps-rm shottr
 ```
 
-For a single removal without the search. A cask wants its name typed to confirm, then `just mac-diff`, switch (default no), commit. A **Mac App Store** app stays installed when its entry goes – remove it by hand if wanted. If a name is declared from two sources, choose with `--source`, e.g. `apps-rm obsidian --source nixpkgs`.
+For a single removal without the search. A cask wants its name typed to confirm, then `just mac-diff`, switch (default no), commit. A **Mac App Store** app, too, is uninstalled on the switch when its entry goes. If a name is declared from two sources, choose with `--source`, e.g. `apps-rm obsidian --source nixpkgs`.
 
 ### List
 
@@ -803,6 +809,86 @@ The commands change the nixlab checkout (or worktree) the current directory is i
 
 The host defaults to gusto; `--host zorlock` works provided the host has `nixlab.apps.file` set – zorlock does not today. For a Mac other than the one you are on, the round commits without switching; then `just push` and `just mac-switch <host>`.
 
+## Hotfix a package
+
+When nixpkgs ships a version with a security hole or a bug and the fix is not in our pin yet, we pin the package ourselves – but through `hotfix` from [`modules/hotfixes.nix`](modules/hotfixes.nix), not with a bare `overrideAttrs`. `hotfix` applies the override only while nixpkgs still needs it, and warns once it no longer does.
+
+Why: the nightly auto-upgrade moves `nixpkgs` and `nixpkgs-unstable` on its own. A hand-written pin goes stale unnoticed, and as soon as nixpkgs is past it, it pins an *older* version. That is what happened to the paperless 3.3.2 bump on ursalia: unstable had shipped 3.3.2 for a while before anyone noticed. The warning is our addition; the rest is snowball's work, see [Credits](#credits).
+
+### When the hotfix switches itself off
+
+`hotfix` returns the nixpkgs package unchanged and warns as soon as either holds:
+
+- `pkg.version` ≥ `fixedVersion` – nixpkgs has updated, or
+- one of `pkg.patches` has `fixPatch` in its file name – stable has backported the fix as a patch without raising the version (the usual case for CVEs on a stable release).
+
+The override itself, src hash included, is no longer evaluated after that.
+
+### Package from the host's nixpkgs: overlay in `modules/hotfixes/`
+
+For packages from the normal `pkgs` of a NixOS host (sudo, openssh, nginx …). Every file in `modules/hotfixes/` is loaded as an overlay on **every** NixOS host – but not on the Macs, which do not get `modules/*.nix`.
+
+```nix
+# modules/hotfixes/sudo.nix
+# CVE-2025-32463: chroot option lets local users run code as root.
+hotfix: final: prev: {
+  sudo = hotfix {
+    name = "sudo CVE-2025-32463";
+    pkg = prev.sudo;
+    fixedVersion = "1.9.17p1";
+    fixPatch = "CVE-2025-32463";
+    override = pkg: pkg.overrideAttrs (old: rec {
+      version = "1.9.17p1";
+      src = final.fetchurl {
+        url = "https://www.sudo.ws/dist/sudo-${version}.tar.gz";
+        hash = "sha256-…";
+      };
+    });
+  };
+}
+```
+
+`fixPatch` is optional; it only makes sense where the nixpkgs patch will have a recognisable name (CVE number). Fill in the hash: first leave `lib.fakeHash`, then copy the right value from the build error.
+
+### Package from a different nixpkgs: `hotfix` in the host module
+
+Packages from `import nixpkgs-unstable { … }` (paperless, Grist, …) do not see the overlays. There, `hotfix` is used as a module argument:
+
+```nix
+{ pkgs, nixpkgs-unstable, hotfix, ... }:
+let
+  unstable = import nixpkgs-unstable { inherit (pkgs.stdenv.hostPlatform) system; };
+  paperless = hotfix {
+    name = "paperless-ngx GHSA-…";
+    pkg = unstable.paperless-ngx;
+    fixedVersion = "3.4.1";
+    override = pkg: pkg.overrideAttrs (finalAttrs: prev: { version = "3.4.1"; src = …; });
+  };
+in
+```
+
+Changes that do *not* depend on a version – a patch for an open upstream issue, tests switched off – stay outside `hotfix` as a plain `overrideAttrs` on top of the result.
+
+### Where the warning shows up
+
+It is an evaluation warning:
+
+```
+evaluation warning: hotfix "sudo CVE-2025-32463" is no longer needed: nixpkgs' sudo has version 1.9.17p1 (fix in 1.9.17p1) - remove it
+```
+
+It appears with every `just ship`, `nixos-rebuild` and `nix eval` of the host – and on the pull hosts in the nightly upgrade's journal, where nobody reads it:
+
+```bash
+journalctl -u nixos-upgrade --since today | grep 'hotfix "'
+```
+
+Then delete the file in `modules/hotfixes/`, or remove the `hotfix { … }` from the host module, and deploy.
+
+### Credits
+
+The pattern – version comparison, detection of a backported CVE patch, one overlay per file that is loaded automatically – is by snowball ([BBBSnowball](https://github.com/BBBSnowball)), who offered it for reuse: [`hotfixes/` in BBBSnowball/nixcfg](https://github.com/BBBSnowball/nixcfg/tree/35264a74189686e8ce0231b4752f85225d0c9e00/hotfixes). Our version adds the warning and the `hotfix` module argument for packages from another nixpkgs.
+
 ## Repository layout
 
 One flake, `nixosConfigurations` for five hosts plus `darwinConfigurations` for the two Macs (zorlock, gusto) and two `devShells`: one for working on the repo, one with dnscontrol for the DNSControl repo. Every host gets an explicit module list in `flake.nix`; whatever is missing is missing with the reason in a comment next to it.
@@ -810,7 +896,7 @@ One flake, `nixosConfigurations` for five hosts plus `darwinConfigurations` for 
 | Path | Contents |
 | --- | --- |
 | `flake.nix` / `flake.lock` | Inputs, host definitions, packages, `lib.topology`, `lib.inventory`, `checks` |
-| `modules/` | 17 shared modules: base, nix, ssh, firewall, networking (ifstate), acme, crowdsec, tailscale, netbird, metrics/metrics-shipping, logging/log-shipping, qemu-guest, deploy, auto-upgrade-git, docs-site |
+| `modules/` | 19 shared modules: base, nix, hotfixes, ssh, firewall, networking (ifstate), acme, crowdsec, tailscale, netbird, metrics/metrics-shipping, logging/log-shipping, qemu-guest, deploy, auto-upgrade-git, docs-site, maintenance |
 | `modules/darwin/` | For the Macs: `homebrew.nix` (one Homebrew policy for every darwin host) and `rebuild.sh` (the engine behind the `mac-*` recipes) |
 | `hosts/gusto/` | The workstation: `configuration.nix` (system, casks, macOS settings), `home.nix` and `ssh.nix` (home-manager), `ssh/*.pub` (public halves of the 1Password SSH keys) |
 | `.envrc` | direnv: loads the flake's devShell (sops, age, tofu, …) in the checkout |
@@ -845,6 +931,7 @@ Which file is responsible for which change, how often that happens, and what to 
 | Repositories, deploy keys | `terraform/github/` | rarely | `just github-plan`, `just github-apply` |
 | Version of an automatically updated input | `flake.lock` | nightly, automatic | – |
 | Version of a separately pinned input | `flake.lock` (`nix flake update <input>`) | by hand | deploy the hosts that use it |
+| A package version nixpkgs has not caught up with (security fix) | `modules/hotfixes/` or `hotfix` in the host module | when needed | deploy; remove once the build warns – [Hotfix a package](#hotfix-a-package) |
 | Grafana dashboard | `hosts/grammi/dashboards/*.json` | now and then | deploy grammi |
 | Topology (new host, exporter, vhost) | generated by `topology.nix` | when needed | `just topology`, commit |
 | Machine data: kind, hardware, site, uplink, power, unlock, networks, interfaces, host keys | `inventory.json` | with every new device | `just inventory-collect`, `just inventory-test` ([Inventory](#inventory)) |
@@ -929,7 +1016,7 @@ gusto is the MacBook Pro everything in this repo is run from: deploys, secrets, 
 | Repo tools | from the flake's devShell, loaded by direnv in the checkout |
 | SSH | client only, keys only in 1Password; no Remote Login (no sshd) |
 | Mesh | NetBird peer `gusto` (cask `netbird-ui`), group `admin-workstations` |
-| Secrets | none of its own – sops on gusto *uses* the workstation age key from 1Password |
+| Secrets | only `hosts/gusto/mcp.yaml` (the [Claude app's MCP servers](#the-claude-apps-mcp-servers)), encrypted for the workstation age key from 1Password; gusto has no host key of its own |
 | Monitoring | none; not in the topology, nothing in the lab depends on it (`criticality: lab`) |
 | Backup | Arq 7 to Garage on aldrin, plus Time Machine |
 
@@ -940,6 +1027,7 @@ gusto is the MacBook Pro everything in this repo is run from: deploys, secrets, 
 | `hosts/gusto/configuration.nix` | System: host name, Nix settings, Touch ID for sudo, taps, SSH known hosts, `SSH_AUTH_SOCK` for GUI apps, macOS settings, home-manager wiring |
 | `hosts/gusto/home.nix` | admin's home: environment, links, zsh and its helpers, CLI/TUI tools, Ghostty, git |
 | `hosts/gusto/ssh.nix` | `~/.ssh/config` and `~/.ssh/pub/` |
+| `hosts/gusto/mcp.nix`, `mcp.yaml` | The Claude app's MCP servers: `mcp-run` and their entries in Claude's config files; their credentials (sops) |
 | `hosts/gusto/ssh/*.pub` | Public halves of the SSH keys (one per target), linked to `~/.ssh/pub/` |
 | `hosts/gusto/apps.json` | All software: casks, formulae, Mac App Store, nixpkgs (system, user, font), each with a note – `apps-list` |
 | `modules/darwin/apps.nix`, `apps.schema.json` | Turns `apps.json` into the options and checks it; editor schema |
@@ -962,7 +1050,7 @@ gusto was set up deliberately bare on 2026-10-21: no app list taken over from th
 | `1password`, `1password-cli` | Passwords, the SSH agent with all SSH keys, `op` for scripts (sops' age key). The CLI as a cask, not from nixpkgs: it unlocks through the app with Touch ID, which only works with the vendor's signed binary. |
 | `vivaldi` | Browser |
 | `arq` | Backup to Garage on aldrin |
-| `claude` | Claude desktop app, incl. the local MCP servers (Feedbin, arkkvm, MoneyMoney, Home Assistant) |
+| `claude` | Claude desktop app; its local MCP servers: [the Claude app's MCP servers](#the-claude-apps-mcp-servers) |
 | `ghostty` | Terminal |
 | `netbirdio/homebrew-tap/netbird-ui` (+ formula `netbird`) | NetBird menu-bar app and daemon – see [NetBird](#netbird) |
 | `shottr` | Screenshots |
@@ -970,7 +1058,7 @@ gusto was set up deliberately bare on 2026-10-21: no app list taken over from th
 | `spotify` | Music |
 | `visual-studio-code` | Editor (Microsoft's build, for Remote-SSH and Pylance); telemetry off, `settings.json` comes from home-manager and is read-only |
 
-From the Mac App Store (`homebrew.masApps`, through `mas`; needs the App Store sign-in): **TestFlight**. `zap` does not remove App Store apps – a deleted line leaves the app installed.
+From the Mac App Store (`homebrew.masApps`, through `mas`; needs the App Store sign-in): **1Blocker**, **1Password for Safari**, **Ivory**, **TestFlight**. `zap` also removes App Store apps that are not declared; `just mac-switch` stops and asks first (see [macOS hosts](#macos-hosts)).
 
 #### System-wide (nix-darwin)
 
@@ -1051,7 +1139,7 @@ Experimental features `nix-command flakes`; `admin` is a trusted user; no channe
 - **FileVault** on (macOS setup).
 - **sudo with Touch ID** (`/etc/pam.d/sudo_local`, which macOS updates leave alone), working inside tmux too (`pam_reattach`).
 - **No Remote Login**: gusto runs no sshd and accepts no SSH connections. Nothing in the inventory or in `.sops.yaml` has a key for it, so no secret is ever encrypted to it.
-- **Keys and secrets only in 1Password**: SSH keys (agent), the sops age key (`op read`), the Arq credentials. Nothing private under `~/.ssh`.
+- **Keys only in 1Password**: SSH keys (agent), the sops age key (`op read`), the Arq credentials. Nothing private under `~/.ssh`. The MCP servers' credentials are in sops (`hosts/gusto/mcp.yaml`), readable only with that age key.
 
 ### SSH
 
@@ -1085,6 +1173,24 @@ The alternative names (tailnet, public) carry `HostKeyAlias <host>.peer.homelab.
 ### NetBird
 
 The official app from NetBird's tap (cask `netbird-ui`, formula `netbird` for the daemon), pinned as the input `netbirdio-tap`. Sign-in by SSO (Pocket ID) in the app, peer name `gusto`, group `admin-workstations` (Subraum devices, docs site). Rosenpass is **off** on the workstation for now (test since 2026-10-21). The version follows the tap, not `nixpkgs-netbird`; `just mac-upgrade` prints both. Details and the comparison with zorlock: [macOS hosts](#netbird-on-the-two-macs).
+
+### The Claude app's MCP servers
+
+The desktop app and Claude Code start their local MCP servers as stdio processes through `mcp-run <server>` (`hosts/gusto/mcp.nix`, set up on 2026-10-23). On every start `mcp-run` decrypts only that server's section of `hosts/gusto/mcp.yaml`. The file is encrypted with sops for the keys `workstation` and `admin`; `op` may ask for Touch ID while doing so. Then `mcp-run` starts the server. No credential is in any of Claude's config files.
+
+| Server | What | Start | Credentials in `mcp.yaml` | Desktop | Claude Code |
+| --- | --- | --- | --- | --- | --- |
+| `homeassistant` | [ha-mcp](https://github.com/homeassistant-ai/ha-mcp) as an app (add-on) on the Raspberry Pi, port 9583 | `uvx fastmcp-remote <url>`, bridges HTTP to stdio | `homeassistant.url`: the app's secret URL, host `homeassistant.peer.homelab.example` | yes | yes |
+| `feedbin` | [FeedbinMCP](https://github.com/admin/FeedbinMCP), admin's fork of [hypermoose/FeedbinMCP](https://github.com/hypermoose/FeedbinMCP) | `uv run --directory ~/Projects/personal/FeedbinMCP feedbin-mcp` | `feedbin.email`, `feedbin.password` | yes | no |
+| `arkkvm` | [arkkvm-mcp](https://github.com/admin/arkkvm-mcp) | `uv run --directory ~/Projects/arkkvm/arkkvm-mcp arkkvm-mcp`, host `arkkvm01`, keyboard layout `de` | `arkkvm.password` | yes | yes |
+
+- **ha-mcp rather than the built-in "Model Context Protocol Server" integration:** the built-in one only sees what is exposed to Assist and has no device registry. ha-mcp can handle automations, dashboards, registries, history and more, with write access. That is deliberate: Claude asks before every tool call, and ha-mcp takes a backup before it changes anything. The app talks to HA through the Supervisor, so no long-lived token is needed. Its secret URL is in the app's log at start.
+- **Reached over the mesh:** the same URL works at home and away. The NetBird policy `home-assistant-mcp` (`terraform/netbird/home-assistant.tf`) allows `admin-workstations` → HA, TCP 9583 only. Outside the LAN and the mesh the URL alone is of no use.
+- **No Feedbin in Claude Code:** feed articles are text from strangers, so a way in for prompt injection, and Claude Code has a shell and sops on gusto.
+- **Configuration:** every switch merges the servers with `jq` into `mcpServers` of `~/Library/Application Support/Claude/claude_desktop_config.json` and `~/.claude.json`, by name. Servers added by hand stay; one removed here has to be deleted there by hand. The apps read the file at start, so restart them after a switch.
+- **Changing credentials:** `cd ~/Projects/homelab/nixlab && sops hosts/gusto/mcp.yaml`. The change applies from the next server start, without a switch, because `mcp-run` reads the file in the working copy. The HA URL can be taken straight from the clipboard, with its host replaced by the mesh name:
+  `cd ~/Projects/homelab/nixlab && sops set hosts/gusto/mcp.yaml '["homeassistant"]["url"]' "\"$(pbpaste | sed -E 's#^http://[^/]+#http://homeassistant.peer.homelab.example:9583#')\""`
+- **MoneyMoney** is not set up yet, because MoneyMoney has not been on gusto since the reinstall. It used to run as `npx -y moneymoney-mcp`; that needs Node and the app running and unlocked.
 
 ### Backup
 
@@ -1120,6 +1226,8 @@ All `mac-*` recipes take the host as an optional parameter (default `gusto`; `zo
 | `brew` installs nothing / tap missing | taps come only from `flake.lock` (`mutableTaps = false`); `brew tap` and `brew update` are not the way – add an input, `just mac-switch` |
 | A setting did not apply | log out and in once (input sources, some Dock/Finder keys) |
 | `.before-hm` files in the home directory | left by the first switch; compare and delete |
+| An MCP server does not connect | run `mcp-run <server>` in a terminal: does it hang at Touch ID or sops, is a value missing in `mcp.yaml`, is the checkout missing? The desktop app logs to `~/Library/Logs/Claude/mcp-server-<name>.log` |
+| `homeassistant` hangs | `nc -z homeassistant.peer.homelab.example 9583`; if `netbird status -d` shows HA as "Connected" but without a WireGuard handshake, Rosenpass in the NetBird app on HA is strict – turn on `rosenpass_permissive` there |
 | NetBird disconnected | menu-bar app → Connect; `netbird status -d`; daemon: `sudo launchctl print system/netbird` |
 
 ## Inventory
@@ -3141,7 +3249,7 @@ Every device with an address that matters – managed by this flake or not.
 | <span id="hosts-interfaces-name-medium"></span>`interfaces.<name>.medium` | one of `ethernet` `wifi` |  | Physical medium. |
 | <span id="hosts-interfaces-name-network"></span>`interfaces.<name>.network` | id from [networks](#networks-1) |  | The network this interface is in. |
 | <span id="hosts-interfaces-name-note"></span>`interfaces.<name>.note` | string |  | Free text: anything worth knowing that has no field of its own. |
-| <span id="hosts-kind"></span>`kind` | one of `server` `hypervisor` `vm` `container` `router` `switch` `ap` `pdu` `ups` `kvm` `nas` `workstation` `laptop` `appliance` | required | What the device is. |
+| <span id="hosts-kind"></span>`kind` | one of `server` `hypervisor` `vm` `container` `router` `switch` `ap` `pdu` `ups` `kvm` `nas` `workstation` `laptop` `phone` `tablet` `appliance` | required | What the device is. |
 | <span id="hosts-managed"></span>`managed` | boolean | required | Configured by this flake (nixosConfigurations/darwinConfigurations). Must match the flake. |
 | <span id="hosts-manages"></span>`manages` | list of id from [hosts](#hosts-1), no duplicates |  | Only kvm: the machines this KVM gives out-of-band access to. |
 | <span id="hosts-model"></span>`model` | string |  | Hardware model without the vendor (ThinkCentre M720q), or for a VM the provider's product or plan name. |
@@ -3915,7 +4023,8 @@ Services are named by function, not by product. There are three kinds of reachab
 | `llm` | Ollama (behind Caddy) | zorlock | mesh only |
 | `mqtt` | Mosquitto (Home Assistant add-on) | Home Assistant (home LAN, NetBird peer) | port 8883, MQTT over TLS: at home straight to HA (home router (OPNsense) answers the name locally), from outside through the reverse proxy as TLS passthrough to the peer, no SSO ([why](#mqtt-from-outside-tls-passthrough-to-home-assistant)) |
 | `acme` | dns01proxy (DNS-01 for Home Assistant) | grammi | mesh only, port 8446; HA resolves it through the home router (OPNsense) ([why](#mqtt-from-outside-tls-passthrough-to-home-assistant)) |
-| `doku` | This documentation (private version) | aldrin + ursalia | in the mesh admin devices only ([why](#private-docs-admin-devices-only)), one A record per host; from outside a redirect to the public docs through the reverse proxy |
+| `doku` | This documentation (private version) | aldrin + ursalia | in the mesh admin devices only ([why](#private-docs-admin-devices-home-lan-login)), one A record per host; in the home LAN through a record of the router's own to ursalia, except a deny list; from outside a redirect to the public docs through the reverse proxy, `/login` to `doku-login` |
+| `doku-login` | This documentation (private version) from the internet | aldrin | through the reverse proxy with SSO (group `docs-readers`), only with the proxy's secret header |
 
 **Reverse proxy:** Traefik on grammi owns port 443. It terminates `mesh.homelab.example` itself and hands everything else via TCP passthrough with PROXY protocol v2 to `netbird-proxy`, which does TLS and ACME (tls-alpn-01) on its own. Login at the proxy is SSO against Pocket ID, limited to the NetBird groups of the respective app; `dokumente` additionally with a PIN (share links only). The proxy reaches every service on grammi through the Traefik entrypoint `apps` (port 8090), which puts the maintenance switch and error pages in front ([maintenance mode](#maintenance-mode)).
 
@@ -3925,7 +4034,7 @@ Services are named by function, not by product. There are three kinds of reachab
 
 ## Modules
 
-The 17 modules under `modules/` carry the configuration shared by all hosts; every file explains in its header comment why it is the way it is. The public version contains them anonymised under `modules/` – as a reference, not directly importable: some read `hosts/<host>/*.yaml` and assume sops-nix. Four have options of their own.
+The 19 modules under `modules/` carry the configuration shared by all hosts; every file explains in its header comment why it is the way it is. The public version contains them anonymised under `modules/` – as a reference, not directly importable: some read `hosts/<host>/*.yaml` and assume sops-nix. Five have options of their own.
 
 | Module | Purpose | Options / notes |
 | --- | --- | --- |
@@ -3945,6 +4054,8 @@ The 17 modules under `modules/` carry the configuration shared by all hosts; eve
 | [qemu-guest.nix](modules/qemu-guest.nix) | QEMU guest agent with an RPC deny list: snapshots yes, shell and file access over the channel no | |
 | [nix.nix](modules/nix.nix) | Nix daemon, garbage collection, store optimisation | |
 | [docs-site.nix](modules/docs-site.nix) | The private docs site (flake package `docs-site`) under `doku` on the mesh | `services.docsSite`: `enable`, `package`, `fqdn`, `allow` (default: the whole mesh; in the lab only the admin devices from `admin-peers.json`); on aldrin and ursalia |
+| [maintenance.nix](modules/maintenance.nix) | Maintenance mode for nginx and Traefik: a flag file switches a name to a 503 page, the same page on 502/504 | `services.maintenance`, see [Maintenance mode](#maintenance-mode) |
+| [hotfixes.nix](modules/hotfixes.nix) | Package hotfixes that switch themselves off and warn once nixpkgs has the fix | module argument `hotfix`, overlays from `modules/hotfixes/`, see [Hotfix a package](#hotfix-a-package) |
 | [base.nix](modules/base.nix) | Locale, console, time and tools for debugging | |
 
 ## just recipes

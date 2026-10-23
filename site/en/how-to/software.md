@@ -59,7 +59,7 @@ One commit per round, `apps.json` only: `gusto: add obsidian (cask), remove shot
 apps-rm shottr
 ```
 
-For a single removal without the search. A cask wants its name typed to confirm, then `just mac-diff`, switch (default no), commit. A **Mac App Store** app stays installed when its entry goes – remove it by hand if wanted. If a name is declared from two sources, choose with `--source`, e.g. `apps-rm obsidian --source nixpkgs`.
+For a single removal without the search. A cask wants its name typed to confirm, then `just mac-diff`, switch (default no), commit. A **Mac App Store** app, too, is uninstalled on the switch when its entry goes. If a name is declared from two sources, choose with `--source`, e.g. `apps-rm obsidian --source nixpkgs`.
 
 ## List
 
