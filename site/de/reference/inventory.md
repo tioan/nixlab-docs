@@ -69,6 +69,7 @@ Alle Felder mit Typ, Standardwert und Bedeutung: [Inventar-Schema → hosts](inv
 | `pdu`, `ups` | Strom |
 | `kvm` | IP-KVM, extern oder als Karte im Host; die einzige Art, die `manages` haben darf |
 | `nas`, `workstation`, `laptop` | Wie benannt |
+| `phone`, `tablet`, `watch` | Mobilgeräte: iPhone, iPad, Apple Watch; meist mit `availability: intermittent` |
 | `appliance` | Alles andere mit Adresse: Apple TV, Drucker, … |
 
 Ob ein Host virtuell ist, folgt aus `kind` (`vm`, `container`) – nicht aus `runsOn`. Eine gemietete VM ist eine `vm` ohne `runsOn`: Der Hypervisor des Anbieters steht nicht im Inventar.

@@ -155,6 +155,10 @@ Pull the latest config on a remote host, no rebuild
 
 ## `just rebuild host`
 
+Refuses while `just try` holds the host on a branch that /etc/nixos does
+not contain yet; once it does (merged and pulled), the hold is lifted and
+the rebuild runs. `command -v`: hosts from before modules/deploy-hold.nix
+have no holds.
 Rebuild a remote host from its current /etc/nixos checkout
 
 ## `just check host`
@@ -176,6 +180,29 @@ Commit, push, then deploy to every host
 ## `just deploy-all`
 
 (no comment)
+
+## `just try host`
+
+Builds and switches it like deploy-push, then holds the host there
+(modules/deploy-hold.nix) - the nightly upgrade, `just deploy` from main
+and ursalia's push to cuckoosegg leave it alone until the branch is
+merged. Run it from the topic's worktree. Requires a committed tree (the
+hold names a commit) based on the current origin/main, since anything
+older would roll back what others merged meanwhile. Refuses while another
+branch holds the host. After merging, `just deploy <host>` lifts the hold
+(cuckoosegg: ursalia's nightly push once its checkout has the merge).
+Tofu (netbird-apply & co.) is not covered: one state, applied from main.
+Try the current topic branch on a host before merging it to main
+
+## `just release host`
+
+E.g. when the attempt is abandoned. Does not switch anything back - run
+`just deploy <host>` (or `just deploy-push cuckoosegg` from main) for that.
+Drop a host's `just try` hold without merging
+
+## `just holds`
+
+Every `just try` hold on every NixOS host.
 
 ## `just pve-image host pve`
 
@@ -226,8 +253,10 @@ four hosts. Commit, then deploy.
 
 ## `just mac-upgrade`
 
-Update the Homebrew pins (Homebrew itself and every tap: flake inputs
-nix-homebrew, homebrew-core, homebrew-cask, netbirdio-tap), switch, then
+Update the Homebrew pins (Homebrew itself and every tap: flake input
+nix-homebrew plus every input from a github:<owner>/homebrew-<name>
+repository - homebrew-core, homebrew-cask, netbirdio-tap and whatever
+`apps` pinned since; read from flake.lock), switch, then
 `brew upgrade` what is installed - and print the NetBird client version
 here next to the mesh's (nixpkgs-netbird; bump that one deliberately,
 server first, see flake.nix). Only on the workstation: the result is a

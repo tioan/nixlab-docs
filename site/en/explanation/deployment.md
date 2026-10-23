@@ -12,3 +12,5 @@ The pull hosts (zummi, aldrin, grammi, ursalia) keep `/etc/nixos` as a checkout 
 ## Nightly upgrade
 
 `modules/auto-upgrade-git.nix` updates `nixpkgs`, `nixpkgs-unstable` and `sops-nix`, builds, switches and pushes the new `flake.lock` back to GitHub with the host's deploy key. The GitHub host key is pinned because nobody is watching. A configuration error that only shows up on a cold boot therefore takes the host down at 04:00 – for the VMs there is the provider's console for that.
+
+While `just try` holds a host on a topic branch, the upgrade skips it until the branch is merged ([Test a branch before merging](../how-to/try-branch.md)).

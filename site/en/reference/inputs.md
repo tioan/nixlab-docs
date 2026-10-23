@@ -16,6 +16,7 @@ Only `nixpkgs`, `nixpkgs-unstable` and `sops-nix` move with the nightly auto-upg
 | `nix-homebrew` | main | Macs with Homebrew (gusto): Homebrew itself | no – `just mac-upgrade` |
 | `homebrew-core`, `homebrew-cask` | main (`flake = false`) | Macs with Homebrew: the pinned taps | no – `just mac-upgrade` |
 | `netbirdio-tap` | main (`flake = false`) | gusto: NetBird app (cask `netbird-ui`) | no – `just mac-upgrade` |
+| `stablyai-orca-tap` | main (`flake = false`) | gusto: Orca (cask `orca`), pinned by `apps` | no – `just mac-upgrade` |
 
 The Homebrew inputs are the reason a cask has a fixed version: with `mutableTaps = false` Homebrew cannot update its taps itself, see [macOS hosts](../explanation/macos-hosts.md).
 

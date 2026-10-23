@@ -10,3 +10,4 @@
 - [ ] gusto: after the first switch check whether the NetBird app updates itself (or follows the dashboard's auto-update) and switch that off, so the version comes from `netbirdio-tap` only
 - [ ] gusto: default git address `admin@homelab.example` instead of `mail@admin.org`, together with a new layout of `~/Projects`
 - [ ] Inventory: a field for a device's DNS name (arkkvm answers as `arkkvm01`, today only in its note), and public addresses for the managed hosts – then `hosts/gusto/ssh.nix` derives its fallback names from them
+- [ ] Docs site: `<link rel="alternate" type="text/markdown">` in every HTML page, pointing to its Markdown version (`docs/gen-llms.py`) – needs a theme override, so only once Zensical is at 1.0

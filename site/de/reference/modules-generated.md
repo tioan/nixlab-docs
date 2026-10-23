@@ -30,6 +30,8 @@ host's `modules` list unchanged (see hosts/zummi for the reference usage).
 | `allowReboot` | Whether to allow automatic reboots after a kernel/boot-relevant upgrade. |
 | `rebootWindow` | Restrict automatic reboots to this time window. Null means no restriction beyond `dates`. |
 | `deployKeySecret` | Name of the sops secret holding the write-enabled SSH deploy key for the flake's git repo. Declared automatically by this module (mode 0400, owner root) - just put the key under this name in the host's secrets.yaml. |
+| `holdFile` | Skip the whole run (no input update, no switch, no reboot) while this file exists - the host deliberately runs something other than the checkout. Checked by `holdCheck`, which must exit 0 to go ahead and 1 to skip (systemd's ExecCondition semantics); null disables both. |
+| `holdCheck` | Command deciding whether `holdFile` still applies. Null means the file's presence alone skips the run. |
 | `gitAuthorEmail` | Email used for the git author/committer identity of the automated flake.lock commit. |
 
 [Quelltext](https://github.com/tioan/nixlab-docs/blob/main/modules/auto-upgrade-git.nix)
@@ -86,6 +88,31 @@ pocket-id on zummi is an OIDC provider and the one place where credentials
 can be guessed, and aldrin exposes Garage's S3 API.
 
 [Quelltext](https://github.com/tioan/nixlab-docs/blob/main/modules/crowdsec.nix)
+
+## deploy-hold.nix
+
+Deploy holds: a host runs a topic branch and nothing may switch it back to
+main until that branch is merged.
+
+`just try <host>` deploys the current worktree with deploy-push and then
+writes /etc/nixos-hold on the host (branch, commit, since, by). Everything
+that would otherwise switch the host back to main quietly honours it:
+
+- the nightly nixos-upgrade (modules/auto-upgrade-git.nix, holdFile)
+- `just rebuild` / `just deploy` / `ship` / `deploy-all` (justfile)
+- `just deploy-push` from another checkout (justfile)
+- ursalia's nightly push to cuckoosegg (hosts/ursalia/push-cuckoosegg.nix)
+
+The rule is the same everywhere: a hold blocks a deploy unless the held
+commit is contained in what is about to be deployed - then the branch has
+been merged, the hold has done its job and is removed. A rebase merge
+rewrites the commit, so that case needs `just release <host>`.
+
+Visibility: a node_exporter textfile metric (nixlab_deploy_hold_since_seconds,
+panel "Deploy holds" in Homelab / Hosts Overview, red after 48 h) and a
+warning in every interactive login shell on the host.
+
+[Quelltext](https://github.com/tioan/nixlab-docs/blob/main/modules/deploy-hold.nix)
 
 ## deploy.nix
 

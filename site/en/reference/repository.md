@@ -19,6 +19,6 @@ One flake, `nixosConfigurations` for five hosts plus `darwinConfigurations` for 
 | `inventory.schema.json` | JSON Schema for editing `inventory.json`, generated |
 | `tests/` | Tests evaluated by `nix flake check` (`inventory.nix`) |
 | `justfile` | All operational workflows: deploy, secrets, netbird-\*, desec-\* |
-| `docs/` | This project documentation: pages under `site/{de,en}/`, Zensical config, build (`build.sh`, `site-src.sh`, `assemble.py`, `gen-reference.py`), the private site's package (`package.nix`) and what it would otherwise load from third parties – fonts, glightbox (`assets.nix`), install guides (ursalia, cuckoosegg, gusto), drafts of upstream issues |
+| `docs/` | This project documentation: pages under `site/{de,en}/`, Zensical config, build (`build.sh`, `site-src.sh`, `assemble.py`, `gen-reference.py`, `gen-llms.py`), the private site's package (`package.nix`) and what it would otherwise load from third parties – fonts, glightbox (`assets.nix`), install guides (ursalia, cuckoosegg, gusto), drafts of upstream issues |
 | `dnsconfig.js` | Symlink into the separate DNSControl repo – public DNS records live there |
 | `.sops.yaml` | age recipients per host, `admin` (offline recovery) and `workstation` (1Password) |

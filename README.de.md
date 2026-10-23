@@ -17,24 +17,89 @@ Zielgruppe: Leute, die NixOS-Flakes, sops-nix und Terraform/OpenTofu lesen könn
 
 Ja, beides ist verdrahtet – über das Repo als gemeinsame Schnittstelle. OpenTofu verwaltet das, was außerhalb der Maschinen per API existiert (NetBird-Account, deSEC-Tokens, Pocket-ID-Gruppen); NixOS verwaltet die Maschinen. Die beiden reden nie direkt miteinander: Tofu läuft nur auf dem MacBook über `just`, Nix wertet nie Tofu-State aus.
 
-![Datenfluss zwischen OpenTofu, Repo-Dateien und NixOS](site/de/assets/data-flow.svg)
+<figure class="nx-diagram">
+<svg viewBox="0 0 680 452" role="img" aria-label="Tofu und NixOS teilen sich nur Dateien im Repo: OpenTofu spricht mit den APIs, seine Ergebnisse landen als Dateien im Repo, und der Nix-Flake liest diese Dateien" xmlns="http://www.w3.org/2000/svg">
+<style>.nx-t{font-family:'DejaVu Sans',sans-serif;font-size:14px;font-weight:bold;fill:#2c2c2a}.nx-ts{font-size:12px}.nx-tx{font-size:11px}.nx-s{font-family:'DejaVu Sans',sans-serif;font-size:11px;fill:#5f5e5a}.nx-line{fill:none;stroke:#888780;stroke-width:1.4}.nx-gray rect{fill:#f1efe8;stroke:#888780}.nx-gray .nx-t{fill:#2c2c2a}.nx-gray .nx-s{fill:#5f5e5a}.nx-coral rect{fill:#faece7;stroke:#993c1d}.nx-coral .nx-t{fill:#4a1b0c}.nx-coral .nx-s{fill:#993c1d}.nx-blue rect{fill:#e6f1fb;stroke:#185fa5}.nx-blue .nx-t{fill:#042c53}.nx-blue .nx-s{fill:#185fa5}</style>
+<text class="nx-t" x="16" y="24">Tofu und NixOS teilen sich nur Dateien im Repo</text>
+<text class="nx-s" x="16" y="42">Pfeile zeigen, wohin Daten fließen</text>
+<text class="nx-s" x="76" y="78" text-anchor="middle">API (per Netz)</text>
+<text class="nx-s" x="224" y="78" text-anchor="middle">OpenTofu auf dem MacBook</text>
+<text class="nx-s" x="387" y="78" text-anchor="middle">Repo-Dateien</text>
+<text class="nx-s" x="571" y="78" text-anchor="middle">Nix-Flake</text>
+<path class="nx-line" d="M152 114.0 H136"/><path class="nx-line" d="M142 110.0 L136 114.0 L142 118.0"/><path class="nx-line" d="M146 110.0 L152 114.0 L146 118.0"/>
+<path class="nx-line" d="M152 174.0 H136"/><path class="nx-line" d="M142 170.0 L136 174.0 L142 178.0"/><path class="nx-line" d="M146 170.0 L152 174.0 L146 178.0"/>
+<path class="nx-line" d="M152 234.0 H136"/><path class="nx-line" d="M142 230.0 L136 234.0 L142 238.0"/><path class="nx-line" d="M146 230.0 L152 234.0 L146 238.0"/>
+<path class="nx-line" d="M296 114.0 H312"/><path class="nx-line" d="M306 110.0 L312 114.0 L306 118.0"/>
+<path class="nx-line" d="M312 174.0 H296"/><path class="nx-line" d="M302 170.0 L296 174.0 L302 178.0"/>
+<path class="nx-line" d="M296 234.0 H312"/><path class="nx-line" d="M306 230.0 L312 234.0 L306 238.0"/>
+<path class="nx-line" d="M462 114.0 H478"/><path class="nx-line" d="M472 110.0 L478 114.0 L472 118.0"/>
+<path class="nx-line" d="M462 174.0 H478"/><path class="nx-line" d="M472 170.0 L478 174.0 L472 178.0"/>
+<path class="nx-line" d="M462 234.0 H478"/><path class="nx-line" d="M472 230.0 L478 234.0 L472 238.0"/>
+<path class="nx-line" d="M462 294.0 H478"/><path class="nx-line" d="M472 290.0 L478 294.0 L472 298.0"/>
+<path class="nx-line" d="M296 186 H304 V294.0 H312"/><path class="nx-line" d="M306 290.0 L312 294.0 L306 298.0"/>
+<a data-target="nixos-to-tofu" tabindex="0" role="link" class="nx-coral"><rect x="16" y="90" width="120" height="48" rx="8" stroke-width="1"/><text class="nx-t" x="76" y="112" text-anchor="middle">NetBird API</text><text class="nx-s" x="76" y="129" text-anchor="middle">mesh.homelab.example</text></a>
+<a data-target="nixos-to-tofu" tabindex="0" role="link" class="nx-coral"><rect x="16" y="150" width="120" height="48" rx="8" stroke-width="1"/><text class="nx-t" x="76" y="172" text-anchor="middle">Pocket ID API</text><text class="nx-s" x="76" y="189" text-anchor="middle">auth.homelab.example</text></a>
+<a data-target="desec-token" tabindex="0" role="link" class="nx-gray"><rect x="16" y="210" width="120" height="48" rx="8" stroke-width="1"/><text class="nx-t" x="76" y="232" text-anchor="middle">deSEC API</text><text class="nx-s" x="76" y="249" text-anchor="middle">Token-Verwaltung</text></a>
+<a data-target="netbird-setup-key" tabindex="0" role="link" class="nx-gray"><rect x="152" y="90" width="144" height="108" rx="8" stroke-width="1"/><text class="nx-t" x="224" y="142" text-anchor="middle">netbird</text><text class="nx-s" x="224" y="159" text-anchor="middle">terraform/netbird</text></a>
+<a data-target="desec-token" tabindex="0" role="link" class="nx-gray"><rect x="152" y="210" width="144" height="48" rx="8" stroke-width="1"/><text class="nx-t" x="224" y="232" text-anchor="middle">desec-tokens</text><text class="nx-s" x="224" y="249" text-anchor="middle">terraform/desec-tokens</text></a>
+<a data-target="netbird-setup-key" tabindex="0" role="link" class="nx-gray"><rect x="312" y="90" width="150" height="48" rx="8" stroke-width="1"/><text class="nx-t" x="387" y="112" text-anchor="middle">netbird.yaml</text><text class="nx-s" x="387" y="129" text-anchor="middle">hosts/host/, sops</text></a>
+<a data-target="proxy-services" tabindex="0" role="link" class="nx-blue"><rect x="312" y="150" width="150" height="48" rx="8" stroke-width="1"/><text class="nx-t nx-ts" x="387" y="172" text-anchor="middle">proxy-services.json</text><text class="nx-s" x="387" y="189" text-anchor="middle">hosts/grammi/, Klartext</text></a>
+<a data-target="desec-token" tabindex="0" role="link" class="nx-gray"><rect x="312" y="210" width="150" height="48" rx="8" stroke-width="1"/><text class="nx-t" x="387" y="232" text-anchor="middle">desec.yaml</text><text class="nx-s" x="387" y="249" text-anchor="middle">hosts/host/, sops</text></a>
+<a data-target="peers" tabindex="0" role="link" class="nx-gray"><rect x="312" y="270" width="150" height="48" rx="8" stroke-width="1"/><text class="nx-t nx-ts" x="387" y="292" text-anchor="middle">expected-peers.json</text><text class="nx-s" x="387" y="309" text-anchor="middle">terraform/netbird/</text></a>
+<a data-target="netbird-setup-key" tabindex="0" role="link" class="nx-gray"><rect x="478" y="90" width="186" height="48" rx="8" stroke-width="1"/><text class="nx-t" x="571" y="112" text-anchor="middle">netbird.nix</text><text class="nx-s" x="571" y="129" text-anchor="middle">modules/, Setup-Key</text></a>
+<a data-target="proxy-services" tabindex="0" role="link" class="nx-gray"><rect x="478" y="150" width="186" height="48" rx="8" stroke-width="1"/><text class="nx-t" x="571" y="172" text-anchor="middle">topology.nix</text><text class="nx-s" x="571" y="189" text-anchor="middle">Grafana-Topologie</text></a>
+<a data-target="desec-token" tabindex="0" role="link" class="nx-gray"><rect x="478" y="210" width="186" height="48" rx="8" stroke-width="1"/><text class="nx-t" x="571" y="232" text-anchor="middle">acme.nix</text><text class="nx-s" x="571" y="249" text-anchor="middle">modules/, DNS-01-Token</text></a>
+<a data-target="peers" tabindex="0" role="link" class="nx-gray"><rect x="478" y="270" width="186" height="48" rx="8" stroke-width="1"/><text class="nx-t nx-tx" x="571" y="292" text-anchor="middle">netbird-expected-peers.nix</text><text class="nx-s" x="571" y="309" text-anchor="middle">hosts/grammi/, Metrik</text></a>
+<text class="nx-s" x="16" y="346">tofu apply legt Account, Policies und Tokens an und bekommt Setup-Keys und Tokens zurück;</text>
+<text class="nx-s" x="16" y="363">just netbird-key und desec-key verschlüsseln sie per sops für den Ziel-Host ins Repo.</text>
+<a data-target="proxy-services" tabindex="0" role="link" class="nx-blue"><rect x="16" y="382" width="316" height="52" rx="8" stroke-width="1"/><text class="nx-t nx-ts" x="174" y="406" text-anchor="middle">Beide Seiten lesen proxy-services.json</text><text class="nx-s" x="174" y="423" text-anchor="middle">von Hand gepflegt, Klartext im Repo</text></a>
+<a data-target="nixos-to-tofu" tabindex="0" role="link" class="nx-coral"><rect x="348" y="382" width="316" height="52" rx="8" stroke-width="1"/><text class="nx-t nx-ts" x="506" y="406" text-anchor="middle">Läuft selbst auf NixOS (grammi, zummi)</text><text class="nx-s" x="506" y="423" text-anchor="middle">Gegenrichtung: ohne diese Hosts kein tofu apply</text></a>
+</svg>
+</figure>
 
 Tofu schreibt nie direkt auf einen Host: jedes Ergebnis landet als Datei im Repo und erreicht den Host erst mit dem nächsten Deploy.
 
 ### Die Berührungspunkte
 
+#### NetBird-Setup-Key
+
 | Richtung | Datei | Erzeugt von | Gelesen von | Inhalt |
 | --- | --- | --- | --- | --- |
 | Tofu → NixOS | `hosts/<host>/netbird.yaml` | `just netbird-key <host>` (`tofu output setup_keys` → `sops encrypt`) | `modules/netbird.nix` (`sopsFile`) | Einmal-Setup-Key, 24 h gültig |
-| Tofu → NixOS | `hosts/<host>/desec.yaml` | `just desec-key <host>` (`tofu output acme_tokens` → `sops encrypt`) | `modules/acme.nix` (`sopsFile`) | deSEC-Token nur für TXT-Records, VMs auf ihre IP gepinnt |
-| Tofu → NixOS | `terraform/netbird/expected-peers.json` | `just netbird-apply` (`tofu output expected_peers`, aus den Policies in `expected-peers.tf` berechnet) | `hosts/grammi/netbird-expected-peers.nix` (`builtins.readFile`) | Soll-Anzahl NetBird-Peers je Host als Metrik `netbird_expected_peers`, im NetBird-Dashboard neben der echten Network Map (z. B. aldrin 6, grammi 8) |
-| Tofu → NixOS | `terraform/netbird/admin-peers.json` | `just netbird-apply` (`tofu output admin_peers`, aus der Gruppe `admin-workstations`, `admin-peers.tf`) | `flake.nix` (`builtins.readFile`, Option `services.docsSite.allow`) | Mesh-Adressen der Admin-Geräte – wer die private Doku lesen darf |
-| gemeinsam | `hosts/grammi/proxy-services.json` | von Hand | `terraform/netbird/reverse-proxy.tf` (`jsondecode(file(...))`) und `topology.nix` | Name → App, Port, Gruppen der Reverse-Proxy-Dienste |
-| Repo → beide | `hosts/<host>/github.yaml` + `github-deploy.pub` | `just github-key <host>` (`ssh-keygen` → `sops encrypt`) | privat: `modules/deploy.nix` (`sopsFile`); öffentlich: `terraform/github` (`file(...)`) | Deploy-Key für `/etc/nixos`; Tofu sieht nur den öffentlichen Teil |
-| NixOS → Tofu | NetBird-Server auf grammi | `hosts/grammi/netbird.nix` | Provider über `https://mesh.homelab.example` | Die API, gegen die Tofu überhaupt erst läuft |
-| NixOS → Tofu | Bootstrap-Tokens | `just netbird-setup-owner`, `netbird-proxy-token` (SSH auf grammi, Server-API) | `terraform/netbird/secrets.yaml` bzw. `hosts/grammi/netbird-proxy.yaml` | Owner-PAT, Proxy-Token |
 
 Der Ablauf für einen neuen Host: Tofu legt den Setup-Key an, `just netbird-key` schreibt ihn verschlüsselt für genau diesen Host (age-Key aus seinem SSH-Host-Key) nach `hosts/<host>/netbird.yaml`, Commit, Deploy innerhalb von 24 h. Der Host registriert sich beim Start selbst; Peers selbst verwaltet Tofu nicht, es findet sie per `data "netbird_peer"` über den Namen.
+
+#### deSEC-Token
+
+| Richtung | Datei | Erzeugt von | Gelesen von | Inhalt |
+| --- | --- | --- | --- | --- |
+| Tofu → NixOS | `hosts/<host>/desec.yaml` | `just desec-key <host>` (`tofu output acme_tokens` → `sops encrypt`) | `modules/acme.nix` (`sopsFile`) | deSEC-Token nur für TXT-Records, VMs auf ihre IP gepinnt |
+
+#### Soll- und Admin-Peers
+
+| Richtung | Datei | Erzeugt von | Gelesen von | Inhalt |
+| --- | --- | --- | --- | --- |
+| Tofu → NixOS | `terraform/netbird/expected-peers.json` | `just netbird-apply` (`tofu output expected_peers`, aus den Policies in `expected-peers.tf` berechnet) | `hosts/grammi/netbird-expected-peers.nix` (`builtins.readFile`) | Soll-Anzahl NetBird-Peers je Host als Metrik `netbird_expected_peers`, im NetBird-Dashboard neben der echten Network Map (z. B. aldrin 6, grammi 8) |
+| Tofu → NixOS | `terraform/netbird/admin-peers.json` | `just netbird-apply` (`tofu output admin_peers`, aus der Gruppe `admin-workstations`, `admin-peers.tf`) | `flake.nix` (`builtins.readFile`, Option `services.docsSite.allow`) | Mesh-Adressen der Admin-Geräte – wer die private Doku lesen darf |
+
+#### proxy-services.json
+
+| Richtung | Datei | Erzeugt von | Gelesen von | Inhalt |
+| --- | --- | --- | --- | --- |
+| gemeinsam | `hosts/grammi/proxy-services.json` | von Hand | `terraform/netbird/reverse-proxy.tf` (`jsondecode(file(...))`) und `topology.nix` | Name → App, Port, Gruppen der Reverse-Proxy-Dienste |
+
+#### GitHub-Deploy-Key
+
+| Richtung | Datei | Erzeugt von | Gelesen von | Inhalt |
+| --- | --- | --- | --- | --- |
+| Repo → beide | `hosts/<host>/github.yaml` + `github-deploy.pub` | `just github-key <host>` (`ssh-keygen` → `sops encrypt`) | privat: `modules/deploy.nix` (`sopsFile`); öffentlich: `terraform/github` (`file(...)`) | Deploy-Key für `/etc/nixos`; Tofu sieht nur den öffentlichen Teil |
+
+#### NixOS → Tofu
+
+| Richtung | Datei | Erzeugt von | Gelesen von | Inhalt |
+| --- | --- | --- | --- | --- |
+| NixOS → Tofu | NetBird-Server auf grammi | `hosts/grammi/netbird.nix` | Provider über `https://mesh.homelab.example` | Die API, gegen die Tofu überhaupt erst läuft |
+| NixOS → Tofu | Bootstrap-Tokens | `just netbird-setup-owner`, `netbird-proxy-token` (SSH auf grammi, Server-API) | `terraform/netbird/secrets.yaml` bzw. `hosts/grammi/netbird-proxy.yaml` | Owner-PAT, Proxy-Token |
 
 ### Was bewusst nicht verdrahtet ist
 
@@ -216,6 +281,8 @@ Die Pull-Hosts (zummi, aldrin, grammi, ursalia) halten `/etc/nixos` als Checkout
 
 `modules/auto-upgrade-git.nix` aktualisiert `nixpkgs`, `nixpkgs-unstable` und `sops-nix`, baut, schaltet um und pusht die neue `flake.lock` mit dem Deploy-Key des Hosts zurück nach GitHub. Der GitHub-Host-Key ist gepinnt, weil niemand zusieht. Ein Konfigurationsfehler, der erst beim Kaltstart auffällt, legt den Host also um 04:00 lahm – bei den VMs gibt es dafür die Konsole des Anbieters.
 
+Hält `just try` einen Host auf einem Themen-Branch, überspringt das Upgrade ihn, bis der Branch gemergt ist ([Branch vor dem Merge testen](#branch-vor-dem-merge-auf-einem-host-testen)).
+
 ## Monitoring
 
 Alles landet auf grammi: **vmagent** auf jedem Host schickt Metriken an VictoriaMetrics (`:8428`), **Vector** journald- und nginx-Logs an VictoriaLogs (`:9428`), beides über das Mesh. Grafana (`metrics`) und logchef (`logs`) liegen hinter dem Reverse Proxy mit SSO. Die Exporter je Host kommen aus `modules/metrics.nix`; was keinen eigenen Endpunkt hat, geht über den textfile-Collector von node_exporter (`/var/lib/prometheus-node-exporter-text-files`), geschrieben von kleinen Timern oder Diensten:
@@ -311,7 +378,7 @@ Ein Tool aus Nix gewinnt immer gegen dasselbe Tool aus Homebrew, Homebrew gegen 
 | --- | --- |
 | `just mac-diff [host]` | Baut die Konfig und zeigt, was ein Switch ändern würde: die Nix-Closure (`nvd diff`), die Casks und Formulae, die **entfernt** würden (`brew bundle cleanup --zap` ohne `--force`), und die, die **installiert** würden. Ändert nichts. |
 | `just mac-switch [host]` | Baut, hält an, falls Homebrew etwas entfernen würde (siehe oben), schaltet und endet mit einer kompakten Zusammenfassung: Nix-Pakete neu/entfernt/aktualisiert (nvd) und Homebrew `- entfernt` / `+ neu`. |
-| `just mac-upgrade` | Aktualisiert nur die Homebrew-Pins (`nix-homebrew`, `homebrew-core`, `homebrew-cask`, `netbirdio-tap`), schaltet, führt `brew upgrade` aus und zeigt `alt -> neu` je aktualisiertem Paket, dazu die NetBird-Client-Version auf gusto neben dem Pin des Mesh. Ergebnis ist eine Änderung an `flake.lock`, die committet wird. |
+| `just mac-upgrade` | Aktualisiert nur die Homebrew-Pins (`nix-homebrew` und jeder Input aus einem Repo `github:<owner>/homebrew-<name>` – `homebrew-core`, `homebrew-cask`, `netbirdio-tap`, `stablyai-orca-tap`, gefunden in `flake.lock`), schaltet, führt `brew upgrade` aus und zeigt `alt -> neu` je aktualisiertem Paket, dazu die NetBird-Client-Version auf gusto neben dem Pin des Mesh. Ergebnis ist eine Änderung an `flake.lock`, die committet wird. |
 
 Standard-Host ist `gusto`, gebaut aus der Arbeitskopie (auch mit nicht committeten Änderungen – nix sieht aber nur Dateien, die git kennt, neue also erst `git add`). `zorlock` wird per SSH erreicht: `git pull` in `/etc/nixos`, dann dasselbe Skript mit sudo. `deploy-zorlock` und `check-zorlock` sind jetzt Kurzformen von `mac-switch zorlock` und `mac-diff zorlock`. Die eigentliche Arbeit macht `modules/darwin/rebuild.sh` auf dem Mac.
 
@@ -319,11 +386,11 @@ Standard-Host ist `gusto`, gebaut aus der Arbeitskopie (auch mit nicht committet
 
 #### Software als Daten: apps.json
 
-Was ein Mac installiert – Casks, Homebrew-Formeln, Mac-App-Store-Apps und nixpkgs-Pakete – steht nicht in seiner `configuration.nix`, sondern in `hosts/<host>/apps.json` (entschieden 2026-10-22; heute gusto, zorlock nutzt es nicht). `modules/darwin/apps.nix` macht daraus `homebrew.casks`, `homebrew.brews`, `homebrew.masApps`, `environment.systemPackages`, die `home.packages` des Benutzers und `fonts.packages`. Jeder Eintrag heißt so wie in seiner Quelle und trägt eine `note` (warum er da ist) und das Datum `added`; nixpkgs-Einträge zusätzlich einen `scope` (`system`, `user`, `font`). Taps bleiben Nix, in der Konfiguration des Hosts – sie sind Flake-Inputs.
+Was ein Mac installiert – Casks, Homebrew-Formeln, Mac-App-Store-Apps und nixpkgs-Pakete – steht nicht in seiner `configuration.nix`, sondern in `hosts/<host>/apps.json` (entschieden 2026-10-22; heute gusto, zorlock nutzt es nicht). `modules/darwin/apps.nix` macht daraus `homebrew.casks`, `homebrew.brews`, `homebrew.masApps`, `environment.systemPackages`, die `home.packages` des Benutzers und `fonts.packages`. Jeder Eintrag heißt so wie in seiner Quelle und trägt eine `note` (warum er da ist) und das Datum `added`; nixpkgs-Einträge zusätzlich einen `scope` (`system`, `user`, `font`). Taps bleiben Nix, in der Konfiguration des Hosts – sie sind Flake-Inputs; `apps` kann einen anlegen (unten).
 
 Die Datei ist mit Absicht Daten: Ein Werkzeug kann Einträge hinzufügen und entfernen, ohne Nix zu parsen, und die Konfiguration prüft sie bei jeder Auswertung – unbekannte Quellen oder Felder, ein nixpkgs-Attribut, das es nicht gibt, ein Eintrag aus einem Tap, den der Host nicht pinnt – und listet alle Probleme auf einmal (`checks.darwin-apps`). `modules/darwin/apps.schema.json` liefert im Editor Vervollständigung und Hover-Hilfe.
 
-`apps` ist dieses Werkzeug (`pkgs/nixlab-apps`): eine Runde aus Suchen, Hinzufügen und Entfernen, dann ein Switch und ein Commit. Es sucht online in nixpkgs, Homebrew und dem Mac App Store, fasst Treffer derselben Software zusammen und markiert die empfohlene Quelle – für eine GUI-App Cask vor App Store vor nixpkgs (signiert, in `/Applications`, aktualisiert sich selbst), für ein Kommandozeilenwerkzeug nixpkgs vor einer Formel. Die Auswahl wird dann gegen den **Pin** geprüft, denn ein Switch installiert, was in `flake.lock` steht, nicht was die Suche gezeigt hat: Ein nixpkgs-Paket muss in `nixpkgs-darwin` auswertbar sein (verfügbar, nicht unfree), ein Cask oder eine Formel muss im gepinnten Tap liegen. Fehlt ein Cask oder eine Formel, kann das Werkzeug `homebrew-cask` / `homebrew-core` in einem eigenen Commit aktualisieren – harmlos, `upgrade = false` lässt installierte Casks in Ruhe. `nixpkgs-darwin` wird dort nie angefasst: Das ist das ganze System beider Macs. Schritte: [Software auf den Macs](#software-auf-den-macs).
+`apps` ist dieses Werkzeug (`pkgs/nixlab-apps`): eine Runde aus Suchen, Hinzufügen und Entfernen, dann ein Switch und ein Commit. Es sucht online in nixpkgs, Homebrew und dem Mac App Store, fasst Treffer derselben Software zusammen und markiert die empfohlene Quelle – für eine GUI-App Cask vor App Store vor nixpkgs (signiert, in `/Applications`, aktualisiert sich selbst), für ein Kommandozeilenwerkzeug nixpkgs vor einer Formel. Die Auswahl wird dann gegen den **Pin** geprüft, denn ein Switch installiert, was in `flake.lock` steht, nicht was die Suche gezeigt hat: Ein nixpkgs-Paket muss in `nixpkgs-darwin` auswertbar sein (verfügbar, nicht unfree), ein Cask oder eine Formel muss im gepinnten Tap liegen. Fehlt ein Cask oder eine Formel, kann das Werkzeug `homebrew-cask` / `homebrew-core` in einem eigenen Commit aktualisieren – harmlos, `upgrade = false` lässt installierte Casks in Ruhe. `nixpkgs-darwin` wird dort nie angefasst: Das ist das ganze System beider Macs. Die gepinnten Drittanbieter-Taps durchsucht es ebenfalls, offline aus ihrem Pin; einen Cask aus einem noch nicht gepinnten Tap findet es über den vollen Namen (`apps stablyai/orca/orca`), und die Auswahl pinnt den Tap – Flake-Input, Zeile in `nix-homebrew.taps`, `nix flake lock`, eigener Commit –, nachdem es gezeigt hat, wer ihn veröffentlicht, und gefragt hat. Diese Frage ist die Vertrauensentscheidung: Jedem gepinnten Tap wird vertraut (entschieden 2026-10-23, mit Orca als erstem solchen Tap). Schritte: [Software auf den Macs](#software-auf-den-macs).
 
 ### NetBird auf den beiden Macs
 
@@ -748,7 +815,7 @@ Der Suchbegriff ist optional (`apps` allein startet mit leerer Suche). Eine Rund
 ```
 
 - **Zwei Felder, `tab` wechselt.** `search>` sucht online; `filter>` (optional) grenzt die Treffer dieser Suche in fzf unscharf ein, ohne neu zu suchen (`'wort` für einen exakten Treffer). Ein neuer Suchbegriff leert den Filter – er gehörte zu den alten Treffern. Der Rahmen oben zeigt beide.
-- **Die Suche** läuft beim Tippen (ab 2 Zeichen, nach einer kurzen Pause) gegen nixpkgs (search.nixos.org, Release von `nixpkgs-darwin`), Homebrew (formulae.brew.sh) und den Mac App Store. Ist search.nixos.org nicht erreichbar, übernimmt `nix search` gegen den Pin – langsamer, aber immer verfügbar. Die Zeile über der Liste zeigt, was jede Quelle geliefert hat.
+- **Die Suche** läuft beim Tippen (ab 2 Zeichen, nach einer kurzen Pause) gegen nixpkgs (search.nixos.org, Release von `nixpkgs-darwin`), Homebrew (formulae.brew.sh), den Mac App Store und die Drittanbieter-Taps, die gusto pinnt (offline, aus ihrem Pin). Ein voll qualifizierter Begriff – `owner/tap/name`, wie in `brew install --cask owner/tap/name` – schlägt diesen einen Cask oder diese Formel zusätzlich auf GitHub nach, wenn ihr Tap noch nicht gepinnt ist (siehe [Ein Cask aus einem Drittanbieter-Tap](#ein-cask-aus-einem-drittanbieter-tap)). Ist search.nixos.org nicht erreichbar, übernimmt `nix search` gegen den Pin – langsamer, aber immer verfügbar. Die Zeile über der Liste zeigt, was jede Quelle geliefert hat.
 - **★** markiert die empfohlene Quelle, wenn es dieselbe Software mehrfach gibt: für eine GUI-App Cask vor App Store vor nixpkgs, für ein Kommandozeilenwerkzeug nixpkgs vor einer Homebrew-Formel. Die Vorschau unten zeigt Beschreibung, Version, Lizenz, Homepage – und bei einem deklarierten Eintrag seine Notiz.
 - **Enter auf einen neuen Treffer fügt ihn hinzu.** Die Liste schließt sich für die Fragen:
     1. Die Pin-Prüfung –
@@ -757,6 +824,7 @@ Der Suchbegriff ist optional (`apps` allein startet mit leerer Suche). Eine Rund
         | --- | --- | --- |
         | nixpkgs | auswertbar im gepinnten `nixpkgs-darwin`, verfügbar auf aarch64-darwin, nicht unfree | nicht hinzugefügt – kommt mit dem nächsten System-Update; unfree: den Cask nehmen |
         | Cask / Formel | die `.rb`-Datei liegt im gepinnten Tap | bietet an, `homebrew-cask` / `homebrew-core` zu aktualisieren (eigener Commit) |
+        | Cask / Formel aus einem nicht gepinnten Tap | – (kommt vor der Prüfung) | zeigt, wer den Tap veröffentlicht und was er herunterlädt, und bietet dann an, ihn zu pinnen **und ihm zu vertrauen** (eigener Commit) |
         | App Store | – (kein Pin, der Store installiert die aktuelle Version) | – |
 
     2. bei nixpkgs der Scope: `user` (admins `home.packages`, Standard), `system` (root und jede Shell) oder `font`;
@@ -774,9 +842,25 @@ Der Suchbegriff ist optional (`apps` allein startet mit leerer Suche). Eine Rund
 3. auf gusto selbst: Switch? (Standard ja, nein wenn etwas gezappt wird);
 4. der Commit folgt auf einen erfolgreichen Switch – oder einen abgelehnten; ein gescheiterter Switch lässt alles uncommittet.
 
-Ein Commit pro Runde, nur `apps.json`: `gusto: add obsidian (cask), remove shottr (cask)`, mit einer Liste im Text; bei einer längeren Runde steht im Betreff die Anzahl (`gusto: add 3 and remove 1 apps`). Ein Tap-Bump ist ein eigener Commit davor (`flake.lock: bump homebrew-cask for …`).
+Ein Commit pro Runde, nur `apps.json`: `gusto: add obsidian (cask), remove shottr (cask)`, mit einer Liste im Text; bei einer längeren Runde steht im Betreff die Anzahl (`gusto: add 3 and remove 1 apps`). Ein Tap-Bump ist ein eigener Commit davor (`flake.lock: bump homebrew-cask for …`), ebenso ein neuer Tap (`gusto: pin tap stablyai/homebrew-orca for orca`).
 
-**Abbrechen** – `esc` oder der Button *Cancel*: Mit Änderungen in der Runde fragt es *Discard N change(s)?*, danach sind `apps.json` (und `flake.lock`) wieder wie vorher. Hat `apps.json` beim Start von `apps` schon uncommittete Änderungen, bricht es ab, bevor es etwas ändert.
+**Abbrechen** – `esc` oder der Button *Cancel*: Mit Änderungen in der Runde fragt es *Discard N change(s)?*, danach sind `apps.json` (und `flake.lock`, bei einem neuen Tap auch `flake.nix` und `configuration.nix`) wieder wie vorher. Hat `apps.json` beim Start von `apps` schon uncommittete Änderungen, bricht es ab, bevor es etwas ändert; für die anderen Dateien gilt das, sobald eine Runde sie ändern würde.
+
+### Ein Cask aus einem Drittanbieter-Tap
+
+Manche Hersteller veröffentlichen ihre Mac-App nur in einem eigenen Tap; ihre Installationszeile lautet dann `brew install --cask <owner>/<tap>/<name>`. Genau diesen Namen bekommt `apps`:
+
+```bash
+apps stablyai/orca/orca
+```
+
+- Ist der Tap gepinnt, erscheinen seine Casks und Formeln in jeder Suche wie die anderen; die Suche liest sie aus dem Pin, ohne Netz. In `apps.json` heißen sie `"<owner>/homebrew-<tap>/<name>"`, z. B. `stablyai/homebrew-orca/orca`.
+- Einen noch nicht gepinnten Tap findet nur der voll qualifizierte Name; der Treffer ist mit *tap not pinned* markiert. Enter darauf zeigt, wer den Tap veröffentlicht (GitHub-Owner, verifiziert oder nicht, Alter des Repos, letzter Push) und von welchen URLs der Cask lädt, und fragt *Pin stablyai/homebrew-orca as flake input stablyai-orca-tap for gusto and trust it?*
+- **Ja** trägt den Input in `flake.nix` ein (nach dem letzten Tap-Input, mit einem erzeugten Kommentar – umschreiben, wenn der Grund mehr verdient), die Zeile `nix-homebrew.taps."stablyai/homebrew-orca" = inputs.stablyai-orca-tap;` in `hosts/gusto/configuration.nix` und führt `nix flake lock` aus. Danach folgen die übliche Pin-Prüfung und die Notiz. Weil der Startbegriff genau diesen Cask genannt hat, endet die Runde dort – kein Zurück in die Liste, keine *Switch?*-Frage: Zusammenfassung, Auswertung, `just mac-switch`, dann der Tap als eigener Commit (`flake.nix`, `flake.lock`, `configuration.nix`) vor dem von `apps.json`. Dasselbe gilt für `apps owner/tap/name`, dessen Tap schon gepinnt ist. Eine Runde mit einer Entfernung fragt vor dem Switch weiterhin.
+- **Jedem gepinnten Tap wird vertraut** (`brew trust`, [macOS-Hosts](#homebrew-eine-richtlinie-für-beide-macs)): Ein Cask führt seinen Installationscode als du aus. Vor dem Ja den Herausgeber prüfen.
+- Ab dann aktualisiert `just mac-upgrade` den neuen Input mit den anderen – es findet jeden Tap-Input in `flake.lock` selbst.
+
+Entfernen des letzten Casks eines Taps lässt den Tap gepinnt und vertraut; der kommt von Hand raus (Input, Zeile in `nix-homebrew.taps`, `nix flake lock`).
 
 ### Eins direkt entfernen
 
@@ -800,7 +884,7 @@ Nach Quelle, mit dem Datum, an dem es dazukam, und der Notiz.
 
 Nicht in `apps.json`:
 
-- **Ein neuer Drittanbieter-Tap** – er ist ein Flake-Input: Input in `flake.nix` anlegen und `nix-homebrew.taps."<owner>/homebrew-<tap>" = inputs.<input>;` in `hosts/gusto/configuration.nix`. Seine Casks und Formeln heißen in `apps.json` dann `"<owner>/homebrew-<tap>/<name>"`.
+- **Ein neuer Drittanbieter-Tap** – er ist ein Flake-Input: `apps <owner>/<tap>/<name>` legt ihn an (oben); von Hand den Input in `flake.nix` anlegen und `nix-homebrew.taps."<owner>/homebrew-<tap>" = inputs.<input>;` in `hosts/gusto/configuration.nix`, dann `nix flake lock`. Seine Casks und Formeln heißen in `apps.json` dann `"<owner>/homebrew-<tap>/<name>"`.
 - **Ein Werkzeug mit Konfiguration** – `programs.<tool>` in `hosts/gusto/home.nix` (zsh, git, tmux, …).
 
 ### Welcher Checkout, welcher Mac
@@ -889,6 +973,71 @@ Dann die Datei in `modules/hotfixes/` löschen bzw. das `hotfix { … }` aus dem
 
 Das Muster – Versionsvergleich, Erkennung eines zurückportierten CVE-Patches, ein automatisch geladenes Overlay pro Datei – ist von snowball ([BBBSnowball](https://github.com/BBBSnowball)) und ausdrücklich zur Übernahme angeboten: [`hotfixes/` in BBBSnowball/nixcfg](https://github.com/BBBSnowball/nixcfg/tree/35264a74189686e8ce0231b4752f85225d0c9e00/hotfixes). Unsere Fassung ergänzt die Warnung und das Modul-Argument `hotfix` für Pakete aus einem anderen nixpkgs.
 
+## Branch vor dem Merge auf einem Host testen
+
+Ein Thema wird aus seinem Worktree auf einen Host deployt und erst nach erfolgreichem Test in main gemergt. Ohne Vorkehrung hielte das nur bis 04:00: Das nächtliche Upgrade baut `/etc/nixos` – also main – und schaltet den Host still zurück. Dasselbe passiert bei einem `just deploy` aus einem anderen Thema. `just try` setzt deshalb einen **Halt** auf dem Host, den alle Wege zurück zu main beachten ([`modules/deploy-hold.nix`](modules/deploy-hold.nix)).
+
+### Ablauf
+
+Aus dem Worktree des Themas, in einem echten Terminal – die Rezepte brauchen SSH und funktionieren nicht per `!` in der Claude-App:
+
+```bash
+cd .worktrees/<thema>
+git rebase origin/main
+just try ursalia
+```
+
+`just try <host>`:
+
+1. bricht ab bei uncommitteten Änderungen (der Halt nennt einen Commit), auf main oder wenn der Branch nicht auf dem aktuellen `origin/main` aufsetzt – sonst würde der Test zurückdrehen, was andere inzwischen gemergt haben;
+2. bricht ab, wenn ein **anderer** Branch den Host schon hält (derselbe Branch darf erneut deployen);
+3. baut auf ursalia und schaltet um wie `just deploy-push`;
+4. schreibt `/etc/nixos-hold` auf den Host: Branch, Commit, Zeitpunkt, von wo.
+
+Läuft es, mergen und deployen:
+
+```bash
+git switch main && git merge --ff-only <thema> && git push
+just deploy ursalia
+```
+
+`just deploy` (genauer `rebuild`) sieht, dass der gehaltene Commit jetzt in `/etc/nixos` enthalten ist, hebt den Halt auf und baut normal.
+
+Läuft es nicht: zurück zu main mit
+
+```bash
+just release ursalia
+just deploy ursalia
+```
+
+### Wer den Halt beachtet
+
+| Weg | Verhalten bei Halt |
+| --- | --- |
+| nächtliches `nixos-upgrade` | übersprungen (`ExecCondition`, kein Fehlschlag): kein Flake-Update, kein Switch, kein Reboot. Ist der gehaltene Commit inzwischen in `/etc/nixos`, hebt es den Halt auf und läuft. |
+| `just rebuild`/`deploy`/`ship`/`deploy-all` | Abbruch, außer der gehaltene Commit ist im frisch gepullten `/etc/nixos` – dann Halt weg und Deploy |
+| `just deploy-push <host>` | dieselbe Regel gegen den `HEAD` des lokalen Checkouts |
+| ursalias nächtlicher Push nach cuckoosegg | übersprungen, außer der gehaltene Commit ist in ursalias `/etc/nixos` |
+
+Die Regel ist überall dieselbe: Ein Halt blockiert, solange das, was deployt werden soll, den gehaltenen Commit nicht enthält. Ein **Rebase-Merge** schreibt den Commit neu – dann erkennt nichts den Merge, und der Halt muss mit `just release <host>` weg.
+
+### cuckoosegg
+
+`just try cuckoosegg` funktioniert genauso, der Halt liegt auf cuckoosegg. Nach dem Merge gibt es kein `just deploy cuckoosegg`: Entweder ursalias Push um 06:30 übernimmt, sobald ursalias Checkout den Merge hat (`just deploy ursalia` oder `just sync ursalia`), oder sofort aus main mit `just deploy-push cuckoosegg`.
+
+### Sehen, wer was hält
+
+- `just holds` – alle NixOS-Hosts auf einmal
+- Login-Shell auf dem Host – eine Warnzeile, ab 48 h mit Hinweis auf `just release`
+- Grafana „Homelab / Hosts Overview“, Panel **Deploy holds (just try)** – Metrik `nixlab_deploy_hold_since_seconds{branch,commit}`, orange solange ein Halt besteht, rot ab 48 h. Echte Alarmierung gibt es im Lab nicht; das Panel ist der Hinweis.
+
+### Grenzen
+
+- **Tofu** (`netbird-apply`, `desec-apply`, `pocketid-apply`) hat einen State und wird nur aus main angewandt. Ein Thema, das Tofu ändert, lässt sich damit nicht vorab testen.
+- **Macs** (gusto, zorlock) sind nicht abgedeckt – sie haben kein nächtliches Upgrade, das zurückdrehen würde.
+- **Zwei Themen auf einem Host** gleichzeitig gehen nicht: Das zweite `just try` bricht ab, bis das erste gemergt oder freigegeben ist.
+- Ein Host vor `modules/deploy-hold.nix` kennt keinen Halt; der erste `just try` darauf bringt das Modul mit.
+
 ## Repository-Struktur
 
 Ein Flake, `nixosConfigurations` für fünf Hosts plus `darwinConfigurations` für die beiden Macs (zorlock, gusto) und zwei `devShells`: eine zum Arbeiten am Repo, eine mit dnscontrol für das DNSControl-Repo. Jeder Host bekommt eine explizite Modulliste in `flake.nix`; was fehlt, fehlt mit Begründung im Kommentar daneben.
@@ -910,7 +1059,7 @@ Ein Flake, `nixosConfigurations` für fünf Hosts plus `darwinConfigurations` f�
 | `inventory.schema.json` | JSON-Schema zum Bearbeiten von `inventory.json`, generiert |
 | `tests/` | Tests, die `nix flake check` auswertet (`inventory.nix`) |
 | `justfile` | Alle Bedienabläufe: deploy, secrets, netbird-\*, desec-\* |
-| `docs/` | Diese Projektdokumentation: Seiten unter `site/{de,en}/`, Zensical-Konfiguration, Build (`build.sh`, `site-src.sh`, `assemble.py`, `gen-reference.py`), Paket der privaten Site (`package.nix`) und was sie sonst von Dritten laden würde – Schriften, glightbox (`assets.nix`), Installationsanleitungen (ursalia, cuckoosegg, gusto), Upstream-Issue-Entwürfe |
+| `docs/` | Diese Projektdokumentation: Seiten unter `site/{de,en}/`, Zensical-Konfiguration, Build (`build.sh`, `site-src.sh`, `assemble.py`, `gen-reference.py`, `gen-llms.py`), Paket der privaten Site (`package.nix`) und was sie sonst von Dritten laden würde – Schriften, glightbox (`assets.nix`), Installationsanleitungen (ursalia, cuckoosegg, gusto), Upstream-Issue-Entwürfe |
 | `dnsconfig.js` | Symlink ins separate DNSControl-Repo – öffentliche DNS-Records leben dort |
 | `.sops.yaml` | age-Empfänger pro Host, `admin` (Offline-Recovery) und `workstation` (1Password) |
 
@@ -932,6 +1081,7 @@ Welche Datei für welche Änderung zuständig ist, wie oft das vorkommt und was 
 | Version eines automatisch aktualisierten Inputs | `flake.lock` | nachts automatisch | – |
 | Version eines separat gepinnten Inputs | `flake.lock` (`nix flake update <input>`) | von Hand | Hosts deployen, die ihn nutzen |
 | Eine Paketversion, die nixpkgs noch nicht hat (Sicherheitsfix) | `modules/hotfixes/` oder `hotfix` im Host-Modul | bei Bedarf | deployen; entfernen, sobald der Build warnt – [Paket per Hotfix fixen](#paket-per-hotfix-fixen) |
+| Ein Thema vor dem Merge auf einem Host testen | Worktree des Themas | bei Bedarf | `just try <host>`, nach dem Merge `just deploy <host>` – [Branch vor dem Merge testen](#branch-vor-dem-merge-auf-einem-host-testen) |
 | Grafana-Dashboard | `hosts/grammi/dashboards/*.json` | gelegentlich | grammi deployen |
 | Topologie (neuer Host, Exporter, vHost) | `topology.nix` erzeugt sie | bei Bedarf | `just topology`, committen |
 | Maschinendaten: Art, Hardware, Site, Uplink, Strom, Entsperren, Netze, Interfaces, Host-Keys | `inventory.json` | mit jedem neuen Gerät | `just inventory-collect`, `just inventory-test` ([Inventar](#inventar)) |
@@ -981,6 +1131,7 @@ Nur `nixpkgs`, `nixpkgs-unstable` und `sops-nix` laufen im nächtlichen Auto-Upg
 | `nix-homebrew` | main | Macs mit Homebrew (gusto): Homebrew selbst | nein – `just mac-upgrade` |
 | `homebrew-core`, `homebrew-cask` | main (`flake = false`) | Macs mit Homebrew: die festgeschriebenen Taps | nein – `just mac-upgrade` |
 | `netbirdio-tap` | main (`flake = false`) | gusto: NetBird-App (Cask `netbird-ui`) | nein – `just mac-upgrade` |
+| `stablyai-orca-tap` | main (`flake = false`) | gusto: Orca (Cask `orca`), gepinnt von `apps` | nein – `just mac-upgrade` |
 
 Die Homebrew-Inputs sind der Grund, warum ein Cask eine feste Version hat: Mit `mutableTaps = false` kann Homebrew seine Taps nicht selbst aktualisieren, siehe [macOS-Hosts](#macos-hosts).
 
@@ -1037,7 +1188,7 @@ gusto ist das MacBook Pro, von dem aus alles in diesem Repo läuft: Deploys, Sec
 | `.envrc` | `use flake` – direnv lädt die devShell im Repo-Ordner |
 | `docs/install-gusto.md` | gusto von Grund auf aufsetzen (nur in der privaten Doku) |
 
-Flake-Inputs nur für gusto: `home-manager`, `nix-homebrew`, `homebrew-core`, `homebrew-cask`, `netbirdio-tap` – siehe [Flake-Inputs](#inputs-und-ihre-pins).
+Flake-Inputs nur für gusto: `home-manager`, `nix-homebrew`, `homebrew-core`, `homebrew-cask`, `netbirdio-tap`, `stablyai-orca-tap` – siehe [Flake-Inputs](#inputs-und-ihre-pins).
 
 ### Was installiert ist
 
@@ -1053,6 +1204,7 @@ gusto wurde am 2026-10-21 bewusst „nackt“ aufgesetzt: keine App-Liste aus de
 | `claude` | Claude-Desktop-App; ihre lokalen MCP-Server: [MCP-Server der Claude-App](#mcp-server-der-claude-app) |
 | `ghostty` | Terminal |
 | `netbirdio/homebrew-tap/netbird-ui` (+ Formula `netbird`) | NetBird-Menüleisten-App und Daemon – siehe [NetBird](#netbird) |
+| `stablyai/homebrew-orca/orca` | Orca – IDE, um mehrere KI-Coding-Agenten nebeneinander in Terminals und Worktrees laufen zu lassen; aus Stablys eigenem Tap (Input `stablyai-orca-tap`), aktualisiert sich selbst. Entfernen löscht per zap auch `~/.orca` |
 | `shottr` | Screenshots |
 | `telegram`, `whatsapp` | Messenger |
 | `spotify` | Musik |
@@ -1227,7 +1379,7 @@ Alle `mac-*`-Rezepte nehmen den Host als optionalen Parameter (Standard `gusto`;
 | Eine Einstellung greift nicht | einmal ab- und anmelden (Eingabequellen, manche Dock-/Finder-Schlüssel) |
 | `.before-hm`-Dateien im Home | Reste vom ersten Switch; vergleichen und löschen |
 | Ein MCP-Server verbindet nicht | im Terminal `mcp-run <server>` starten: hängt es an Touch ID oder sops, fehlt ein Wert in `mcp.yaml`, fehlt der Checkout? Die Desktop-App protokolliert nach `~/Library/Logs/Claude/mcp-server-<name>.log` |
-| `homeassistant` hängt | `nc -z homeassistant.peer.homelab.example 9583`; zeigt `netbird status -d` HA als „Connected“, aber ohne WireGuard-Handshake, steht Rosenpass in der NetBird-App auf HA auf strikt – dort `rosenpass_permissive` einschalten |
+| `homeassistant` hängt | Port in der URL muss 9583 sein, die Policy verwirft jeden anderen still (Timeout nach 30 s): `sops decrypt --extract '["homeassistant"]["url"]' hosts/gusto/mcp.yaml \| cut -d/ -f3` zeigt nur Host und Port; `nc -z homeassistant.peer.homelab.example 9583`; zeigt `netbird status -d` HA als „Connected“, aber ohne WireGuard-Handshake, steht Rosenpass in der NetBird-App auf HA auf strikt – dort `rosenpass_permissive` einschalten |
 | NetBird getrennt | Menüleisten-App → Connect; `netbird status -d`; Daemon: `sudo launchctl print system/netbird` |
 
 ## Inventar
@@ -1301,6 +1453,7 @@ Alle Felder mit Typ, Standardwert und Bedeutung: [Inventar-Schema → hosts](#ho
 | `pdu`, `ups` | Strom |
 | `kvm` | IP-KVM, extern oder als Karte im Host; die einzige Art, die `manages` haben darf |
 | `nas`, `workstation`, `laptop` | Wie benannt |
+| `phone`, `tablet`, `watch` | Mobilgeräte: iPhone, iPad, Apple Watch; meist mit `availability: intermittent` |
 | `appliance` | Alles andere mit Adresse: Apple TV, Drucker, … |
 
 Ob ein Host virtuell ist, folgt aus `kind` (`vm`, `container`) – nicht aus `runsOn`. Eine gemietete VM ist eine `vm` ohne `runsOn`: Der Hypervisor des Anbieters steht nicht im Inventar.
@@ -3251,7 +3404,7 @@ Jedes Gerät mit einer Adresse, die zählt – von diesem Flake verwaltet oder n
 | <span id="hosts-interfaces-name-medium"></span>`interfaces.<name>.medium` | eins von `ethernet` `wifi` |  | Physical medium. |
 | <span id="hosts-interfaces-name-network"></span>`interfaces.<name>.network` | ID aus [networks](#networks-1) |  | The network this interface is in. |
 | <span id="hosts-interfaces-name-note"></span>`interfaces.<name>.note` | String |  | Free text: anything worth knowing that has no field of its own. |
-| <span id="hosts-kind"></span>`kind` | eins von `server` `hypervisor` `vm` `container` `router` `switch` `ap` `pdu` `ups` `kvm` `nas` `workstation` `laptop` `phone` `tablet` `appliance` | Pflicht | What the device is. |
+| <span id="hosts-kind"></span>`kind` | eins von `server` `hypervisor` `vm` `container` `router` `switch` `ap` `pdu` `ups` `kvm` `nas` `workstation` `laptop` `phone` `tablet` `watch` `appliance` | Pflicht | What the device is. |
 | <span id="hosts-managed"></span>`managed` | Boolean | Pflicht | Configured by this flake (nixosConfigurations/darwinConfigurations). Must match the flake. |
 | <span id="hosts-manages"></span>`manages` | Liste von ID aus [hosts](#hosts-1), ohne Duplikate |  | Only kvm: the machines this KVM gives out-of-band access to. |
 | <span id="hosts-model"></span>`model` | String |  | Hardware model without the vendor (ThinkCentre M720q), or for a VM the provider's product or plan name. |
@@ -4036,13 +4189,14 @@ Dienste sind nach Funktion benannt, nicht nach Produkt. Es gibt drei Arten der E
 
 ## Module
 
-Die 19 Module unter `modules/` tragen die gemeinsame Konfiguration aller Hosts; jede Datei erklärt im Kopfkommentar, warum sie so ist. Die öffentliche Fassung enthält sie anonymisiert unter `modules/` – als Referenz, nicht direkt importierbar: einige lesen `hosts/<host>/*.yaml` und setzen sops-nix voraus. Fünf haben eigene Optionen.
+Die 20 Module unter `modules/` tragen die gemeinsame Konfiguration aller Hosts; jede Datei erklärt im Kopfkommentar, warum sie so ist. Die öffentliche Fassung enthält sie anonymisiert unter `modules/` – als Referenz, nicht direkt importierbar: einige lesen `hosts/<host>/*.yaml` und setzen sops-nix voraus. Fünf haben eigene Optionen.
 
 | Modul | Zweck | Optionen / Besonderheiten |
 | --- | --- | --- |
-| [auto-upgrade-git.nix](modules/auto-upgrade-git.nix) | Nächtliches `nixos-rebuild switch`, committet und pusht die neue `flake.lock` zurück ins Repo | `services.autoUpgradeGit`: `enable`, `flakeDir`, `flakeAttr`, `updateInputs`, `dates`, `allowReboot`, `rebootWindow`, `deployKeySecret`, `gitAuthorEmail` |
+| [auto-upgrade-git.nix](modules/auto-upgrade-git.nix) | Nächtliches `nixos-rebuild switch`, committet und pusht die neue `flake.lock` zurück ins Repo | `services.autoUpgradeGit`: `enable`, `flakeDir`, `flakeAttr`, `updateInputs`, `dates`, `allowReboot`, `rebootWindow`, `deployKeySecret`, `gitAuthorEmail`, `holdFile`, `holdCheck` |
 | [log-shipping.nix](modules/log-shipping.nix) | journald- und nginx-Logs per Vector an VictoriaLogs | `services.logShipping`: `enable`, `victoriaLogsUrl` |
 | [metrics-shipping.nix](modules/metrics-shipping.nix) | vmagent scrapt die lokalen Exporter und schreibt per remote_write an VictoriaMetrics | `services.metricsShipping`: `enable`, `remoteWriteUrl`, `exporterPorts` |
+| [deploy-hold.nix](modules/deploy-hold.nix) | Halt für `just try`: `nixos-hold`, Metrik `nixlab_deploy_hold_since_seconds`, Warnung in der Login-Shell | auch auf cuckoosegg – [Branch vor dem Merge testen](#branch-vor-dem-merge-auf-einem-host-testen) |
 | [deploy.nix](modules/deploy.nix) | Die Lab-Policy für auto-upgrade-git: GitHub-Deploy-Key, gepinnter Hostkey, Reboot-Fenster 04:00–06:00 | getrennt vom Mechanismus, damit der wiederverwendbar bleibt |
 | [acme.nix](modules/acme.nix) | ACME-Defaults für jeden TLS-Host: DNS-01 gegen deSEC | Token aus `hosts/<host>/desec.yaml` (von Tofu) |
 | [netbird.nix](modules/netbird.nix) | NetBird-Client im Mesh, Registrierung per Setup-Key, lokale Metriken | Setup-Key aus `hosts/<host>/netbird.yaml` (von Tofu) |
@@ -4064,6 +4218,8 @@ Die 19 Module unter `modules/` tragen die gemeinsame Konfiguration aller Hosts; 
 
 | Rezept | Zweck |
 | --- | --- |
+| `just try <host>` | Aktuellen Themen-Branch auf einen Host deployen und ihn dort halten, bis der Branch gemergt ist ([Branch vor dem Merge testen](#branch-vor-dem-merge-auf-einem-host-testen)) |
+| `just release <host>` / `holds` | Halt ohne Merge aufheben / alle Halte anzeigen |
 | `just check <host>` | `git pull` + `nixos-rebuild dry-activate` |
 | `just secrets <host>` / `pull-secrets <host>` | Host-Secrets auf dem Host editieren und zurückholen |
 | `just topology` | Topologie-Dashboard neu erzeugen (sonst schlägt `nix flake check` fehl) |
@@ -4123,6 +4279,7 @@ eval $(op signin) && export SOPS_AGE_KEY_CMD='op read "op://<vault>/<item>/passw
 - Wann immer ein Ablauf, ein Aufbau oder ein Zusammenhang sich als Bild schneller erfassen lässt als als Text (Trafficflüsse, Abhängigkeiten, Schichten), bekommt die Seite ein Diagramm, und zwar immer zoom- und klickbar wie das Inventar-Schema: Kästen springen zu ihrem Abschnitt, ein Klick anderswo vergrößert. Kein Diagramm als `<img>` oder als reines Bild ohne Sprünge, wenn die Seite Abschnitte hat, auf die es zeigen kann.
 - Diagramme in der Doku sind Inline-SVG in `<figure class="nx-diagram">` (viewBox 680 breit, ohne `width`/`height`), damit Kästen auf Abschnitte der Seite verlinken können und ein Klick anderswo auf das Diagramm es vergrößert (in der Lightbox der Website): `<a data-target="<Überschrift-ID>" tabindex="0" role="link">` um den Kasten, ohne `href` – mit `href` wirft das Theme bei SVG-Links einen Fehler, und `site/common/javascripts/diagrams.js` übernimmt den Sprung (Klick und Enter). Keine Marker für Pfeilspitzen, sondern Pfade in der Linienfarbe, weil WeasyPrint `context-stroke` im PDF nicht kann. Helle Farben stehen im `<style>` des SVG, das Dunkel-Schema in `site/common/stylesheets/diagrams.css`, das nur die Website lädt. Prüfen mit `just docs-serve` (beide Farbschemata) und im PDF.
 - Ausnahme ist die [Lagekarte](#lagekarte): HTML statt SVG, erzeugt aus `inventory.json` (`docs/gen-lab-map.py`), weil sie jeden Host und Dienst zeigt und nicht veralten darf. Klickbar heißt dort: Ein Klick auf einen Dienst oder Host wählt ihn aus und zeichnet seine Beziehungen ein (`site/common/javascripts/lab-map.js`); ein Klick auf eine freie Stelle vergrößert sie in der Lightbox. Im PDF steht sie ohne Linien (`doc.css`).
+- Jede Seite der Site gibt es auch als reines Markdown, unter ihrem Quellpfad (`how-to/new-host.md` neben `how-to/new-host/`), mit dem Inhaltsverzeichnis `llms.txt` und allen Seiten in einer Datei `llms-full.txt` ([llms.txt](https://llmstxt.org)) – Englisch im Root, Deutsch unter `de/`. Für Sprachmodelle: Markdown kostet sie weit weniger Token als die HTML-Seiten. `docs/gen-llms.py` schreibt sie nach dem Zensical-Build, auf beiden Sites. Ein Diagramm wird dort durch sein `aria-label` ersetzt, deshalb braucht jedes Diagramm eines, das in einem Satz sagt, was es zeigt; die Lagekarte wird zu ihrem JSON-Datenblock. Die Beschreibung in `llms.txt` ist der erste Satz des ersten Absatzes der Seite.
 
 ## Offene Punkte
 
@@ -4136,3 +4293,4 @@ eval $(op signin) && export SOPS_AGE_KEY_CMD='op read "op://<vault>/<item>/passw
 - [ ] gusto: nach dem ersten Switch prüfen, ob sich die NetBird-App selbst aktualisiert (oder dem Auto-Update im Dashboard folgt), und das abschalten, damit die Version nur aus `netbirdio-tap` kommt
 - [ ] gusto: Standard-Git-Adresse `admin@homelab.example` statt `mail@admin.org`, zusammen mit einer neuen Ordnung von `~/Projects`
 - [ ] Inventar: ein Feld für den DNS-Namen eines Geräts (arkkvm antwortet als `arkkvm01`, heute nur in seiner Notiz) und öffentliche Adressen der verwalteten Hosts – dann leitet `hosts/gusto/ssh.nix` seine Ausweichnamen daraus ab
+- [ ] Doku-Site: `<link rel="alternate" type="text/markdown">` in jeder HTML-Seite, das auf ihre Markdown-Fassung zeigt (`docs/gen-llms.py`) – braucht einen Theme-Override, deshalb erst, wenn Zensical bei 1.0 ist

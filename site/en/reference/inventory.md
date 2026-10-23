@@ -69,6 +69,7 @@ All fields with type, default and meaning: [Inventory schema → hosts](inventor
 | `pdu`, `ups` | Power |
 | `kvm` | IP-KVM, external or as a card inside its host; the only kind that may have `manages` |
 | `nas`, `workstation`, `laptop` | As named |
+| `phone`, `tablet`, `watch` | Mobile devices: iPhone, iPad, Apple Watch; usually with `availability: intermittent` |
 | `appliance` | Anything else with an address: Apple TV, printer, … |
 
 Whether a host is virtual follows from `kind` (`vm`, `container`) – not from `runsOn`. A rented VM is a `vm` without `runsOn`: the provider's hypervisor is not in the inventory.

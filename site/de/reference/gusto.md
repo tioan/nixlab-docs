@@ -35,7 +35,7 @@ gusto ist das MacBook Pro, von dem aus alles in diesem Repo läuft: Deploys, Sec
 | `.envrc` | `use flake` – direnv lädt die devShell im Repo-Ordner |
 | `docs/install-gusto.md` | gusto von Grund auf aufsetzen (nur in der privaten Doku) |
 
-Flake-Inputs nur für gusto: `home-manager`, `nix-homebrew`, `homebrew-core`, `homebrew-cask`, `netbirdio-tap` – siehe [Flake-Inputs](inputs.md).
+Flake-Inputs nur für gusto: `home-manager`, `nix-homebrew`, `homebrew-core`, `homebrew-cask`, `netbirdio-tap`, `stablyai-orca-tap` – siehe [Flake-Inputs](inputs.md).
 
 ## Was installiert ist
 
@@ -51,6 +51,7 @@ gusto wurde am 2026-10-21 bewusst „nackt“ aufgesetzt: keine App-Liste aus de
 | `claude` | Claude-Desktop-App; ihre lokalen MCP-Server: [MCP-Server der Claude-App](#mcp-server-der-claude-app) |
 | `ghostty` | Terminal |
 | `netbirdio/homebrew-tap/netbird-ui` (+ Formula `netbird`) | NetBird-Menüleisten-App und Daemon – siehe [NetBird](#netbird) |
+| `stablyai/homebrew-orca/orca` | Orca – IDE, um mehrere KI-Coding-Agenten nebeneinander in Terminals und Worktrees laufen zu lassen; aus Stablys eigenem Tap (Input `stablyai-orca-tap`), aktualisiert sich selbst. Entfernen löscht per zap auch `~/.orca` |
 | `shottr` | Screenshots |
 | `telegram`, `whatsapp` | Messenger |
 | `spotify` | Musik |
@@ -225,5 +226,5 @@ Alle `mac-*`-Rezepte nehmen den Host als optionalen Parameter (Standard `gusto`;
 | Eine Einstellung greift nicht | einmal ab- und anmelden (Eingabequellen, manche Dock-/Finder-Schlüssel) |
 | `.before-hm`-Dateien im Home | Reste vom ersten Switch; vergleichen und löschen |
 | Ein MCP-Server verbindet nicht | im Terminal `mcp-run <server>` starten: hängt es an Touch ID oder sops, fehlt ein Wert in `mcp.yaml`, fehlt der Checkout? Die Desktop-App protokolliert nach `~/Library/Logs/Claude/mcp-server-<name>.log` |
-| `homeassistant` hängt | `nc -z homeassistant.peer.homelab.example 9583`; zeigt `netbird status -d` HA als „Connected“, aber ohne WireGuard-Handshake, steht Rosenpass in der NetBird-App auf HA auf strikt – dort `rosenpass_permissive` einschalten |
+| `homeassistant` hängt | Port in der URL muss 9583 sein, die Policy verwirft jeden anderen still (Timeout nach 30 s): `sops decrypt --extract '["homeassistant"]["url"]' hosts/gusto/mcp.yaml \| cut -d/ -f3` zeigt nur Host und Port; `nc -z homeassistant.peer.homelab.example 9583`; zeigt `netbird status -d` HA als „Connected“, aber ohne WireGuard-Handshake, steht Rosenpass in der NetBird-App auf HA auf strikt – dort `rosenpass_permissive` einschalten |
 | NetBird getrennt | Menüleisten-App → Connect; `netbird status -d`; Daemon: `sudo launchctl print system/netbird` |

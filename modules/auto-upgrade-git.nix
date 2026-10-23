@@ -79,6 +79,27 @@ in
       '';
     };
 
+    holdFile = lib.mkOption {
+      type = lib.types.nullOr lib.types.str;
+      default = null;
+      description = ''
+        Skip the whole run (no input update, no switch, no reboot) while this
+        file exists - the host deliberately runs something other than the
+        checkout. Checked by `holdCheck`, which must exit 0 to go ahead and
+        1 to skip (systemd's ExecCondition semantics); null disables both.
+      '';
+    };
+
+    holdCheck = lib.mkOption {
+      type = lib.types.nullOr lib.types.str;
+      default = null;
+      example = "nixos-hold merged /etc/nixos";
+      description = ''
+        Command deciding whether `holdFile` still applies. Null means the
+        file's presence alone skips the run.
+      '';
+    };
+
     gitAuthorEmail = lib.mkOption {
       type = lib.types.str;
       default = "${config.networking.hostName}@${config.networking.domain}";
@@ -125,6 +146,20 @@ in
       # Discard the lock on any non-success result. Nothing is lost: that
       # lock was never built or activated, and the next run updates it again.
       serviceConfig.ExecStopPost = [ "${resetLock}" ];
+
+      # A hold (modules/deploy-hold.nix) means a topic branch is being tried
+      # on this host; rebuilding the checkout would silently switch it back.
+      # ExecCondition, not an early `exit 0` in the script: exit 1 there ends
+      # the unit as skipped - not failed, and before preStart's input update.
+      serviceConfig.ExecCondition = lib.mkIf (cfg.holdFile != null) [
+        (pkgs.writeShellScript "auto-upgrade-git-hold" (
+          if cfg.holdCheck != null then cfg.holdCheck
+          else ''
+            [ -e ${cfg.holdFile} ] || exit 0
+            echo "auto-upgrade-git: ${cfg.holdFile} exists, skipping"
+            exit 1
+          ''))
+      ];
 
       # Update the flake inputs before system.autoUpgrade's own script builds
       # and switches. This used to be `--update-input <input>` handed through

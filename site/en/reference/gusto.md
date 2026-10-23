@@ -35,7 +35,7 @@ gusto is the MacBook Pro everything in this repo is run from: deploys, secrets, 
 | `.envrc` | `use flake` – direnv loads the devShell in the checkout |
 | `docs/install-gusto.md` | Setting gusto up from scratch (private docs only) |
 
-Flake inputs used only by gusto: `home-manager`, `nix-homebrew`, `homebrew-core`, `homebrew-cask`, `netbirdio-tap` – see [Flake inputs](inputs.md).
+Flake inputs used only by gusto: `home-manager`, `nix-homebrew`, `homebrew-core`, `homebrew-cask`, `netbirdio-tap`, `stablyai-orca-tap` – see [Flake inputs](inputs.md).
 
 ## What is installed
 
@@ -51,6 +51,7 @@ gusto was set up deliberately bare on 2026-10-21: no app list taken over from th
 | `claude` | Claude desktop app; its local MCP servers: [the Claude app's MCP servers](#the-claude-apps-mcp-servers) |
 | `ghostty` | Terminal |
 | `netbirdio/homebrew-tap/netbird-ui` (+ formula `netbird`) | NetBird menu-bar app and daemon – see [NetBird](#netbird) |
+| `stablyai/homebrew-orca/orca` | Orca – IDE for running several AI coding agents side by side in terminals and worktrees; from Stably's own tap (input `stablyai-orca-tap`), updates itself. Removing it zaps `~/.orca` too |
 | `shottr` | Screenshots |
 | `telegram`, `whatsapp` | Messengers |
 | `spotify` | Music |
@@ -225,5 +226,5 @@ All `mac-*` recipes take the host as an optional parameter (default `gusto`; `zo
 | A setting did not apply | log out and in once (input sources, some Dock/Finder keys) |
 | `.before-hm` files in the home directory | left by the first switch; compare and delete |
 | An MCP server does not connect | run `mcp-run <server>` in a terminal: does it hang at Touch ID or sops, is a value missing in `mcp.yaml`, is the checkout missing? The desktop app logs to `~/Library/Logs/Claude/mcp-server-<name>.log` |
-| `homeassistant` hangs | `nc -z homeassistant.peer.homelab.example 9583`; if `netbird status -d` shows HA as "Connected" but without a WireGuard handshake, Rosenpass in the NetBird app on HA is strict – turn on `rosenpass_permissive` there |
+| `homeassistant` hangs | the URL's port must be 9583, the policy silently drops any other (timeout after 30 s): `sops decrypt --extract '["homeassistant"]["url"]' hosts/gusto/mcp.yaml \| cut -d/ -f3` shows only host and port; `nc -z homeassistant.peer.homelab.example 9583`; if `netbird status -d` shows HA as "Connected" but without a WireGuard handshake, Rosenpass in the NetBird app on HA is strict – turn on `rosenpass_permissive` there |
 | NetBird disconnected | menu-bar app → Connect; `netbird status -d`; daemon: `sudo launchctl print system/netbird` |

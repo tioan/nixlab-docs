@@ -43,6 +43,7 @@ nav = [
     "how-to/key-rotation.md",
     "how-to/software.md",
     "how-to/hotfix.md",
+    "how-to/try-branch.md",
   ] },
   { "Referenz" = [
     "reference/repository.md",
@@ -141,7 +142,8 @@ pymdownx.superfences.custom_fences = [
 ]
 pymdownx.tasklist.custom_checkbox = true
 
-# Click an image to see it full size (the data-flow diagram). The script
+# Click an image to see it full size; diagrams.js opens the inline
+# diagrams in the same lightbox. The script
 # and stylesheet come with the site (extra_javascript/extra_css above,
 # docs/assets.nix) - the theme would otherwise fetch them from unpkg.com.
 [project.plugins.glightbox]

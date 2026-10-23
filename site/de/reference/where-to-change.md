@@ -16,6 +16,7 @@ Welche Datei für welche Änderung zuständig ist, wie oft das vorkommt und was 
 | Version eines automatisch aktualisierten Inputs | `flake.lock` | nachts automatisch | – |
 | Version eines separat gepinnten Inputs | `flake.lock` (`nix flake update <input>`) | von Hand | Hosts deployen, die ihn nutzen |
 | Eine Paketversion, die nixpkgs noch nicht hat (Sicherheitsfix) | `modules/hotfixes/` oder `hotfix` im Host-Modul | bei Bedarf | deployen; entfernen, sobald der Build warnt – [Paket per Hotfix fixen](../how-to/hotfix.md) |
+| Ein Thema vor dem Merge auf einem Host testen | Worktree des Themas | bei Bedarf | `just try <host>`, nach dem Merge `just deploy <host>` – [Branch vor dem Merge testen](../how-to/try-branch.md) |
 | Grafana-Dashboard | `hosts/grammi/dashboards/*.json` | gelegentlich | grammi deployen |
 | Topologie (neuer Host, Exporter, vHost) | `topology.nix` erzeugt sie | bei Bedarf | `just topology`, committen |
 | Maschinendaten: Art, Hardware, Site, Uplink, Strom, Entsperren, Netze, Interfaces, Host-Keys | `inventory.json` | mit jedem neuen Gerät | `just inventory-collect`, `just inventory-test` ([Inventar](inventory.md)) |

@@ -1,12 +1,13 @@
 # Modules
 
-The 19 modules under `modules/` carry the configuration shared by all hosts; every file explains in its header comment why it is the way it is. The public version contains them anonymised under `modules/` – as a reference, not directly importable: some read `hosts/<host>/*.yaml` and assume sops-nix. Five have options of their own.
+The 20 modules under `modules/` carry the configuration shared by all hosts; every file explains in its header comment why it is the way it is. The public version contains them anonymised under `modules/` – as a reference, not directly importable: some read `hosts/<host>/*.yaml` and assume sops-nix. Five have options of their own.
 
 | Module | Purpose | Options / notes |
 | --- | --- | --- |
-| [auto-upgrade-git.nix](https://github.com/tioan/nixlab-docs/blob/main/modules/auto-upgrade-git.nix) | Nightly `nixos-rebuild switch`, commits and pushes the new `flake.lock` back to the repo | `services.autoUpgradeGit`: `enable`, `flakeDir`, `flakeAttr`, `updateInputs`, `dates`, `allowReboot`, `rebootWindow`, `deployKeySecret`, `gitAuthorEmail` |
+| [auto-upgrade-git.nix](https://github.com/tioan/nixlab-docs/blob/main/modules/auto-upgrade-git.nix) | Nightly `nixos-rebuild switch`, commits and pushes the new `flake.lock` back to the repo | `services.autoUpgradeGit`: `enable`, `flakeDir`, `flakeAttr`, `updateInputs`, `dates`, `allowReboot`, `rebootWindow`, `deployKeySecret`, `gitAuthorEmail`, `holdFile`, `holdCheck` |
 | [log-shipping.nix](https://github.com/tioan/nixlab-docs/blob/main/modules/log-shipping.nix) | journald and nginx logs to VictoriaLogs via Vector | `services.logShipping`: `enable`, `victoriaLogsUrl` |
 | [metrics-shipping.nix](https://github.com/tioan/nixlab-docs/blob/main/modules/metrics-shipping.nix) | vmagent scrapes the local exporters and remote-writes to VictoriaMetrics | `services.metricsShipping`: `enable`, `remoteWriteUrl`, `exporterPorts` |
+| [deploy-hold.nix](https://github.com/tioan/nixlab-docs/blob/main/modules/deploy-hold.nix) | Hold for `just try`: `nixos-hold`, metric `nixlab_deploy_hold_since_seconds`, warning in the login shell | on cuckoosegg too – [Test a branch before merging](../how-to/try-branch.md) |
 | [deploy.nix](https://github.com/tioan/nixlab-docs/blob/main/modules/deploy.nix) | The lab's policy for auto-upgrade-git: GitHub deploy key, pinned host key, reboot window 04:00–06:00 | kept apart from the mechanism so that stays reusable |
 | [acme.nix](https://github.com/tioan/nixlab-docs/blob/main/modules/acme.nix) | ACME defaults for every TLS host: DNS-01 against deSEC | token from `hosts/<host>/desec.yaml` (from Tofu) |
 | [netbird.nix](https://github.com/tioan/nixlab-docs/blob/main/modules/netbird.nix) | NetBird client in the mesh, registration via setup key, local metrics | setup key from `hosts/<host>/netbird.yaml` (from Tofu) |

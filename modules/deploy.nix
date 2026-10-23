@@ -54,5 +54,10 @@
     };
 
     deployKeySecret = "github_deploy_key";
+
+    # `just try` holds (modules/deploy-hold.nix). The check also lifts a hold
+    # whose branch has been merged and pulled into /etc/nixos meanwhile.
+    holdFile = "/etc/nixos-hold";
+    holdCheck = "/run/current-system/sw/bin/nixos-hold merged /etc/nixos";
   };
 }

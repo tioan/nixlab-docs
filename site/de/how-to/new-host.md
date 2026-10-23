@@ -1,6 +1,6 @@
 # Neuen Host aufnehmen
 
-Ein Host steht an mehreren Stellen im Repo, weil NixOS und OpenTofu bewusst keine gemeinsame Host-Liste haben (siehe [Was bewusst nicht verdrahtet ist](../explanation/nixos-opentofu.md#was-bewusst-nicht-verdrahtet-ist)). Diese Anleitung geht sie der Reihe nach durch.
+Ein Host steht an mehreren Stellen im Repo, weil NixOS und OpenTofu bewusst keine gemeinsame Host-Liste haben (siehe [Was bewusst nicht verdrahtet ist](../explanation/nixos-opentofu.md#not-wired)). Diese Anleitung geht sie der Reihe nach durch.
 
 ## 1. Maschine bereitstellen
 

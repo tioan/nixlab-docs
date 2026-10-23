@@ -1,6 +1,6 @@
 # Add a new host
 
-A host appears in several places in the repo, because NixOS and OpenTofu deliberately share no host list (see [What is deliberately not wired](../explanation/nixos-opentofu.md#what-is-deliberately-not-wired)). This guide walks through them in order.
+A host appears in several places in the repo, because NixOS and OpenTofu deliberately share no host list (see [What is deliberately not wired](../explanation/nixos-opentofu.md#not-wired)). This guide walks through them in order.
 
 ## 1. Provide the machine
 
