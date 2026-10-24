@@ -1,6 +1,6 @@
 # Konventionen
 
-- Pro Thema ein eigener Git-Worktree (`.worktrees/<thema>`), nach Abschluss entfernen und Branch löschen. Tofu-State bleibt dabei immer im Haupt-Checkout.
+- Pro Thema ein eigener Git-Worktree (`.worktrees/<thema>`), nach Abschluss entfernen und Branch löschen. Tofu-State bleibt dabei immer im Haupt-Checkout (verschlüsselt und committet, siehe [Tofu-State](../explanation/nixos-opentofu.md#state)).
 - Erst planen, dann nach Freigabe umsetzen.
 - Subdomains nach Funktion (`rezepte`, nicht `mealie`).
 - Neue Webdienste auf grammi nutzen PostgreSQL statt SQLite.

@@ -292,6 +292,21 @@ Commit, push, then deploy to zorlock
 
 Manually trigger garbage collection on a remote host (nix.gc already runs nightly)
 
+## `just tf-state-passphrase`
+
+Generate the state passphrase into terraform/secrets.yaml (sops, never on
+disk in plaintext). Refuses to overwrite: without the old passphrase the
+committed states cannot be read any more.
+
+## `just tf-encrypt-states`
+
+Once, 2026-10-24: rewrite every module's plaintext state encrypted and
+commit the four of them. Reads plaintext through the unencrypted fallback
+(TF_ENCRYPTION_MIGRATE); the plaintext only passes through the pipe.
+Each old state stays next to it as <state>.pre-encryption (gitignored) -
+delete those once every plan shows no changes. Skips states that are
+already encrypted.
+
 ## `just desec-migrate-state`
 
 Once, 2026-10-18: copy the state from its old name (terraform.tfstate,

@@ -19,8 +19,9 @@
 | `just netbird-proxy-certs` | Proxy-Diensten ohne Zertifikat eins holen und das Dashboard nachziehen (NetBird #7118); läuft am Ende von `netbird-apply` |
 | `just dokumente-share-pin` / `dokumente-share-pin-show` | Neue zufällige PIN für Paperless-Freigabelinks von außen (danach `netbird-apply`) bzw. aktuelle anzeigen |
 | `just netbird-key <host>` | Neuer Setup-Key für einen Host, 24 h Zeit zum Deployen |
-| `just netbird-import` | Verlorenen Tofu-State aus dem Account wiederherstellen |
+| `just netbird-import` | Tofu-State aus dem Account neu aufbauen – nur nötig, wenn auch git ihn nicht hat ([Tofu-State](../explanation/nixos-opentofu.md#state)) |
 | `just netbird-renew-token` | Jährliche Erneuerung des Service-User-Tokens |
+| `just tf-state-passphrase` | Einmalig: Passphrase für die Tofu-States nach `terraform/secrets.yaml` (überschreibt nie) |
 | `just github-key <host>` | Neuer GitHub-Deploy-Key für einen Host (Schlüssel per sops, Registrierung per Tofu) |
 | `just github-plan` / `github-apply` | Repos und Deploy-Keys auf GitHub ändern |
 | `just desec-key <host>` / `desec-verify` | deSEC-Token tauschen bzw. Scopes von jedem Host aus prüfen |

@@ -86,10 +86,16 @@ Der Ablauf für einen neuen Host: Tofu legt den Setup-Key an, `just netbird-key`
 | NixOS → Tofu | NetBird-Server auf grammi | `hosts/grammi/netbird.nix` | Provider über `https://mesh.homelab.example` | Die API, gegen die Tofu überhaupt erst läuft |
 | NixOS → Tofu | Bootstrap-Tokens | `just netbird-setup-owner`, `netbird-proxy-token` (SSH auf grammi, Server-API) | `terraform/netbird/secrets.yaml` bzw. `hosts/grammi/netbird-proxy.yaml` | Owner-PAT, Proxy-Token |
 
+## Tofu-State { #state }
+
+Jedes Modul hat genau eine State-Datei im Haupt-Checkout (`terraform/<modul>/<name>.tfstate`), auch wenn ein Rezept aus einem Worktree läuft. Sie hält Setup-Keys und Tokens und ist deshalb mit OpenTofus State-Verschlüsselung verschlüsselt (AES-GCM, Schlüssel per PBKDF2) und **committet**. Die Passphrase ist `tf_state_passphrase` in `terraform/secrets.yaml`, per sops für den Workstation- und den Admin-Key verschlüsselt, eine für alle Module. `terraform/lib.sh` baut daraus `TF_ENCRYPTION`, die Passphrase steht nie in einer Datei. Rezepte, deren Tofu-Aufruf den State geändert hat, committen genau diese Datei sofort danach (andere gestagte Änderungen bleiben unberührt); pushen bleibt Handarbeit. Ein Klartext-State wird nie committet – `tf_init` und der Commit verweigern ihn.
+
+**Wiederherstellen** nach verlorener Workstation: Repo klonen, sops-Key einrichten (siehe [Rezepte](../reference/recipes.md)), fertig – die Rezepte lesen den State aus dem Checkout. Ohne Workstation-Key entschlüsselt der Admin-Recovery-Key `terraform/secrets.yaml`. `just netbird-import` braucht es nur noch, wenn auch git den State nicht hat. Seit 2026-10-24; davor war der State gitignored und lag nur auf der Workstation (am 2026-10-22 nur noch im Time-Machine-Backup des alten MacBooks).
+
 ## Was bewusst nicht verdrahtet ist { #not-wired }
 
 - **Keine gemeinsame Host-Liste.** Hosts stehen dreimal: `nixosConfigurations` in `flake.nix`, `local.hosts` in den Tofu-Modulen und `hosts :=` im `justfile`. Ein neuer Host muss an allen drei Stellen eingetragen werden.
-- **Kein terranix / kein Tofu im Nix-Build.** Tofu-State liegt lokal (gitignored, im Haupt-Checkout, auch aus Worktrees), weil er Setup-Keys und Tokens im Klartext hält.
+- **Kein terranix / kein Tofu im Nix-Build.** Tofu läuft nur auf der Workstation; der State liegt verschlüsselt im Repo ([Tofu-State](#state)), und Nix wertet ihn nie aus.
 - **Kein Provisioning der Maschinen.** Die VMs werden beim Anbieter von Hand angelegt, ursalia/cuckoosegg nach `docs/install-*.md`.
 - **Öffentliches DNS** liegt in DNSControl (eigenes Repo, nur per Symlink eingebunden), nicht in Tofu.
 

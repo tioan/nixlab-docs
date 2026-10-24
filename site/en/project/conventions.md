@@ -1,6 +1,6 @@
 # Conventions
 
-- One git worktree per topic (`.worktrees/<topic>`), removed and its branch deleted when done. Tofu state always stays in the main checkout.
+- One git worktree per topic (`.worktrees/<topic>`), removed and its branch deleted when done. Tofu state always stays in the main checkout (encrypted and committed, see [Tofu state](../explanation/nixos-opentofu.md#state)).
 - Plan first, implement after approval.
 - Subdomains by function (`rezepte`, not `mealie`).
 - New web services on grammi use PostgreSQL instead of SQLite.

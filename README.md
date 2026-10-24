@@ -101,10 +101,16 @@ The flow for a new host: Tofu creates the setup key, `just netbird-key` writes i
 | NixOS → Tofu | NetBird server on grammi | `hosts/grammi/netbird.nix` | provider via `https://mesh.homelab.example` | The API Tofu runs against in the first place |
 | NixOS → Tofu | Bootstrap tokens | `just netbird-setup-owner`, `netbird-proxy-token` (SSH to grammi, server API) | `terraform/netbird/secrets.yaml` and `hosts/grammi/netbird-proxy.yaml` | Owner PAT, proxy token |
 
+### Tofu state
+
+Every module has exactly one state file in the main checkout (`terraform/<module>/<name>.tfstate`), also when a recipe runs from a worktree. It holds setup keys and tokens and is therefore encrypted with OpenTofu's state encryption (AES-GCM, key via PBKDF2) and **committed**. The passphrase is `tf_state_passphrase` in `terraform/secrets.yaml`, sops-encrypted for the workstation and the admin key, one for all modules. `terraform/lib.sh` builds `TF_ENCRYPTION` from it; the passphrase never sits in a file. Recipes whose tofu call changed the state commit exactly that file right afterwards (other staged changes stay untouched); pushing stays manual. A plaintext state is never committed – `tf_init` and the commit refuse it.
+
+**Restoring** after a lost workstation: clone the repo, set up the sops key (see [Recipes](#just-recipes)), done – the recipes read the state from the checkout. Without the workstation key, the admin recovery key decrypts `terraform/secrets.yaml`. `just netbird-import` is only needed when git does not have the state either. Since 2026-10-24; before that the state was gitignored and lived on the workstation only (on 2026-10-22 only in the old MacBook's Time Machine backup).
+
 ### What is deliberately not wired
 
 - **No shared host list.** Hosts are listed three times: `nixosConfigurations` in `flake.nix`, `local.hosts` in the Tofu modules and `hosts :=` in the `justfile`. A new host has to be added in all three places.
-- **No terranix / no Tofu in the Nix build.** Tofu state is local (gitignored, in the main checkout, also from worktrees) because it holds setup keys and tokens in plain text.
+- **No terranix / no Tofu in the Nix build.** Tofu runs on the workstation only; the state is in the repo, encrypted ([Tofu state](#tofu-state)), and Nix never evaluates it.
 - **No provisioning of the machines.** The VMs are created by hand at the provider, ursalia/cuckoosegg following `docs/install-*.md`.
 - **Public DNS** lives in DNSControl (its own repo, only linked in via symlink), not in Tofu.
 
@@ -4233,8 +4239,9 @@ The 20 modules under `modules/` carry the configuration shared by all hosts; eve
 | `just netbird-proxy-certs` | Get proxy services without a certificate one and bring the dashboard up to date (NetBird #7118); runs at the end of `netbird-apply` |
 | `just dokumente-share-pin` / `dokumente-share-pin-show` | New random PIN for Paperless share links from outside (then `netbird-apply`), or show the current one |
 | `just netbird-key <host>` | New setup key for a host, 24 h to deploy |
-| `just netbird-import` | Restore lost Tofu state from the account |
+| `just netbird-import` | Rebuild the Tofu state from the account – only needed when git does not have it either ([Tofu state](#tofu-state)) |
 | `just netbird-renew-token` | Yearly renewal of the service user token |
+| `just tf-state-passphrase` | Once: the passphrase for the Tofu states into `terraform/secrets.yaml` (never overwrites) |
 | `just github-key <host>` | New GitHub deploy key for a host (key via sops, registration via Tofu) |
 | `just github-plan` / `github-apply` | Change the repositories and deploy keys on GitHub |
 | `just desec-key <host>` / `desec-verify` | Rotate a deSEC token, or check the scopes from every host |
@@ -4264,7 +4271,7 @@ eval $(op signin) && export SOPS_AGE_KEY_CMD='op read "op://<vault>/<item>/passw
 
 ## Conventions
 
-- One git worktree per topic (`.worktrees/<topic>`), removed and its branch deleted when done. Tofu state always stays in the main checkout.
+- One git worktree per topic (`.worktrees/<topic>`), removed and its branch deleted when done. Tofu state always stays in the main checkout (encrypted and committed, see [Tofu state](#tofu-state)).
 - Plan first, implement after approval.
 - Subdomains by function (`rezepte`, not `mealie`).
 - New web services on grammi use PostgreSQL instead of SQLite.
