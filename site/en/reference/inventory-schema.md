@@ -1808,6 +1808,11 @@ What the hosts run, and what is bought from outside.
           "fqdn": "s3.example.org",
           "exposure": "lan",
           "port": 3900
+        },
+        {
+          "fqdn": "s3-console.example.org",
+          "exposure": "proxy",
+          "via": "proxy"
         }
       ],
       "data": "stateful",
@@ -2220,6 +2225,11 @@ A valid inventory with every section – the source of the examples above, `docs
           "fqdn": "s3.example.org",
           "exposure": "lan",
           "port": 3900
+        },
+        {
+          "fqdn": "s3-console.example.org",
+          "exposure": "proxy",
+          "via": "proxy"
         }
       ],
       "data": "stateful",

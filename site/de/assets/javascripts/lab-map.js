@@ -6,6 +6,9 @@
      lines over the map (dependsOn, uses, backup target, endpoint via), the
      rest fades, and the detail panel shows its inventory entry. Names in
      the panel select too; a second click or Escape clears the selection.
+   - A click on an endpoint tag of a chip selects the service with that
+     endpoint: only its via line is drawn, and the panel marks it among the
+     service's endpoints.
    - A click on an empty spot of the map, or the Enlarge button, opens a
      copy in the theme's GLightbox (like the inline diagrams, diagrams.js);
      the copy works the same way.
@@ -37,7 +40,7 @@
       for (const t of s.dependsOn || []) edges.push({ from: id, to: t, type: "dep" });
       for (const t of s.uses || []) edges.push({ from: id, to: t, type: "use" });
       for (const b of s.backup || []) if (b.to) edges.push({ from: id, to: b.to, type: "bak" });
-      for (const e of s.endpoints || []) if (e.via) edges.push({ from: id, to: e.via, type: "via" });
+      for (const [i, e] of (s.endpoints || []).entries()) if (e.via) edges.push({ from: id, to: e.via, type: "via", ep: i });
     }
 
     const map = fig.querySelector(".nx-lm-map");
@@ -47,6 +50,8 @@
     try {
       const s = JSON.parse(localStorage.getItem(KEY));
       if (s && (s.kind === "svc" ? S[s.id] : H[s.id])) state.sel = s;
+      // An endpoint the inventory no longer has: the service alone.
+      if (state.sel?.ep != null && !S[state.sel.id]?.endpoints?.[state.sel.ep]) delete state.sel.ep;
     } catch { /* no storage: start with the default */ }
     if (!state.sel && S[fig.dataset.default]) state.sel = { kind: "svc", id: fig.dataset.default };
 
@@ -54,7 +59,9 @@
       const sel = state.sel;
       if (!sel) return { svcs: new Set(), hosts: new Set(), list: [] };
       const roots = new Set(sel.kind === "svc" ? [sel.id] : svcOf[sel.id] || []);
-      const list = edges.filter((e) => roots.has(e.from) || (sel.kind === "svc" && roots.has(e.to)));
+      const list = edges.filter((e) => (roots.has(e.from) || (sel.kind === "svc" && roots.has(e.to))) &&
+        // With an endpoint picked, the via lines of the others stay out.
+        !(sel.ep != null && e.type === "via" && e.from === sel.id && e.ep !== sel.ep));
       const svcs = new Set([...roots, ...list.flatMap((e) => [e.from, e.to])]);
       const hosts = new Set([...svcs].flatMap((s) => S[s]?.hosts || []));
       if (sel.kind === "host") {
@@ -127,9 +134,10 @@
       if (sel.kind === "svc") {
         const s = S[sel.id];
         const by = (type) => edges.filter((e) => e.to === sel.id && e.type === type).map((e) => e.from);
-        const endpoints = (s.endpoints || []).map((e) =>
+        const endpoints = (s.endpoints || []).map((e, i) =>
+          `<span class="ep${sel.ep == null ? "" : i === sel.ep ? " on" : " off"}">` +
           `<span class="mono">${esc(e.fqdn)}${e.port ? ":" + e.port : ""}</span> · ${T.expo[e.exposure] || esc(e.exposure)}` +
-          (e.via ? ` ${T.via} ${pickSvc(e.via)}` : "")).join("<br>");
+          (e.via ? ` ${T.via} ${pickSvc(e.via)}` : "") + "</span>").join("<br>");
         const backup = (s.backup || []).map((b) => esc(b.method) + (b.to ? ` → ${pickSvc(b.to)}` : "")).join("<br>");
         detailEl.innerHTML = `<div class="box-title">${T.service}</div><div class="ttl">${esc(s.name)}</div><div class="sub">${esc(s.software || "")}</div>` +
           rows([
@@ -174,8 +182,11 @@
       const R = related(), sel = state.sel;
       fig.classList.toggle("focus", Boolean(sel));
       fig.querySelectorAll("[data-svc]").forEach((el) => {
-        el.classList.toggle("sel", Boolean(sel) && sel.kind === "svc" && el.dataset.svc === sel.id);
+        const on = Boolean(sel) && sel.kind === "svc" && el.dataset.svc === sel.id;
+        el.classList.toggle("sel", on);
+        el.classList.toggle("sel-ep", on && sel.ep != null);
         el.classList.toggle("rel", R.svcs.has(el.dataset.svc));
+        el.querySelectorAll("[data-ep]").forEach((t) => t.classList.toggle("sel", on && sel.ep === Number(t.dataset.ep)));
       });
       fig.querySelectorAll("[data-hostcard]").forEach((el) => {
         el.classList.toggle("sel", Boolean(sel) && sel.kind === "host" && el.dataset.hostcard === sel.id);
@@ -184,8 +195,9 @@
       detail();
       draw();
     }
-    function pick(kind, id) {
-      state.sel = state.sel && state.sel.kind === kind && state.sel.id === id ? null : { kind, id };
+    function pick(kind, id, ep) {
+      const same = state.sel && state.sel.kind === kind && state.sel.id === id && state.sel.ep === ep;
+      state.sel = same ? null : ep == null ? { kind, id } : { kind, id, ep };
       try { localStorage.setItem(KEY, JSON.stringify(state.sel)); } catch { /* not remembered */ }
       apply();
     }
@@ -222,6 +234,8 @@
     const fig = ev.target.closest?.("figure.nx-labmap");
     const m = fig && maps.get(fig);
     if (!m) return;
+    const tag = ev.target.closest("[data-svc] [data-ep]");
+    if (tag) return m.pick("svc", tag.closest("[data-svc]").dataset.svc, Number(tag.dataset.ep));
     const svc = ev.target.closest("[data-svc]:not(.demo),[data-pick-svc]");
     if (svc) return m.pick("svc", svc.dataset.svc || svc.dataset.pickSvc);
     const host = ev.target.closest("[data-hostcard],[data-pick-host]");

@@ -143,6 +143,16 @@ inventory schema diagram: Graphviz measures its cells with Helvetica,
 and Liberation Sans has the same widths - with DejaVu long field names
 ran over their cells.
 
+Then the private site doku.homelab.example: its hosts (services.docs-site in
+inventory.json - aldrin for the mesh, ursalia for the home LAN) build it
+from their own checkout, so they are deployed (`just deploy`: git pull and
+a full rebuild - whatever else is new on main goes out too). Only when
+main is pushed and nothing but the two private PDFs this recipe rebuilds
+is uncommitted - otherwise the hosts would build something other than
+this checkout, so the deploy is skipped with a note. A host that fails
+does not stop the others; the recipe fails at the end and names it.
+NIXLAB_DOCS_NO_DEPLOY=1 skips the deploy.
+
 ## `just docs-serve`
 
 Preview the private docs site - what doku.homelab.example serves (real values,
