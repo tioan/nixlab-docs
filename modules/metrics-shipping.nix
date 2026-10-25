@@ -36,7 +36,8 @@ let
     ++ lib.optional config.services.crowdsec.enable {
       job_name = "${config.networking.hostName}-crowdsec";
       static_configs = [{ targets = [ "127.0.0.1:6060" ]; labels.instance = "crowdsec"; }];
-    };
+    }
+    ++ cfg.extraScrapeConfigs;
   };
 in
 {
@@ -63,6 +64,21 @@ in
         services.prometheus.exporters.<name>.port values. The name becomes
         this target's `instance` label in VictoriaMetrics, so vmui shows
         e.g. "node"/"nginx" instead of an undifferentiated "127.0.0.1:9113".
+      '';
+    };
+
+    extraScrapeConfigs = lib.mkOption {
+      type = lib.types.listOf (pkgs.formats.yaml { }).type;
+      default = [ ];
+      example = [{
+        job_name = "myhost-gotenberg";
+        metrics_path = "/prometheus/metrics";
+        static_configs = [{ targets = [ "127.0.0.1:3000" ]; labels.instance = "gotenberg"; }];
+      }];
+      description = ''
+        Additional vmagent scrape_configs, for targets exporterPorts cannot
+        express - metrics_path is per job, so anything not on /metrics needs
+        a job of its own. Named "<host>-<service>" like the crowdsec job.
       '';
     };
   };

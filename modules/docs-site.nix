@@ -116,7 +116,7 @@ in
 
     allow = lib.mkOption {
       type = lib.types.listOf lib.types.str;
-      default = [ "192.0.2.0/24" ];
+      default = [ "192.0.2.0/24" "2001:db8:203:0::/64" ];
       description = ''
         Addresses or networks nginx serves the site to; everyone else gets
         403, with a page that says why and how a device gets in. Default:
@@ -252,8 +252,9 @@ in
       # NetBird's to assign and nb-mesh may come up after nginx, and a host
       # may bind its public vhosts to its public addresses only (aldrin).
       # The allow list (option allow) is what keeps it mesh-only, or
-      # admins-only. [::] already, for when the mesh gets IPv6 (then the v6
-      # addresses go into the allow list as well).
+      # admins-only. [::] for the mesh's IPv6 overlay
+      # (terraform/netbird/main.tf); admin-peers.json carries the admins'
+      # v6 addresses next to their v4 ones.
       virtualHosts.${cfg.fqdn} = {
         listenAddresses = [ "0.0.0.0" "[::]" ];
         enableACME = true;
@@ -304,6 +305,7 @@ in
         locations = {
           "/".extraConfig = ''
             allow 192.0.2.0/24;
+            allow 2001:db8:203:0::/64;
             deny all;
             try_files /.redirect-only @redirect;
           '';
@@ -312,6 +314,7 @@ in
           # /login: to the login service instead of the public docs.
           "~ ^/login/?$".extraConfig = ''
             allow 192.0.2.0/24;
+            allow 2001:db8:203:0::/64;
             deny all;
             try_files /.redirect-only @login;
           '';
@@ -332,6 +335,7 @@ in
         root = cfg.package;
         extraConfig = ''
           allow 192.0.2.0/24;
+          allow 2001:db8:203:0::/64;
           deny all;
           if ($nixlab_docs_key_ok = "") { return 403; }
           # Relative redirects: absolute ones would say http://...:port,

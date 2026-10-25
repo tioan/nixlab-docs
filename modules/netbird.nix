@@ -146,11 +146,36 @@ in
     # Rosenpass goes off everywhere for a week (RosenpassEnabled = false
     # here and in hosts/zorlock/netbird.nix, the apps by hand).
     #
+    # They came back, between two peers that both still ran it: ursalia ->
+    # zorlock was dead from 2026-10-23 03:43 until a restart on 10-24, while
+    # both sides reported "Connected (P2P)". At 03:38 zorlock's client
+    # restarted its engine ("stopping wakeUpListen", a new Rosenpass server
+    # on a new random port); at 03:42/03:43 ursalia's Rosenpass key for
+    # zorlock "expired without renewal", was ratcheted, and the rendezvous
+    # fallback left the two sides with different pre-shared keys. With
+    # mismatched PSKs WireGuard never completes a handshake - and Rosenpass
+    # itself runs inside that tunnel (see below), so it could not repair
+    # it: a deadlock, ~2,700 biscuit / "session not found" errors every ten
+    # minutes on ursalia. Not one pair: VictoriaLogs showed tens of
+    # thousands of those errors on every host in 48 h, and "expired without
+    # renewal" on each of them.
+    #
+    # So since 2026-10-24 Rosenpass is off everywhere, until 2026-10-31
+    # (here, hosts/zorlock/netbird.nix, the apps by hand). Then decide:
+    #  - no dead tunnels in that week: Rosenpass was the trigger. It stays
+    #    off until upstream fixes the re-keying (#3107, #3121); look again
+    #    with every NetBird bump (next: 0.81.3).
+    #  - dead tunnels anyway: Rosenpass was not the cause (look at ICE and
+    #    the wg_watcher instead); turn it back on, permissive.
+    # Turning it back on: RosenpassEnabled = true plus
+    # RosenpassPermissive = true here. The latter is left out while it is
+    # off (meaningless then); the merge into config.json never removes
+    # keys, so the old "true" stays there, harmlessly.
+    #
     # Rosenpass listens on a random UDP port and is reached via the peer's
     # mesh address, i.e. inside the tunnel; NetBird's ACLs let that through
     # across the narrow policies too.
-    RosenpassEnabled = true;
-    RosenpassPermissive = true;
+    RosenpassEnabled = false;
   };
   services.metricsShipping.exporterPorts.netbird = metricsPort;
 

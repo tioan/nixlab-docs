@@ -19,7 +19,7 @@ The dashboards are JSON in `hosts/grammi/dashboards/`, provisioned from the repo
 | --- | --- |
 | Hosts Overview | Scrape targets, CPU/memory/disk/network per host, failed units, certificates, backups (btrbk, restic), pending firmware, WLAN band/signal |
 | Topology | Hosts, exporters and data flows as a Graphviz diagram |
-| NetBird | Control plane reachable per host; peers per host as expected (Tofu) / known (network map) / connected P2P / connected relay, plus deviations; connection history, P2P latency, sync and setup times; netbird-server (signal, relay, gRPC, API) |
+| NetBird | Control plane reachable per host; peers per host as expected (Tofu) / known (network map) / connected P2P / connected relay, plus deviations; connection history, P2P latency, sync and setup times; netbird-server (signal, relay, gRPC, API); throughput and volume of the exit nodes aldrin/zummi per IP family ([exit nodes](secrets-network-access.md#exit-nodes-monitoring)) |
 | WLAN | ursalia's and zorlock's band (2.4 / 5 / 6 GHz) over time, channel, signal, PHY mode, link rate, traffic, MCS, retries, time associated |
 | Disk Health | SMART/NVMe of ursalia: status, critical warnings, wear, spare, temperature, data written |
 | Paperless | Health (Celery, Redis, DB, index, classifier), documents, inbox, failed tasks, storage, log warnings |

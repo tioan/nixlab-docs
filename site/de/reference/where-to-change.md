@@ -10,6 +10,7 @@ Welche Datei für welche Änderung zuständig ist, wie oft das vorkommt und was 
 | Name nur im Mesh | `terraform/netbird/mesh-services.tf` | selten | `just netbird-apply` |
 | Wer die private Doku lesen darf | Gruppe `admin-workstations` (`terraform/netbird/subraum.tf`, Peer-Namen) | selten | `just netbird-apply`, `admin-peers.json` committen, aldrin und ursalia deployen |
 | NetBird-Policies, Gruppen, Personen, Routen | `terraform/netbird/*.tf` | selten | `just netbird-plan`, `just netbird-apply` |
+| Wer die Exit-Nodes nutzen darf | Pocket-ID-Gruppe `exit-nodes` (auth.homelab.example) | selten | `just netbird-apply` |
 | Öffentliche DNS-Records | DNSControl-Repo (`dnsconfig.js`) | selten | dort `dnscontrol preview`, `dnscontrol push`, committen |
 | Was ein deSEC-Token darf | `terraform/desec-tokens/main.tf` | selten | `just desec-apply` |
 | Repos, Deploy-Keys | `terraform/github/` | selten | `just github-plan`, `just github-apply` |

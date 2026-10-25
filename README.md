@@ -80,7 +80,7 @@ The flow for a new host: Tofu creates the setup key, `just netbird-key` writes i
 | Direction | File | Created by | Read by | Contents |
 | --- | --- | --- | --- | --- |
 | Tofu → NixOS | `terraform/netbird/expected-peers.json` | `just netbird-apply` (`tofu output expected_peers`, computed from the policies in `expected-peers.tf`) | `hosts/grammi/netbird-expected-peers.nix` (`builtins.readFile`) | Expected NetBird peers per host as metric `netbird_expected_peers`, next to the real network map in the NetBird dashboard (e.g. aldrin 6, grammi 8) |
-| Tofu → NixOS | `terraform/netbird/admin-peers.json` | `just netbird-apply` (`tofu output admin_peers`, from the group `admin-workstations`, `admin-peers.tf`) | `flake.nix` (`builtins.readFile`, option `services.docsSite.allow`) | Mesh addresses of the admins' devices – who may read the private docs |
+| Tofu → NixOS | `terraform/netbird/admin-peers.json` | `just netbird-apply` (`tofu output admin_peers`, from the group `admin-workstations`, `admin-peers.tf`) | `flake.nix` (`builtins.readFile`, option `services.docsSite.allow`) | Mesh addresses of the admins' devices (v4 and v6 per device) – who may read the private docs |
 
 #### proxy-services.json
 
@@ -134,17 +134,90 @@ The workstation key lives in 1Password and is read via `SOPS_AGE_KEY_CMD`, never
 
 ### Network
 
-- **NetBird mesh** (`192.0.2.0/24`, peer names under `peer.homelab.example`): control plane on grammi, login via Pocket ID. Private range (RFC 1918) instead of CGNAT, because tailscaled drops packets from 100.64/10 while both clients run in parallel.
+- **NetBird mesh** (`192.0.2.0/24` and `2001:db8:203:0::/64`, peer names under `peer.homelab.example`): control plane on grammi, login via Pocket ID. Private range (RFC 1918) instead of CGNAT, because tailscaled drops packets from 100.64/10 while both clients run in parallel.
 - **Groups:** `servers` (all hosts except cuckoosegg), `subraum-devices`, `admin-workstations` (MacBook), plus person groups from Pocket ID.
-- **Home LAN** (`198.51.100.0/24`): routed through ursalia (metric 100), with the two Apple TVs as fallback (group `home-routers`, metric 200, own setup key via `just netbird-router-key`, owned by nobody, in no policy); for group `home-lan`, not for devices that are already at home (posture check `not-at-home`). The Apple TVs should have "Quantum-Resistance" on in the app; since 2026-10-21 the mesh runs Rosenpass permissive, so it works without, just not quantum-resistant.
+- **Home LAN** (`198.51.100.0/24`): routed through ursalia (metric 100), with the two Apple TVs as fallback (group `home-routers`, metric 200, own setup key via `just netbird-router-key`, owned by nobody, in no policy); for group `home-lan`, not for devices that are already at home (posture check `not-at-home`). Rosenpass is off mesh-wide since 2026-10-24 (until 2026-10-31, see [macOS hosts](#netbird-on-the-two-macs)); "Quantum-Resistance" in the Apple TVs' app belongs off for that time as well.
 - **ursalia's uplink:** WLAN into the home LAN's main network (Intel BE200, `hosts/ursalia/wifi.nix`): wpa_supplicant, WPA3 with WPA2 fallback, country DE, all bands, passphrase via sops. Its final spot has no cable; eno1 keeps DHCP as a fallback with a worse route metric, so the WLAN stays the primary link when both are up.
 - **zorlock's uplink:** WLAN as well (`en1`, Broadcom); `hosts/zorlock/wifi.nix` makes sure `homelab` is a preferred network (`networksetup`, only ever adds it, passphrase via sops in `hosts/zorlock/wifi.yaml`). nix-darwin has no Wi-Fi module; band choice stays with macOS.
+- **Exit nodes and IPv6:** aldrin and zummi as exit nodes for the group `exit-nodes`; the mesh is dual stack (`2001:db8:203:0::/64`) – see [Exit nodes & IPv6](#exit-nodes--ipv6).
 - **Subraum:** routed through cuckoosegg for `subraum-access`. cuckoosegg itself may only reach grammi's ingest (TCP 8428/9428) and may only be reached from the MacBook via SSH.
 - **Tailscale** still runs in parallel during the migration and serves as break-glass: `NIXLAB_DOMAIN=example-tailnet.ts.net just deploy zummi`.
 
+#### Exit nodes & IPv6
+
+aldrin and zummi are exit nodes: a client can send all its traffic, IPv4 and IPv6, through one of them and then appears on the internet with that host's public address. The two sit with different providers (realtox in Düsseldorf, IONOS in Berlin), hence two separate routes instead of one HA route – the client picks its way out. Configuration: `terraform/netbird/exit-nodes.tf` (routes, policy) and `modules/netbird-exit-node.nix` (hosts).
+
+<figure class="nx-diagram">
+<svg viewBox="0 0 680 420" role="img" aria-label="A client in the group exit-nodes sends all its IPv4 and IPv6 traffic through the NetBird tunnel to either aldrin or zummi; the exit node masquerades it to its public addresses at realtox or IONOS" xmlns="http://www.w3.org/2000/svg">
+<style>.nx-t{font-family:'DejaVu Sans',sans-serif;font-size:14px;font-weight:bold;fill:#2c2c2a}.nx-s{font-family:'DejaVu Sans',sans-serif;font-size:11px;fill:#5f5e5a}.nx-line{fill:none;stroke:#888780;stroke-width:1.4}.nx-gray rect{fill:#f1efe8;stroke:#888780}.nx-gray .nx-t{fill:#2c2c2a}.nx-gray .nx-s{fill:#5f5e5a}.nx-teal rect{fill:#e1f5ee;stroke:#0f6e56}.nx-teal .nx-t{fill:#04342c}.nx-teal .nx-s{fill:#0f6e56}.nx-blue rect{fill:#e6f1fb;stroke:#185fa5}.nx-blue .nx-t{fill:#042c53}.nx-blue .nx-s{fill:#185fa5}.nx-coral rect{fill:#faece7;stroke:#993c1d}.nx-coral .nx-t{fill:#4a1b0c}.nx-coral .nx-s{fill:#993c1d}</style>
+<text class="nx-t" x="16" y="24">Exit nodes: one client, two ways out</text>
+<text class="nx-s" x="16" y="42">The client picks one of the two, v4 and v6 always together</text>
+<text class="nx-s" x="86" y="72" text-anchor="middle">Client</text>
+<text class="nx-s" x="266" y="72" text-anchor="middle">NetBird mesh</text>
+<text class="nx-s" x="446" y="72" text-anchor="middle">Exit node</text>
+<text class="nx-s" x="596" y="72" text-anchor="middle">Internet as</text>
+<path class="nx-line" d="M156 180 H176"/><path class="nx-line" d="M170 176 L176 180 L170 184"/>
+<path class="nx-line" d="M356 180 H366 V120 H376"/><path class="nx-line" d="M370 116 L376 120 L370 124"/>
+<path class="nx-line" d="M366 180 V240 H376"/><path class="nx-line" d="M370 236 L376 240 L370 244"/>
+<path class="nx-line" d="M516 120 H528"/><path class="nx-line" d="M522 116 L528 120 L522 124"/>
+<path class="nx-line" d="M516 240 H528"/><path class="nx-line" d="M522 236 L528 240 L522 244"/>
+<a data-target="exit-nodes-use" tabindex="0" role="link" class="nx-teal"><rect x="16" y="145" width="140" height="70" rx="8" stroke-width="1"/><text class="nx-t" x="86" y="168" text-anchor="middle">Client</text><text class="nx-s" x="86" y="185" text-anchor="middle">group exit-nodes</text><text class="nx-s" x="86" y="202" text-anchor="middle">app or CLI</text></a>
+<a data-target="mesh-ipv6" tabindex="0" role="link" class="nx-gray"><rect x="176" y="135" width="180" height="90" rx="8" stroke-width="1"/><text class="nx-t" x="266" y="159.5" text-anchor="middle">WireGuard tunnel</text><text class="nx-s" x="266" y="176.5" text-anchor="middle">192.0.2.0/24</text><text class="nx-s" x="266" y="193.5" text-anchor="middle">2001:db8:203:0::/64</text><text class="nx-s" x="266" y="210.5" text-anchor="middle">0.0.0.0/0 + ::/0</text></a>
+<a data-target="exit-nodes-hosts" tabindex="0" role="link" class="nx-blue"><rect x="376" y="90" width="140" height="60" rx="8" stroke-width="1"/><text class="nx-t" x="446" y="108" text-anchor="middle">aldrin</text><text class="nx-s" x="446" y="125" text-anchor="middle">exit-aldrin</text><text class="nx-s" x="446" y="142" text-anchor="middle">NAT44 + NAT66</text></a>
+<a data-target="exit-nodes-hosts" tabindex="0" role="link" class="nx-blue"><rect x="376" y="210" width="140" height="60" rx="8" stroke-width="1"/><text class="nx-t" x="446" y="228" text-anchor="middle">zummi</text><text class="nx-s" x="446" y="245" text-anchor="middle">exit-zummi</text><text class="nx-s" x="446" y="262" text-anchor="middle">NAT44 + NAT66</text></a>
+<a data-target="exit-nodes-hosts" tabindex="0" role="link" class="nx-coral"><rect x="528" y="90" width="136" height="60" rx="8" stroke-width="1"/><text class="nx-t" x="596" y="108" text-anchor="middle">realtox</text><text class="nx-s" x="596" y="125" text-anchor="middle">203.0.113.11</text><text class="nx-s" x="596" y="142" text-anchor="middle">2001:db8:11::2</text></a>
+<a data-target="exit-nodes-hosts" tabindex="0" role="link" class="nx-coral"><rect x="528" y="210" width="136" height="60" rx="8" stroke-width="1"/><text class="nx-t" x="596" y="228" text-anchor="middle">IONOS</text><text class="nx-s" x="596" y="245" text-anchor="middle">203.0.113.10</text><text class="nx-s" x="596" y="262" text-anchor="middle">2001:db8:10::1</text></a>
+<a data-target="exit-nodes-who" tabindex="0" role="link" class="nx-gray"><rect x="16" y="300" width="204" height="60" rx="8" stroke-width="1"/><text class="nx-t" x="118" y="318" text-anchor="middle">Who may</text><text class="nx-s" x="118" y="335" text-anchor="middle">Pocket ID group exit-nodes</text><text class="nx-s" x="118" y="352" text-anchor="middle">policy → exit-node-access</text></a>
+<a data-target="exit-nodes-use" tabindex="0" role="link" class="nx-gray"><rect x="238" y="300" width="204" height="60" rx="8" stroke-width="1"/><text class="nx-t" x="340" y="318" text-anchor="middle">Choice in the client</text><text class="nx-s" x="340" y="335" text-anchor="middle">skip_auto_apply: off until picked</text><text class="nx-s" x="340" y="352" text-anchor="middle">one toggle for v4 and v6</text></a>
+<a data-target="exit-nodes-monitoring" tabindex="0" role="link" class="nx-gray"><rect x="460" y="300" width="204" height="60" rx="8" stroke-width="1"/><text class="nx-t" x="562" y="318" text-anchor="middle">Counters → Grafana</text><text class="nx-s" x="562" y="335" text-anchor="middle">nftables, postrouting</text><text class="nx-s" x="562" y="352" text-anchor="middle">Homelab / NetBird</text></a>
+<text class="nx-s" x="16" y="390">Without a choice nothing changes: the client reaches the internet through its own uplink as before.</text>
+<text class="nx-s" x="16" y="406">The overlay is ULA; the public addresses only come in through masquerade on the exit node.</text>
+</svg>
+</figure>
+
+##### Who may
+
+The Pocket ID group `exit-nodes`. Someone joins by being added to the group in Pocket ID (auth.homelab.example), followed by `just netbird-apply`; that carries the membership over to the NetBird group of the same name and so to all of the person's devices. The policy `exit-nodes` lets only this group into the routes' access group `exit-node-access`. Deliberately not everyone: whoever uses an exit node shows up with the server's address.
+
+##### Using them
+
+The routes are present on every device of the group but off (`skip_auto_apply`) until one is picked – in the NetBird app under "Exit Node" or "Networks", or on the CLI:
+
+```bash
+netbird networks select exit-aldrin
+```
+
+```bash
+netbird networks deselect exit-aldrin
+```
+
+Each exit node has two routes, `exit-aldrin` (`0.0.0.0/0`) and `exit-aldrin-v6` (`::/0`). A client from 0.81 on pairs them by name and shows them as one entry "0.0.0.0/0, ::/0": one toggle moves v4 and v6, no IPv6 leaks past the exit node through the client's own uplink. Check with `curl -4 ifconfig.co` and `curl -6 ifconfig.co`.
+
+##### On the hosts
+
+Routing and NAT are set up by the NetBird client itself: masquerade for v4 (NAT44) and v6 (NAT66) to the host's public addresses, the policy's ACL in its own nftables table. `modules/netbird-exit-node.nix` additionally turns on forwarding for both families, so it does not depend on the client. Reverse-path filtering stays "strict", the NixOS firewall does not filter forwarding (`filterForward` off, as everywhere).
+
+Why NAT66 rather than public addresses for the clients: a client's overlay address holds mesh-wide, whatever the exit node – a GUA out of aldrin's network would leave through zummi with a foreign source address. Besides, neither host has a routed prefix: aldrin's /64 is on-link, zummi has a /128.
+
+##### Dual stack in the mesh
+
+Since 2026-10-25 the whole mesh is dual stack. Next to its address out of `192.0.2.0/24`, every peer gets one out of the ULA `2001:db8:203:0::/64` (`ipv6_enabled_groups` = All, `terraform/netbird/main.tf`). Peer names under `peer.homelab.example` and the service names (`s3-admin`, `dokumente`, `doku`, `llm`, `acme`, `terraform/netbird/mesh-services.tf`) have AAAA next to A; NetBird serves AAAA only to peers that have v6 themselves. The Apple TVs (client 0.66) stay on v4.
+
+The range sits next to `192.0.2.0/24` everywhere: root SSH (`modules/ssh.nix`), CrowdSec's whitelist, the docs site, garage-ui on aldrin, Paperless and Samba on ursalia, Traefik's `trustedIPs` on grammi, Caddy on zorlock. `admin-peers.json` lists v4 and v6 per device. A new allow list for the mesh gets both ranges.
+
+When the groups in `ipv6_enabled_groups` change, NetBird hands out new v6 addresses. Tofu reads the services' AAAA records at plan time, so after such a change, or for a newly registered peer, it takes a second `just netbird-apply`.
+
+##### Monitoring
+
+Each exit node counts the forwarded traffic per family and direction in an nftables table of its own and hands it to node_exporter as `netbird_exit_node_bytes_total` / `netbird_exit_node_packets_total`. In the dashboard "Homelab / NetBird", the section "Exit nodes" shows throughput and volume. The counters hang off `postrouting`, not `forward`: the NetBird client puts `iifname nb-mesh accept` at the top of every foreign forward chain, so counters behind it would never be reached.
+
+##### Provider from PR #215
+
+The released NetBird provider (v0.0.10) knows neither `ipv6_enabled_groups` nor `network_range_v6` and resets them on every apply of the account settings ([#243](https://github.com/netbirdio/terraform-provider-netbird/issues/243)). Until [PR #215](https://github.com/netbirdio/terraform-provider-netbird/pull/215) is released, `pkgs/terraform-provider-netbird.nix` builds the provider from that PR and `terraform/netbird/env.sh` swaps it in through `dev_overrides`; Tofu warns about it on every run. To undo: remove the package, its flake output and the block in `env.sh`, then `tofu init -upgrade` ([open item](#open-items)).
+
 ### Access
 
-Only 22/80/443 are open to the public. `modules/ssh.nix` allows root SSH only from mesh or Tailscale addresses; every host has its own login keypair. The mesh is IPv4 only for now; dual stack is listed as an open item.
+Only 22/80/443 are open to the public. `modules/ssh.nix` allows root SSH only from mesh or Tailscale addresses; every host has its own login keypair. Mesh means both ranges, `192.0.2.0/24` and `2001:db8:203:0::/64` ([dual stack](#dual-stack-in-the-mesh)).
 
 #### Apps on grammi: only through Traefik `:8090`
 
@@ -310,7 +383,7 @@ The dashboards are JSON in `hosts/grammi/dashboards/`, provisioned from the repo
 | --- | --- |
 | Hosts Overview | Scrape targets, CPU/memory/disk/network per host, failed units, certificates, backups (btrbk, restic), pending firmware, WLAN band/signal |
 | Topology | Hosts, exporters and data flows as a Graphviz diagram |
-| NetBird | Control plane reachable per host; peers per host as expected (Tofu) / known (network map) / connected P2P / connected relay, plus deviations; connection history, P2P latency, sync and setup times; netbird-server (signal, relay, gRPC, API) |
+| NetBird | Control plane reachable per host; peers per host as expected (Tofu) / known (network map) / connected P2P / connected relay, plus deviations; connection history, P2P latency, sync and setup times; netbird-server (signal, relay, gRPC, API); throughput and volume of the exit nodes aldrin/zummi per IP family ([exit nodes](#monitoring)) |
 | WLAN | ursalia's and zorlock's band (2.4 / 5 / 6 GHz) over time, channel, signal, PHY mode, link rate, traffic, MCS, retries, time associated |
 | Disk Health | SMART/NVMe of ursalia: status, critical warnings, wear, spare, temperature, data written |
 | Paperless | Health (Celery, Redis, DB, index, classifier), documents, inbox, failed tasks, storage, log warnings |
@@ -408,7 +481,7 @@ Both Macs are peers in the NetBird mesh, but they get their client in two differ
 
 - The **client binary** comes from the `nixpkgs-netbird` input, the pin the NetBird server on grammi and every NixOS client use. The whole mesh moves together with `nix flake update nixpkgs-netbird` – server first, then the clients.
 - **Login** is unattended: `netbird-login` registers once with a single-use setup key from `hosts/zorlock/netbird.yaml` (sops, `just netbird-key zorlock`). After that the key is spent and the peer's identity lives in `/var/lib/netbird/config.json`.
-- **Rosenpass** (permissive, like everywhere) and the client's local Prometheus endpoint (`127.0.0.1:9191`, scraped by vmagent) are turned on by the same job – nix-darwin's module has no `config.d` like the NixOS one.
+- **Rosenpass** is turned off by the same job (off mesh-wide since 2026-10-24, until 2026-10-31, see below), the client's local Prometheus endpoint (`127.0.0.1:9191`, scraped by vmagent) on – nix-darwin's module has no `config.d` like the NixOS one.
 - After a reboot zorlock joins the mesh only once FileVault has been unlocked (over SSH from the home LAN), because the daemon lives on the data volume.
 
 That is what a server needs: no GUI session (zorlock should stay logged out, Ollama counts free RAM), coming back by itself, the same client version as the rest of the mesh, and metrics.
@@ -418,7 +491,7 @@ That is what a server needs: no GUI session (zorlock should stay logged out, Oll
 gusto installs `netbirdio/homebrew-tap/netbird-ui`, the cask from NetBird's own tap, pinned as the flake input `netbirdio-tap` (decided on 2026-10-21). The cask is the signed menu-bar app; it depends on the formula `netbird` from the same tap (the CLI and daemon), and its installer registers the daemon as `/Library/LaunchDaemons/netbird.plist`. That is the same software the official `.pkg` installer puts on a Mac, only installed and removed through the configuration. The formula is also listed on its own (`homebrew.brews`), so `cleanup = "zap"` can never treat the daemon as an orphan and remove it from under the app.
 
 - **Login** is interactive: in the app, with SSO through Pocket ID – the peer then belongs to the admin's user and its groups, the way a person's device should. There is no setup key and no sops file for gusto.
-- **Rosenpass** is set once in the app's settings (Quantum-Resistance); the daemon keeps it in its own config. Since 2026-10-21 it is **off** on the workstation – a test against tunnels that stayed "Connected" without a WireGuard handshake after the Rosenpass key expired (upstream #3107, #3121); every other peer stays permissive so it still accepts the workstation. gusto starts the same way, off. If the dead tunnels persist, Rosenpass goes off everywhere; if they are gone, the setting stays as it is until upstream fixes the re-keying.
+- **Rosenpass** is set once in the app's settings (Quantum-Resistance); the daemon keeps it in its own config. Since 2026-10-21 it is **off** on the workstation – a test against tunnels that stayed "Connected" without a WireGuard handshake after the Rosenpass key expired (upstream #3107, #3121); gusto starts the same way, off. The dead tunnels came back anyway, between two peers that both ran Rosenpass (ursalia↔zorlock, 2026-10-23: key expired without renewal, the two sides ended up with different pre-shared keys, no handshake any more – and Rosenpass itself runs through that tunnel). So since 2026-10-24 Rosenpass is **off mesh-wide** for a week, until 2026-10-31; the apps (iPhone, Apple TVs, Home Assistant) by hand. Then it is decided: no more dead tunnels – it stays off until upstream fixes the re-keying; dead tunnels anyway – Rosenpass was not the cause and comes back, permissive.
 - **Version**: whatever the pinned tap holds. It changes only with `just mac-upgrade`, which prints gusto's client version next to `nixpkgs-netbird`'s so the two do not drift far apart. The usual rule still applies: the server (grammi) is updated first, clients follow.
 - **Updates from elsewhere**: the app's own update notice and NetBird's dashboard-driven auto-update must not move the version behind the configuration's back; this is checked on the first switch and switched off if the app offers it.
 - No metrics endpoint and no log shipping – gusto is not monitored.
@@ -1081,6 +1154,7 @@ Which file is responsible for which change, how often that happens, and what to 
 | A mesh-only name | `terraform/netbird/mesh-services.tf` | rarely | `just netbird-apply` |
 | Who may read the private docs | group `admin-workstations` (`terraform/netbird/subraum.tf`, peer names) | rarely | `just netbird-apply`, commit `admin-peers.json`, deploy aldrin and ursalia |
 | NetBird policies, groups, people, routes | `terraform/netbird/*.tf` | rarely | `just netbird-plan`, `just netbird-apply` |
+| Who may use the exit nodes | Pocket ID group `exit-nodes` (auth.homelab.example) | rarely | `just netbird-apply` |
 | Public DNS records | DNSControl repo (`dnsconfig.js`) | rarely | `dnscontrol preview`, `dnscontrol push` there, commit |
 | What a deSEC token may do | `terraform/desec-tokens/main.tf` | rarely | `just desec-apply` |
 | Repositories, deploy keys | `terraform/github/` | rarely | `just github-plan`, `just github-apply` |
@@ -1330,7 +1404,7 @@ The alternative names (tailnet, public) carry `HostKeyAlias <host>.peer.homelab.
 
 ### NetBird
 
-The official app from NetBird's tap (cask `netbird-ui`, formula `netbird` for the daemon), pinned as the input `netbirdio-tap`. Sign-in by SSO (Pocket ID) in the app, peer name `gusto`, group `admin-workstations` (Subraum devices, docs site). Rosenpass is **off** on the workstation for now (test since 2026-10-21). The version follows the tap, not `nixpkgs-netbird`; `just mac-upgrade` prints both. Details and the comparison with zorlock: [macOS hosts](#netbird-on-the-two-macs).
+The official app from NetBird's tap (cask `netbird-ui`, formula `netbird` for the daemon), pinned as the input `netbirdio-tap`. Sign-in by SSO (Pocket ID) in the app, peer name `gusto`, group `admin-workstations` (Subraum devices, docs site). Rosenpass is **off** on the workstation (since 2026-10-21; mesh-wide since 2026-10-24, until 2026-10-31). The version follows the tap, not `nixpkgs-netbird`; `just mac-upgrade` prints both. Details and the comparison with zorlock: [macOS hosts](#netbird-on-the-two-macs).
 
 ### The Claude app's MCP servers
 
@@ -1385,7 +1459,7 @@ All `mac-*` recipes take the host as an optional parameter (default `gusto`; `zo
 | A setting did not apply | log out and in once (input sources, some Dock/Finder keys) |
 | `.before-hm` files in the home directory | left by the first switch; compare and delete |
 | An MCP server does not connect | run `mcp-run <server>` in a terminal: does it hang at Touch ID or sops, is a value missing in `mcp.yaml`, is the checkout missing? The desktop app logs to `~/Library/Logs/Claude/mcp-server-<name>.log` |
-| `homeassistant` hangs | the URL's port must be 9583, the policy silently drops any other (timeout after 30 s): `sops decrypt --extract '["homeassistant"]["url"]' hosts/gusto/mcp.yaml \| cut -d/ -f3` shows only host and port; `nc -z homeassistant.peer.homelab.example 9583`; if `netbird status -d` shows HA as "Connected" but without a WireGuard handshake, Rosenpass in the NetBird app on HA is strict – turn on `rosenpass_permissive` there |
+| `homeassistant` hangs | the URL's port must be 9583, the policy silently drops any other (timeout after 30 s): `sops decrypt --extract '["homeassistant"]["url"]' hosts/gusto/mcp.yaml \| cut -d/ -f3` shows only host and port; `nc -z homeassistant.peer.homelab.example 9583`; if `netbird status -d` shows HA as "Connected" but without a WireGuard handshake, Rosenpass in the NetBird app on HA is strict – turn on `rosenpass_permissive` there (until 2026-10-31 Rosenpass belongs off there entirely) |
 | NetBird disconnected | menu-bar app → Connect; `netbird status -d`; daemon: `sudo launchctl print system/netbird` |
 
 ## Inventory
@@ -4375,7 +4449,8 @@ eval $(op signin) && export SOPS_AGE_KEY_CMD='op read "op://<vault>/<item>/passw
 
 ## Open items
 
-- [ ] Move the NetBird mesh to dual stack (IPv6 overlay)
+- [ ] NetBird provider: replace the build from PR #215 (IPv6 overlay) with the registry version again once it is released ([exit nodes & IPv6](#provider-from-pr-215))
+- [ ] Home Assistant: check whether `trusted_proxies`/`trusted_networks` know only `192.0.2.0/24` and add `2001:db8:203:0::/64` (not in the repo)
 - [ ] Upstream PRs to the NetBird provider (#247 `direct_upstream`/cluster targets, #248 `crowdsec_mode`); then switch the proxy targets on grammi to `localhost`
 - [ ] Remove Tailscale from the servers once nothing depends on it any more
 - [ ] Grafana alerting (contact point still missing) for SMART, fwupd, Paperless, NetBird expected ≠ known, ursalia's WLAN (not associated, stuck on 2.4 GHz, weak signal)

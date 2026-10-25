@@ -10,6 +10,7 @@ Which file is responsible for which change, how often that happens, and what to 
 | A mesh-only name | `terraform/netbird/mesh-services.tf` | rarely | `just netbird-apply` |
 | Who may read the private docs | group `admin-workstations` (`terraform/netbird/subraum.tf`, peer names) | rarely | `just netbird-apply`, commit `admin-peers.json`, deploy aldrin and ursalia |
 | NetBird policies, groups, people, routes | `terraform/netbird/*.tf` | rarely | `just netbird-plan`, `just netbird-apply` |
+| Who may use the exit nodes | Pocket ID group `exit-nodes` (auth.homelab.example) | rarely | `just netbird-apply` |
 | Public DNS records | DNSControl repo (`dnsconfig.js`) | rarely | `dnscontrol preview`, `dnscontrol push` there, commit |
 | What a deSEC token may do | `terraform/desec-tokens/main.tf` | rarely | `just desec-apply` |
 | Repositories, deploy keys | `terraform/github/` | rarely | `just github-plan`, `just github-apply` |

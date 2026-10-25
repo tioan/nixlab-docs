@@ -152,6 +152,7 @@ in
           cidr = [
             "100.64.0.0/10" # tailnet
             "192.0.2.0/24" # NetBird mesh (terraform/netbird)
+            "2001:db8:203:0::/64" # NetBird mesh, IPv6 overlay (terraform/netbird/main.tf)
           ];
         };
       }

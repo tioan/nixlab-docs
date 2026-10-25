@@ -298,6 +298,20 @@ Pull + switch zorlock, with the summary
 
 Commit, push, then deploy to zorlock
 
+## `just claude-token-zorlock`
+
+Write hosts/zorlock/claude.yaml from a token of `claude setup-token`
+(run that first; it needs the browser login). Asked for here without
+echo, never an argument. Commit it and deploy zorlock.
+
+## `just version-check-run`
+
+Start tonight's run now (collect, Ollama, Claude); log in /var/log/version-check.log
+
+## `just version-check-fetch`
+
+Copy every run from zorlock to .version-check/ in the checkout
+
 ## `just gc host`
 
 Manually trigger garbage collection on a remote host (nix.gc already runs nightly)

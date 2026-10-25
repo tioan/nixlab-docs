@@ -18,7 +18,8 @@
     # purpose: it keys on which local IP sshd accepted the connection on,
     # which a remote peer cannot spoof the way it could a source address.
     # Ranges are Tailscale's CGNAT v4 block and its ULA v6 prefix, and the
-    # NetBird mesh (192.0.2.0/24, terraform/netbird). The Tailscale ranges
+    # NetBird mesh (192.0.2.0/24 and its IPv6 overlay 2001:db8:203:0::/64,
+    # terraform/netbird/main.tf). The Tailscale ranges
     # stay until Tailscale is removed from the hosts.
     #
     # Verified with `sshd -T -C ...`:
@@ -31,7 +32,7 @@
     # requires Match blocks to live. Deploys therefore go over the mesh; see
     # the host addresses in the justfile.
     extraConfig = ''
-      Match LocalAddress 100.64.0.0/10,fd7a:115c:a1e0::/48,192.0.2.0/24
+      Match LocalAddress 100.64.0.0/10,fd7a:115c:a1e0::/48,192.0.2.0/24,2001:db8:203:0::/64
         PermitRootLogin prohibit-password
     '';
   };

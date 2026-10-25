@@ -367,6 +367,7 @@ modules/auto-upgrade-git.nix.
 | `enable` | Enable: ship this host's Prometheus exporters to grammi's VictoriaMetrics via vmagent |
 | `remoteWriteUrl` | VictoriaMetrics remote_write endpoint, over the NetBird mesh. Mesh-only by design - see hosts/grammi/configuration.nix, the ingest port is not in networking.firewall.allowedTCPPorts, only reachable over the trusted mesh (and tailnet) interface. |
 | `exporterPorts` | Local ports to scrape, named - this host's own services.prometheus.exporters.<name>.port values. The name becomes this target's `instance` label in VictoriaMetrics, so vmui shows e.g. "node"/"nginx" instead of an undifferentiated "127.0.0.1:9113". |
+| `extraScrapeConfigs` | Additional vmagent scrape_configs, for targets exporterPorts cannot express - metrics_path is per job, so anything not on /metrics needs a job of its own. Named "<host>-<service>" like the crowdsec job. |
 
 [Quelltext](https://github.com/tioan/nixlab-docs/blob/main/modules/metrics-shipping.nix)
 
@@ -384,6 +385,37 @@ not exist yet when these units start at boot, and a listener cannot bind an
 address that is not there. The firewall is the more robust guard.
 
 [Quelltext](https://github.com/tioan/nixlab-docs/blob/main/modules/metrics.nix)
+
+## netbird-exit-node.nix
+
+This host as a NetBird exit node (terraform/netbird/exit-nodes.tf: which
+hosts, who may use them, IPv4 and IPv6 routes). Imported by aldrin and
+zummi, each naming its public interface.
+
+Routing and NAT are NetBird's: with masquerade on the route, the client
+puts its own masquerade rules (v4 and v6) and the policy's forward ACL
+into its nftables tables. What this module adds:
+
+- forwarding for both families, set here so it does not depend on the
+  client switching it on and is visible in the config (same reasoning as
+  on ursalia),
+- counters of the forwarded traffic per family and direction, for the
+  "Exit nodes" panels in hosts/grammi/dashboards/netbird.json.
+
+Reverse-path filtering stays at modules/firewall.nix' "strict": client
+packets arrive on nb-mesh from the overlay ranges (connected routes on
+nb-mesh), the internet's replies on the public interface, whose default
+routes cover them. Forwarding is not filtered by the NixOS firewall
+(filterForward stays off, as on every host).
+
+**Optionen** (`services.netbirdExitNode`):
+
+| Option | Beschreibung |
+| --- | --- |
+| `enable` | Enable: this host as a NetBird exit node |
+| `wanInterface` | The public interface exit traffic leaves through. |
+
+[Quelltext](https://github.com/tioan/nixlab-docs/blob/main/modules/netbird-exit-node.nix)
 
 ## netbird.nix
 

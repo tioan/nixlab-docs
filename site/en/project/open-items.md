@@ -1,6 +1,7 @@
 # Open items
 
-- [ ] Move the NetBird mesh to dual stack (IPv6 overlay)
+- [ ] NetBird provider: replace the build from PR #215 (IPv6 overlay) with the registry version again once it is released ([exit nodes & IPv6](../explanation/secrets-network-access.md#netbird-provider-pr215))
+- [ ] Home Assistant: check whether `trusted_proxies`/`trusted_networks` know only `192.0.2.0/24` and add `2001:db8:203:0::/64` (not in the repo)
 - [ ] Upstream PRs to the NetBird provider (#247 `direct_upstream`/cluster targets, #248 `crowdsec_mode`); then switch the proxy targets on grammi to `localhost`
 - [ ] Remove Tailscale from the servers once nothing depends on it any more
 - [ ] Grafana alerting (contact point still missing) for SMART, fwupd, Paperless, NetBird expected ≠ known, ursalia's WLAN (not associated, stuck on 2.4 GHz, weak signal)
