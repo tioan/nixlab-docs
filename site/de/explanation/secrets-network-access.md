@@ -138,7 +138,7 @@ Die private Fassung dieser Doku (`doku.homelab.example`, auf aldrin und ursalia)
 - Die Liste ist so aktuell wie das letzte `just netbird-apply` mit anschließendem Deploy. Ein neues Admin-Gerät sieht bis dahin 403, ein entferntes Gerät kommt bis dahin noch hinein.
 - Die Adresse steht für das Gerät, nicht für die Person: Wer ein Admin-Gerät benutzt, liest die Doku.
 - Leer darf die Liste nicht werden – `just netbird-admin-peers` verweigert eine leere Ausgabe, und das Modul bricht den Build mit einer Assertion ab, statt still allen 403 zu geben.
-- Nur IPv4, wie das Mesh. Mit dem IPv6-Overlay kommen die v6-Adressen in dieselbe Liste.
+- v4 und v6 je Gerät, wie das Mesh ([Dualstack](#mesh-ipv6)). Die v6-Adresse vergibt NetBird neu, wenn sich die Gruppen in `ipv6_enabled_groups` ändern – dann `just netbird-apply` und Deploy von aldrin und ursalia, sonst sieht das Gerät über v6 ein 403.
 
 ### Paperless: von außen Freigabelinks (PIN) und App (SSO)
 

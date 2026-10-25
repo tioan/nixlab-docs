@@ -256,7 +256,7 @@ The private version of this documentation (`doku.homelab.example`, on aldrin and
 - The list is as current as the last `just netbird-apply` followed by a deploy. Until then a new admin device sees 403, and a removed device still gets in.
 - The address stands for the device, not the person: whoever uses an admin device reads the docs.
 - The list must never be empty – `just netbird-admin-peers` refuses an empty output, and the module fails the build with an assertion instead of quietly giving everyone 403.
-- IPv4 only, like the mesh. With the IPv6 overlay the v6 addresses go into the same list.
+- v4 and v6 per device, like the mesh ([dual stack](#dual-stack-in-the-mesh)). NetBird hands out a new v6 address when the groups in `ipv6_enabled_groups` change – then `just netbird-apply` and a deploy of aldrin and ursalia, or the device sees 403 over v6.
 
 #### Paperless: from outside, share links (PIN) and the app (SSO)
 
