@@ -35,6 +35,31 @@ just release ursalia
 just deploy ursalia
 ```
 
+## With automatic rollback: `just try-confirm` { #confirm }
+
+For changes that can cut the host off – network, NetBird, SSH, firewall – there is a variant with a dead-man switch:
+
+```bash
+just try-confirm ursalia        # 5 minutes to confirm
+just try-confirm ursalia 10     # 10 minutes
+```
+
+1. Same checks and build as `just try`, but nothing is switched by nixos-rebuild.
+2. On the host, a timer is armed first: after the deadline it switches back to the generation that is running now.
+3. Then the branch is activated with `switch-to-configuration test`, as a unit of its own on the host – the activation survives a dropped SSH session. `test` leaves the boot default alone: a reboot or a hang also ends up in the old generation.
+4. The workstation waits until it reaches the host over the mesh again and the activation has finished, and asks **Keep it? [y/N]**.
+5. Only `y` stops the timer, sets the system profile and boot entry and writes the hold as `just try` does. Anything else – `n`, no answer, no connection – and the host rolls itself back at the deadline (`n` does it right away).
+
+When the host answers under a different name afterwards (a rename), `via` names the address to deploy to; the confirmation always goes to `<host>.peer.homelab.example`:
+
+```bash
+just try-confirm ursalia 10 root@ursalia-next.peer.homelab.example
+```
+
+The question needs a real terminal; without one the answer is "no".
+
+The pattern – apply, check from outside, keep only when confirmed within a deadline, revert otherwise – comes from snowball (BBBSnowball): [`firewall-update.sh`](https://github.com/BBBSnowball/nixcfg/blob/35264a74189686e8ce0231b4752f85225d0c9e00/hosts/sonline0/firewall-update.sh) does it for iptables rules; `try-confirm` does it for a whole NixOS generation.
+
 ## What honours the hold { #honoured }
 
 | Path | With a hold |
@@ -62,3 +87,4 @@ The rule is the same everywhere: a hold blocks as long as what is about to be de
 - **Macs** (gusto, zorlock) are not covered – they have no nightly upgrade that would roll back.
 - **Two topics on one host** at the same time do not work: the second `just try` refuses until the first is merged or released.
 - A host from before `modules/deploy-hold.nix` knows no hold; the first `just try` on it brings the module along.
+- **`try-confirm` and the nightly upgrade:** there is no hold until the confirmation. If the deadline spans 04:00, `nixos-upgrade` builds main. If the branch changes the hostname, it even builds main for the *new* name – at ursalia's cut-over (2026-10-27) the NUC booted the M720q's configuration that way. Set `nixos-hold set` first, or don't test into the night.

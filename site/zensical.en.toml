@@ -33,6 +33,7 @@ nav = [
     "explanation/secrets-network-access.md",
     "explanation/deployment.md",
     "explanation/monitoring.md",
+    "explanation/waf.md",
     "explanation/macos-hosts.md",
   ] },
   { "How-to guides" = [

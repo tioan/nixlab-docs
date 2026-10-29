@@ -7,6 +7,8 @@ Services are named by function, not by product. There are three kinds of reachab
 | `auth` | Pocket ID | zummi | public (nginx) |
 | `mesh` | NetBird management/dashboard | grammi | public (Traefik terminates TLS) |
 | `s3.aldrin` | Garage S3 API | aldrin | public (nginx) |
+| `cloud` | OpenCloud | aldrin | public (nginx), login via Pocket ID; not behind the reverse proxy, its SSO would stop the sync clients |
+| `tabs` | WebDAV for floccus (rclone) | aldrin | public (nginx), one account with basic auth ([why](../explanation/secrets-network-access.md#tabs)) |
 | `rezepte` | Mealie | grammi | reverse proxy + SSO |
 | `grist` | Grist | grammi | reverse proxy + SSO |
 | `logs` | logchef | grammi | reverse proxy + SSO |
@@ -16,6 +18,7 @@ Services are named by function, not by product. There are three kinds of reachab
 | `s3-admin` | garage-ui | aldrin | mesh only |
 | `dokumente` | Paperless + paperless-gpt (`/paperless-gpt/`) | ursalia | in the mesh directly; from outside, through the reverse proxy, share links via PIN and the app via SSO ([why](../explanation/secrets-network-access.md#paperless-from-outside-share-links-pin-and-the-app-sso)) |
 | `llm` | Ollama (behind Caddy) | zorlock | mesh only |
+| `health` | [HealthLog](https://github.com/MBombeck/HealthLog) ([`0497d60`](https://github.com/MBombeck/HealthLog/tree/0497d60a893784e709899cdb6fbdf155ef29e3e3) by Marc Bombeck) | ursalia | mesh only (the iOS app needs NetBird too), login via Pocket ID only (group `healthlog_users`); its own encrypted off-host copies in Garage on aldrin (bucket `healthlog-backups`, 30 days) |
 | `mqtt` | Mosquitto (Home Assistant add-on) | Home Assistant (home LAN, NetBird peer) | port 8883, MQTT over TLS: at home straight to HA (home router (OPNsense) answers the name locally), from outside through the reverse proxy as TLS passthrough to the peer, no SSO ([why](../explanation/secrets-network-access.md#mqtt-from-outside-tls-passthrough-to-home-assistant)) |
 | `acme` | dns01proxy (DNS-01 for Home Assistant) | grammi | mesh only, port 8446; HA resolves it through the home router (OPNsense) ([why](../explanation/secrets-network-access.md#mqtt-from-outside-tls-passthrough-to-home-assistant)) |
 | `doku` | This documentation (private version) | aldrin + ursalia | in the mesh admin devices only ([why](../explanation/secrets-network-access.md#private-docs-admin-devices-home-lan-login)), one A record per host; in the home LAN through a record of the router's own to ursalia, except a deny list; from outside a redirect to the public docs through the reverse proxy, `/login` to `doku-login` |

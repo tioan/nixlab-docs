@@ -45,5 +45,9 @@
     # holds no key that can decrypt them (see `just secrets <host>`).
     sops
     sqlite
+    # Ghostty (gusto) sends TERM=xterm-ghostty over SSH; without its terminfo
+    # entry ncurses tools (htop, vim, tmux) refuse to start. Only the
+    # terminfo output, not the app.
+    ghostty.terminfo
   ];
 }

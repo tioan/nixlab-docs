@@ -7,6 +7,8 @@ Dienste sind nach Funktion benannt, nicht nach Produkt. Es gibt drei Arten der E
 | `auth` | Pocket ID | zummi | öffentlich (nginx) |
 | `mesh` | NetBird Management/Dashboard | grammi | öffentlich (Traefik terminiert TLS) |
 | `s3.aldrin` | Garage S3-API | aldrin | öffentlich (nginx) |
+| `cloud` | OpenCloud | aldrin | öffentlich (nginx), Login über Pocket ID; nicht hinter dem Reverse Proxy, dessen SSO würde die Sync-Clients aufhalten |
+| `tabs` | WebDAV für floccus (rclone) | aldrin | öffentlich (nginx), ein Account mit Basic Auth ([warum](../explanation/secrets-network-access.md#tabs)) |
 | `rezepte` | Mealie | grammi | Reverse Proxy + SSO |
 | `grist` | Grist | grammi | Reverse Proxy + SSO |
 | `logs` | logchef | grammi | Reverse Proxy + SSO |
@@ -16,6 +18,7 @@ Dienste sind nach Funktion benannt, nicht nach Produkt. Es gibt drei Arten der E
 | `s3-admin` | garage-ui | aldrin | nur Mesh |
 | `dokumente` | Paperless + paperless-gpt (`/paperless-gpt/`) | ursalia | im Mesh direkt; von außen über den Reverse Proxy Freigabelinks per PIN und die App per SSO ([warum](../explanation/secrets-network-access.md#paperless-von-auen-freigabelinks-pin-und-app-sso)) |
 | `llm` | Ollama (hinter Caddy) | zorlock | nur Mesh |
+| `health` | [HealthLog](https://github.com/MBombeck/HealthLog) ([`0497d60`](https://github.com/MBombeck/HealthLog/tree/0497d60a893784e709899cdb6fbdf155ef29e3e3) von Marc Bombeck) | ursalia | nur Mesh (auch die iOS-App braucht NetBird), Login nur über Pocket ID (Gruppe `healthlog_users`); eigene verschlüsselte Off-host-Kopien in Garage auf aldrin (Bucket `healthlog-backups`, 30 Tage) |
 | `mqtt` | Mosquitto (Home-Assistant-Add-on) | Home Assistant (Heim-LAN, NetBird-Peer) | Port 8883, MQTT über TLS: zu Hause direkt zu HA (der Heimrouter (OPNsense) beantwortet den Namen lokal), von außen über den Reverse Proxy als TLS-Passthrough zum Peer, ohne SSO ([warum](../explanation/secrets-network-access.md#mqtt-von-auen-tls-passthrough-zu-home-assistant)) |
 | `acme` | dns01proxy (DNS-01 für Home Assistant) | grammi | nur Mesh, Port 8446; HA löst ihn über den Heimrouter (OPNsense) auf ([warum](../explanation/secrets-network-access.md#mqtt-von-auen-tls-passthrough-zu-home-assistant)) |
 | `doku` | Diese Dokumentation (private Fassung) | aldrin + ursalia | im Mesh nur Admin-Geräte ([warum](../explanation/secrets-network-access.md#private-doku-admin-gerate-heimnetz-login)), ein A-Record je Host; im Heimnetz über einen eigenen Eintrag des Routers ursalia, außer einer Deny-Liste; von außen über den Reverse Proxy eine Weiterleitung auf die öffentliche Doku, `/login` auf `doku-login` |

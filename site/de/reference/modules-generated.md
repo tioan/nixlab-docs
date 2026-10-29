@@ -199,6 +199,18 @@ namespace stays in one place.
 
 [Quelltext](https://github.com/tioan/nixlab-docs/blob/main/modules/firewall.nix)
 
+## fwupd.nix
+
+Firmware updates from LVFS on the physical host (ursalia).
+Nothing is ever installed automatically, and that has to stay so: a BIOS
+capsule moves PCR 0 and with it the TPM keyslot that unlocks the disk, and
+under Secure Boot without shim the firmware runs fwupdx64.efi only when it
+is signed with the host's own sbctl key - see docs/install-ursalia.md
+("Firmware-Updates"). Updates are installed by hand, with somebody at the
+console or the ArkKVM.
+
+[Quelltext](https://github.com/tioan/nixlab-docs/blob/main/modules/fwupd.nix)
+
 ## hotfixes.nix
 
 Package hotfixes that switch themselves off.
@@ -488,3 +500,67 @@ Shared Tailscale setup. Per-host `tailscale serve` definitions stay in the
 host's own configuration.nix - only the node agent itself is common.
 
 [Quelltext](https://github.com/tioan/nixlab-docs/blob/main/modules/tailscale.nix)
+
+## waf.nix
+
+Web application firewall: CrowdSec's AppSec component in front of the
+public nginx vhosts. Decided 2026-10-25 - until then CrowdSec only read the
+access logs after the fact (modules/crowdsec.nix), so it banned a scanner
+once it had shown itself, but the one request carrying an exploit still
+reached the service. AppSec judges each request before nginx proxies it.
+
+Why AppSec and not ModSecurity: one engine for nginx and Traefik (grammi
+gets the Traefik plugin later), and its matches become CrowdSec alerts and
+bans like everything else - no second log to wire up. The OWASP Core Rule
+Set still comes along, run by AppSec's Coraza engine, just out of band.
+
+The pieces:
+
+- Rules, in band (decide before the request is let through):
+  crowdsecurity/appsec-virtual-patching (~200 rules for known CVEs:
+  PHP-CGI, Spring4Shell, Grafana file read, ...),
+  crowdsecurity/appsec-generic-rules (.env, .git, SSTI, ...), and the
+  lab's own below (homelab/*: script types and stacks nothing here runs).
+- Rules, out of band (only evaluated, never block a request by
+  themselves): crowdsecurity/appsec-crs, the OWASP CRS. Its hits are
+  events; crowdsecurity/crowdsec-appsec-outofband bans an IP after more
+  than 5 within 30 s. That keeps the broad, false-positive-prone CRS
+  useful without one stray match locking out a legitimate user.
+- Bans: every in-band match gets a 403; the IP is banned once two
+  *different* in-band rules hit within 60 s (crowdsecurity/appsec-vpatch:
+  capacity 1 with distinct rule_name, so one rule repeated never fills
+  it). Enforced by the existing
+  firewall bouncer on every port, not just 443.
+- nginx: OpenResty instead of plain nginx (same NixOS module, Lua built
+  in), with CrowdSec's Lua bouncer (pkgs/crowdsec-lua-bouncer.nix) in the
+  access phase of each listed vhost. It forwards the request (headers and
+  body) to AppSec on 127.0.0.1:7422 and acts on the answer.
+- Failure: APPSEC_FAILURE_ACTION=passthrough. If CrowdSec is down or
+  slow, requests go through unchecked rather than pocket-id going down
+  with it; the crowdsec unit failing is what gets noticed.
+
+mode = "detect" (the default, for every new host): in-band matches are
+answered with "allow" (homelab/detect-only below) and the AppSec ban
+scenarios run in simulation, so alerts show up in `cscli alerts list` and
+the console - marked "(simul)" - but nothing is blocked or banned by the
+WAF. Switch a host to "block" after a week or two without false
+positives. The log-based HTTP scenarios from modules/crowdsec.nix are not
+affected by the mode; they ban as before.
+
+Bootstrap per host: `just waf-key <host>` registers the bouncer with the
+host's LAPI and writes its key to hosts/<host>/waf.yaml (sops). Without
+that file the nginx side stays off and evaluation warns - the AppSec
+engine itself runs regardless.
+
+Docs: docs/site/*/explanation/waf.md.
+
+**Optionen** (`services.waf`):
+
+| Option | Beschreibung |
+| --- | --- |
+| `enable` | Enable: the CrowdSec AppSec WAF for this host's public nginx vhosts |
+| `mode` | `detect`: matches are alerted, nothing is blocked or banned by the WAF. `block`: in-band matches get a 403 and the IP banned. |
+| `ruleExclusions` | In-band rules (by name) not applied to requests for that Host. |
+| `allowedMethods` | HTTP methods a Host accepts; any other one (TRACE, PROPFIND, CONNECT, made-up verbs) is treated like a rule match. Leave a name out for services that need WebDAV (OpenCloud). |
+
+[Quelltext](https://github.com/tioan/nixlab-docs/blob/main/modules/waf.nix)

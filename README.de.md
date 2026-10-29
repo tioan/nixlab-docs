@@ -128,6 +128,7 @@ Jede Host-Datei ist für genau zwei Empfänger verschlüsselt: den age-Key aus d
 | `hosts/<host>/netbird.yaml` | Host + admin | NetBird-Setup-Key (von Tofu) |
 | `hosts/<host>/desec.yaml` | Host + admin | deSEC-Token (von Tofu) |
 | `hosts/<host>/github.yaml` | Host + admin | GitHub-Deploy-Key (von `just github-key`) |
+| `hosts/<host>/waf.yaml` | Host + admin | Schlüssel des WAF-Bouncers (von `just waf-key`, siehe [WAF](#web-application-firewall)) |
 | `terraform/*/secrets.yaml` | workstation + admin | API-Tokens für die Provider |
 
 Der Workstation-Key liegt in 1Password und wird über `SOPS_AGE_KEY_CMD` gelesen, nie als Datei. `env.sh` in jedem Tofu-Modul entschlüsselt die Tokens nur in die Shell des jeweiligen Rezepts.
@@ -137,7 +138,7 @@ Der Workstation-Key liegt in 1Password und wird über `SOPS_AGE_KEY_CMD` gelesen
 - **NetBird-Mesh** (`192.0.2.0/24` und `2001:db8:203:0::/64`, Peer-Namen unter `peer.homelab.example`): Control Plane auf grammi, Login über Pocket ID. Private Range (RFC 1918) statt CGNAT, weil tailscaled Pakete aus 100.64/10 verwirft, solange beide Clients parallel laufen.
 - **Gruppen:** `servers` (alle Hosts außer cuckoosegg), `subraum-devices`, `admin-workstations` (MacBook), dazu Personengruppen aus Pocket ID.
 - **Heim-LAN** (`198.51.100.0/24`): Route über ursalia (Metrik 100), die beiden Apple TVs als Rückfall (Gruppe `home-routers`, Metrik 200, eigener Setup-Key per `just netbird-router-key`, keiner Person zugeordnet, in keiner Policy); für Gruppe `home-lan`, nicht für Geräte, die schon zu Hause sind (Posture-Check `not-at-home`). Rosenpass ist seit 2026-10-24 im ganzen Mesh aus (bis 2026-10-31, siehe [macOS-Hosts](#netbird-auf-den-beiden-macs)); „Quantum-Resistance“ in der App der Apple TVs gehört für diese Zeit ebenfalls aus.
-- **Anbindung von ursalia:** WLAN ins Hauptnetz des Heim-LANs (Intel BE200, `hosts/ursalia/wifi.nix`): wpa_supplicant, WPA3 mit WPA2-Rückfall, Land DE, alle Bänder, Passwort per sops. Am endgültigen Platz gibt es kein Kabel; eno1 behält DHCP als Rückfall mit schlechterer Routen-Metrik, damit das WLAN die Hauptverbindung bleibt, wenn beide aktiv sind.
+- **Anbindung von ursalia:** WLAN ins Hauptnetz des Heim-LANs (Intel AX211, `hosts/ursalia/wifi.nix`): wpa_supplicant, WPA3 mit WPA2-Rückfall, Land DE, alle Bänder, Passwort per sops. Am endgültigen Platz gibt es kein Kabel; eno1 behält DHCP als Rückfall mit schlechterer Routen-Metrik, damit das WLAN die Hauptverbindung bleibt, wenn beide aktiv sind.
 - **Anbindung von zorlock:** ebenfalls WLAN (`en1`, Broadcom); `hosts/zorlock/wifi.nix` stellt sicher, dass `homelab` als bevorzugtes Netz eingetragen ist (`networksetup`, fügt nur hinzu, Passwort per sops in `hosts/zorlock/wifi.yaml`). nix-darwin hat kein WLAN-Modul; die Bandwahl bleibt bei macOS.
 - **Exit-Nodes und IPv6:** aldrin und zummi als Exit-Nodes für die Gruppe `exit-nodes`; das Mesh ist Dualstack (`2001:db8:203:0::/64`) – siehe [Exit-Nodes & IPv6](#exit-nodes--ipv6).
 - **Subraum:** Route über cuckoosegg für `subraum-access`. cuckoosegg selbst darf nur grammis Ingest (TCP 8428/9428) erreichen und nur vom MacBook per SSH erreicht werden.
@@ -258,6 +259,16 @@ Die private Fassung dieser Doku (`doku.homelab.example`, auf aldrin und ursalia)
 - Leer darf die Liste nicht werden – `just netbird-admin-peers` verweigert eine leere Ausgabe, und das Modul bricht den Build mit einer Assertion ab, statt still allen 403 zu geben.
 - v4 und v6 je Gerät, wie das Mesh ([Dualstack](#dualstack-im-mesh)). Die v6-Adresse vergibt NetBird neu, wenn sich die Gruppen in `ipv6_enabled_groups` ändern – dann `just netbird-apply` und Deploy von aldrin und ursalia, sonst sieht das Gerät über v6 ein 403.
 
+#### Pocket ID: Admin-Bereich nur von Admin-Geräten
+
+Seit 2026-10-25 beantwortet nginx auf zummi die Admin-Pfade von Pocket ID mit 403, außer die Anfrage kommt von einer Adresse aus `admin-peers.json` – derselben Liste wie bei der privaten Doku. Gesperrt ist alles, was eine Admin-Sitzung oder ein Admin-API-Key kann: `/settings/admin`, Nutzer, Gruppen, OIDC-Clients, APIs, API-Keys, Einstellungen, Audit-Log, Signup-Tokens, SCIM (Liste: `$pocketid_admin_path` in `hosts/zummi/configuration.nix`, nach den Berechtigungen der Routen in Pocket ID 2.19.1 – bei jedem Minor-Update prüfen). Login, Konto-Seiten (`/api/users/me…`), OIDC-Endpunkte und Logos bleiben öffentlich.
+
+Damit die Admin-Geräte mit ihrer Mesh-Adresse ankommen, zeigt eine NetBird-DNS-Zone `auth.homelab.example` nur für `admin-workstations` auf zummis Mesh-Adressen (`terraform/netbird/pocket-id-admin.tf`); der vhost lauscht dafür auf der Wildcard. Alle anderen Peers, auch NetBirds Server auf grammi, behalten den öffentlichen Eintrag.
+
+- Ohne NetBird auf dem Gerät gilt der öffentliche Eintrag: Login geht, der Admin-Bereich antwortet 403. Ein Browser mit eigenem DNS-over-HTTPS umgeht NetBirds DNS ebenso.
+- `just pocketid-plan`/`-apply` brauchen deshalb NetBird auf dem MacBook.
+- Ein neues Admin-Gerät: in `admin-workstations`, `just netbird-apply`, dann zummi deployen (wie bei der Doku auch aldrin und ursalia).
+
 #### Paperless: von außen Freigabelinks (PIN) und App (SSO)
 
 Im Mesh löst `dokumente.homelab.example` über die NetBird-Zone direkt zu ursalia auf (volle App, Login per Pocket ID).
@@ -345,6 +356,18 @@ Das Add-on erneuert nicht von selbst: Eine HA-Automation startet es täglich und
 - Die Erneuerung des Zertifikats braucht grammi und das Mesh – mit 30 Tagen Puffer vor Ablauf.
 - Ein Gerät, das bei ausgefallenem Internet neu startet, braucht die Uhrzeit von woanders als aus dem Internet, um das Zertifikat zu prüfen.
 
+#### floccus: Tabs und Lesezeichen über `tabs`
+
+floccus synchronisiert Lesezeichen und offene Tabs zwischen Browsern, auch zwischen Profilen auf Geräten außerhalb des Mesh. Ziel ist ein eigener WebDAV-Server auf aldrin (`hosts/aldrin/floccus.nix`): `rclone serve webdav` auf Loopback, davor nginx unter `tabs.homelab.example`, öffentlich.
+
+- **Nicht OpenCloud:** floccus kann nur Basic Auth. OpenCloud bräuchte dafür ein App-Token, und das hätte Zugriff auf alle Dateien des Accounts – in einem Browser auf einem Gerät, das jemand anderes verwaltet. Das Passwort hier erreicht nur ein Verzeichnis mit Tab-Listen.
+- **Nicht nginx-DAV:** floccus fragt die Dateigröße per PROPFIND ab, das kann nginx nur mit dem Modul `dav_ext`, und damit müsste nginx bei jedem Update aus dem Quellcode gebaut werden. rclone kommt aus dem Cache und kann alles, was floccus schickt: GET, PUT, DELETE, MOVE, PROPFIND.
+- **Account:** einer (`floccus`). `just floccus-password` legt ein zufälliges Passwort in die Zwischenablage und den bcrypt-Hash in `hosts/aldrin/floccus.yaml`; ohne diese Datei tut das Modul nichts. Das alte Passwort gilt bis zum nächsten Deploy von aldrin.
+- **Inhalt:** In floccus ist eine Passphrase gesetzt, der Server sieht nur die verschlüsselte Datei.
+- **Backup:** `/data/floccus` ist ein eigenes btrfs-Subvolume und bekommt dieselben btrbk-Snapshots wie OpenCloud – lokal, auf demselben Volume.
+
+**In floccus:** Profil mit Sync-Methode WebDAV, URL `https://tabs.homelab.example/`, Benutzer `floccus`, Passwort aus dem Rezept, dieselbe Passphrase auf jedem Gerät. Für Tabs ein Profil vom Typ „Tabs“, für Lesezeichen ein eigenes mit einem anderen Dateinamen – zwei Profile dürfen nie dieselbe Datei teilen. Auf Geräten mit getrennten Browser-Profilen (dienstlich/privat) floccus nur im privaten Profil einrichten.
+
 ## Deployment & Betrieb
 
 Die Pull-Hosts (zummi, aldrin, grammi, ursalia) halten `/etc/nixos` als Checkout des privaten GitHub-Repos und bauen sich selbst. cuckoosegg wird gepusht, zorlock und gusto werden auf dem Mac selbst per `darwin-rebuild` umgestellt ([macOS-Hosts](#macos-hosts)).
@@ -370,7 +393,7 @@ Alles landet auf grammi: **vmagent** auf jedem Host schickt Metriken an Victoria
 | --- | --- | --- |
 | `tailscale_*` | Hosts mit Tailscale | `tailscale metrics write`, alle 30 s |
 | `fwupd_updates_*` | ursalia | `fwupdmgr get-updates` nach jedem Metadaten-Refresh |
-| `wifi_link_*` | ursalia | `iw dev wlp2s0f0 link` (PHY-Modus, Breite, MCS, NSS), alle 30 s |
+| `wifi_link_*` | ursalia | `iw dev wlo1 link` (PHY-Modus, Breite, MCS, NSS), alle 30 s |
 | `node_wifi_*`, `wifi_link_*` | zorlock | `system_profiler SPAirPortDataType -json` alle 60 s, dieselben Namen wie auf ursalia (unter macOS ohne Empfangsrate, Retries und eigenen PHY-Modus für den Empfang; SSID/BSSID schwärzt macOS ohne Ortungsdienste auch für root, im Dashboard „n/a“), dazu `wifi_link_noise_dbm` |
 | `unit_cgroup_*` | alle Linux-Hosts | CPU-Zeit und Speicher je systemd-Dienst aus seiner cgroup, alle 15 s (`unit-metrics` in `modules/metrics.nix`); zählt alle Prozesse der Unit, Container mit `--cgroups=split` eingeschlossen |
 | `esphome_builder_data_bytes` | ursalia | Größe von `/var/lib/esphome-builder` (Toolchain-Cache), stündlich |
@@ -400,6 +423,63 @@ Die Dashboards liegen als JSON in `hosts/grammi/dashboards/` und werden aus dem 
 **Log-Level:** Vector macht aus journalds `PRIORITY` das Feld `level`. Python-Dienste schreiben ihr Log nach stderr, journald stuft dann jede Zeile als Fehler ein. Zeilen im Format `<Datum> <Zeit> INFO|WARNING|ERROR …` bekommen deshalb das Level aus dem Text, ohne Farbcodes (`modules/log-shipping.nix`).
 
 **Grafana-Falle:** State-Timelines mit `mergeValues` und Farbmodus „thresholds“ machen aus Zahlen Schwellwert-Stufen („1+“, „< 1“), bevor die Wert-Zuordnungen greifen. Farbmodus „fixed“ verwenden und Text und Farbe in die Zuordnungen legen.
+
+## Web Application Firewall
+
+CrowdSec liest auf jedem Host die Access-Logs von nginx und Traefik und sperrt Adressen, die auffallen (`modules/crowdsec.nix`). Das geschieht im Nachhinein: Der eine Request, der eine Lücke ausnutzt, ist dann schon beim Dienst angekommen. Die WAF (`modules/waf.nix`, seit 2026-10-25) prüft jeden Request, bevor nginx ihn weiterreicht – mit CrowdSecs AppSec-Komponente, also derselben Engine, denselben Alerts und denselben Bans.
+
+### Aufbau
+
+| Teil | Was es tut |
+| --- | --- |
+| OpenResty | ersetzt nginx (dasselbe NixOS-Modul, Lua eingebaut) |
+| Lua-Bouncer (`pkgs/crowdsec-lua-bouncer.nix`) | schickt in der Access-Phase jeden Request der gelisteten vhosts an AppSec auf `127.0.0.1:7422` und setzt dessen Antwort um |
+| AppSec (Teil von CrowdSec) | wertet die Regeln aus, erzeugt Alerts |
+| Firewall-Bouncer | setzt Bans wie bisher in nftables um, auf allen Ports |
+
+Ist CrowdSec nicht erreichbar, lässt nginx die Requests ungeprüft durch (`APPSEC_FAILURE_ACTION=passthrough`) – Pocket ID soll nicht mit CrowdSec ausfallen.
+
+### Regeln
+
+| Regeln | Phase | Folge |
+| --- | --- | --- |
+| `crowdsecurity/appsec-virtual-patching` – rund 200 Regeln für bekannte CVEs (PHP-CGI, Spring4Shell, Grafana File Read, …) | in-band | 403 |
+| `crowdsecurity/appsec-generic-rules` – `.env`, `.git`, SSTI, … | in-band | 403 |
+| `homelab/no-server-side-scripts` – `.php`, `.asp(x)`, `.jsp`, `.cgi`, `/cgi-bin/` | in-band | 403 |
+| `homelab/foreign-stack-probing` – `/wp-admin`, `/phpmyadmin`, `/actuator`, `/owa`, `.aws`, `.ssh`, … | in-band | 403 |
+| Methoden-Allowlist pro Name (`services.waf.allowedMethods`) – auf `auth.homelab.example` nur GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS | in-band | 403 |
+| `crowdsecurity/appsec-crs` – OWASP Core Rule Set | out-of-band | kein Block; mehr als 5 Treffer in 30 s bannen die IP |
+
+Jeder In-band-Treffer bekommt 403. Gebannt wird die IP, sobald zwei *verschiedene* In-band-Regeln innerhalb von 60 s treffen (`crowdsecurity/appsec-vpatch`: capacity 1 mit `distinct: rule_name`) – dieselbe Regel wiederholt füllt den Bucket nicht. Wer Scanner sucht, trifft in der Regel schnell mehrere.
+
+Die beiden eigenen Regeln sind das grobe Netz unter den CVE-Regeln: Kein öffentlicher Dienst hier führt PHP, ASP, JSP oder CGI aus, also ist jede Anfrage danach ein Scan oder ein Exploit – auch für eine Lücke, für die es noch keine eigene Regel gibt. Die CRS läuft nur out-of-band, weil sie breit ist und einzelne Fehlalarme kein Grund sein sollen, einen legitimen Nutzer auszusperren.
+
+Ausnahmen pro Name: `services.waf.ruleExclusions."<fqdn>" = [ "<regel>" ];`. OpenCloud (aldrin) braucht das für `homelab/no-server-side-scripts`, weil es ownClouds `/remote.php`, `/status.php` und `/ocs/v*.php` für die Desktop-Clients beibehält.
+
+### Modi
+
+- **`detect`** (Standard für jeden neuen Host): In-band-Treffer bekommen „allow“, die Ban-Szenarien der WAF laufen in der Simulation. Alerts erscheinen in `cscli alerts list` und in der Console mit „(simul)“, gesperrt wird durch die WAF nichts.
+- **`block`**: In-band-Treffer bekommen 403, die IP wird gebannt.
+
+Die log-basierten HTTP-Szenarien aus `modules/crowdsec.nix` hängen nicht am Modus und bannen wie bisher.
+
+### Hosts
+
+| Host | vhosts | Modus |
+| --- | --- | --- |
+| zummi | `auth.homelab.example` (Pocket ID) | detect (Pilot seit 2026-10-25) |
+
+Geplant: grammi (Traefik-Plugin, nur Dashboard, `/oauth2/` und die öffentlichen Grafana-Pfade), aldrin (garage-ui, OpenCloud). Nie durch die WAF: Garages S3-API und NetBirds gRPC/Relay/API – signierte oder binäre Bodies, nichts für die Regeln zu finden, viel falsch zu lesen.
+
+### Einen Host anschließen
+
+1. `services.waf = { enable = true; nginx.vhosts = [ "<vhost>" ]; };` in der Host-Konfiguration, `./modules/waf.nix` in der Modulliste des Hosts in `flake.nix`, `waf` in die Zeile des Hosts in `.sops.yaml`.
+2. Deployen. Die AppSec-Engine läuft dann schon; nginx fragt sie noch nicht (Warnung beim Evaluieren).
+3. `just waf-key <host>` – registriert den Bouncer `nginx-appsec` beim LAPI des Hosts und schreibt den Schlüssel nach `hosts/<host>/waf.yaml`. Committen, deployen.
+4. Prüfen: `cscli bouncers list` zeigt `nginx-appsec` mit frischem „Last API pull“; `curl -I https://<vhost>/crowdsec-test-NtktlJHV4TfBSK3wvlhiOBnl` erzeugt einen Test-Alert (`cscli alerts list`).
+5. Nach ein, zwei Wochen ohne Fehlalarme: `mode = "block";`.
+
+Quellen: Die nginx-Einbindung folgt CrowdSecs [`crowdsec_nginx.conf`](https://github.com/crowdsecurity/cs-nginx-bouncer/blob/067541cdfff4b650182d819e92c04a207aa2fbb5/nginx/crowdsec_nginx.conf) aus cs-nginx-bouncer v1.2.3; die Lua-Bibliothek ist CrowdSecs [lua-cs-bouncer v1.0.19](https://github.com/crowdsecurity/lua-cs-bouncer/tree/ec94d512927cf70be865686e4eb928d128189633).
 
 ## macOS-Hosts
 
@@ -433,6 +513,8 @@ nix-homebrew.taps."netbirdio/homebrew-tap" = inputs.netbirdio-tap;
 ```
 
 und `homebrew.taps` (die Liste, die nix-darwin in den Brewfile schreibt) ergibt sich daraus automatisch.
+
+**Homebrews eigene Version ist per Tag festgeschrieben.** nix-homebrew bringt einen eigenen Homebrew-Pin mit (7.0.4, Stand 2026-10-28), der hinter den Casks zurückbleibt: Seit [Homebrew/brew#24369](https://github.com/Homebrew/brew/pull/24369) (2026-10-27) schreibt homebrew-cask `zap :not_required`, das erst Homebrew 7.0.11 versteht ([Homebrew/brew#24315](https://github.com/Homebrew/brew/pull/24315)) – mit 7.0.4 brach `brew bundle` bei `android-platform-tools` ab. Deshalb hat `flake.nix` einen eigenen Input `brew-src` auf einem Release-Tag und lenkt nix-homebrew darauf um (`nix-homebrew.inputs.brew-src.follows`); `modules/darwin/homebrew.nix` benennt das Paket nach diesem Tag, damit der Switch-Diff die echte Version zeigt (`brew --version` taugt dafür nicht: Es meldet bei jedem Pin `>=4.3.0 (shallow or no git repository)`). `just mac-upgrade` verschiebt kein Tag – Homebrew zu aktualisieren heißt, diese Zeile zu ändern. Sobald nix-homebrew selbst 7.0.11 oder neuer pinnt, fallen Input und `follows` wieder weg.
 
 **Ein Switch tut, was in der Konfig steht – und sonst nichts.**
 
@@ -1089,6 +1171,31 @@ just release ursalia
 just deploy ursalia
 ```
 
+### Mit automatischem Zurückrollen: `just try-confirm`
+
+Für Änderungen, die den Host abschneiden können – Netzwerk, NetBird, SSH, Firewall –, gibt es eine Variante mit Totmannschalter:
+
+```bash
+just try-confirm ursalia        # 5 Minuten zum Bestätigen
+just try-confirm ursalia 10     # 10 Minuten
+```
+
+1. Dieselben Prüfungen und derselbe Build wie bei `just try`, aber nixos-rebuild schaltet nichts um.
+2. Auf dem Host wird zuerst ein Timer gestellt: Nach Ablauf schaltet er zurück auf die Generation, die jetzt läuft.
+3. Dann wird der Branch mit `switch-to-configuration test` aktiviert, als eigene Unit auf dem Host – die Aktivierung übersteht eine abgerissene SSH-Verbindung. `test` lässt den Boot-Eintrag in Ruhe: Auch ein Neustart oder ein Hänger landet in der alten Generation.
+4. Die Workstation wartet, bis sie den Host wieder über das Mesh erreicht und die Aktivierung fertig ist, und fragt **Keep it? [y/N]**.
+5. Erst `y` stoppt den Timer, setzt Systemprofil und Boot-Eintrag und schreibt den Halt wie `just try`. Alles andere – `n`, keine Antwort, keine Verbindung – und der Host rollt bei Ablauf von selbst zurück (`n` sofort).
+
+Meldet sich der Host danach unter einem anderen Namen (Umbenennung), nennt `via` die Adresse, an die deployt wird; die Bestätigung geht immer an `<host>.peer.homelab.example`:
+
+```bash
+just try-confirm ursalia 10 root@ursalia-next.peer.homelab.example
+```
+
+Die Frage braucht ein echtes Terminal; ohne eines gilt die Antwort als „nein“.
+
+Das Muster – einspielen, von außen prüfen, nur bei Bestätigung innerhalb einer Frist behalten, sonst zurück – stammt von snowball (BBBSnowball): [`firewall-update.sh`](https://github.com/BBBSnowball/nixcfg/blob/35264a74189686e8ce0231b4752f85225d0c9e00/hosts/sonline0/firewall-update.sh) macht das für iptables-Regeln, `try-confirm` für eine ganze NixOS-Generation.
+
 ### Wer den Halt beachtet
 
 | Weg | Verhalten bei Halt |
@@ -1116,6 +1223,7 @@ Die Regel ist überall dieselbe: Ein Halt blockiert, solange das, was deployt we
 - **Macs** (gusto, zorlock) sind nicht abgedeckt – sie haben kein nächtliches Upgrade, das zurückdrehen würde.
 - **Zwei Themen auf einem Host** gleichzeitig gehen nicht: Das zweite `just try` bricht ab, bis das erste gemergt oder freigegeben ist.
 - Ein Host vor `modules/deploy-hold.nix` kennt keinen Halt; der erste `just try` darauf bringt das Modul mit.
+- **`try-confirm` und das nächtliche Upgrade:** Bis zur Bestätigung gibt es keinen Halt. Fällt die Frist über 04:00, baut `nixos-upgrade` main. Ändert der Branch den Hostnamen, baut es sogar main für den *neuen* Namen – beim Cut-over von ursalia (2026-10-27) bootete die NUC so die Konfiguration der M720q. Vorher `nixos-hold set` setzen oder nicht in die Nacht hinein testen.
 
 ## Repository-Struktur
 
@@ -1208,7 +1316,8 @@ Nur `nixpkgs`, `nixpkgs-unstable` und `sops-nix` laufen im nächtlichen Auto-Upg
 | `lanzaboote` | v1.1.0 | ursalia (Secure Boot) | nein |
 | `nixpkgs-darwin`, `nix-darwin` | 26.05-darwin | zorlock, gusto | nein (kein Auto-Upgrade) |
 | `home-manager` | release-26.05 | gusto (Dotfiles) | nein – zusammen mit `nix-darwin` |
-| `nix-homebrew` | main | Macs mit Homebrew (gusto): Homebrew selbst | nein – `just mac-upgrade` |
+| `nix-homebrew` | main | Macs mit Homebrew (gusto): das Modul, das Homebrew installiert | nein – `just mac-upgrade` |
+| `brew-src` | Tag `7.0.11` (`flake = false`) | Macs mit Homebrew: Homebrew selbst, statt des eigenen Pins von nix-homebrew | nein – Tag in `flake.nix` ändern |
 | `homebrew-core`, `homebrew-cask` | main (`flake = false`) | Macs mit Homebrew: die festgeschriebenen Taps | nein – `just mac-upgrade` |
 | `netbirdio-tap` | main (`flake = false`) | gusto: NetBird-App (Cask `netbird-ui`) | nein – `just mac-upgrade` |
 | `stablyai-orca-tap` | main (`flake = false`) | gusto: Orca (Cask `orca`), gepinnt von `apps` | nein – `just mac-upgrade` |
@@ -1226,7 +1335,7 @@ Drei gemietete VMs tragen die öffentlichen Dienste, ursalia und zorlock stehen 
 | grammi | NixOS, gemietete VM | NetBird-Server (`mesh.homelab.example`) + Reverse Proxy, Traefik, Monitoring (VictoriaMetrics/-Logs, Grafana, logchef), Mealie, Grist, PostgreSQL | Zentrale Senke für Metriken und Logs aller Hosts |
 | zummi | NixOS, gemietete VM | Pocket ID (`auth.homelab.example`) – Login für alle Dienste und NetBird | pocket-id separat gepinnt |
 | aldrin | NixOS, gemietete VM | Garage S3 (`s3.aldrin.homelab.example`), garage-ui (`s3-admin`), Backup-Ziel für restic, Doku-Site (`doku`) | Fork-Paket garage-ui mit Subpath-Support |
-| ursalia | NixOS, Bare Metal (ThinkCentre M720q) | Paperless-ngx 3 + paperless-gpt (`dokumente`), Doku-Site (`doku`), Samba für den Scanner, Routing-Peer ins Heim-LAN, Build-Host für cuckoosegg, ESPHome-Build-Server für Home Assistant (nur Heim-LAN, Port 6055), Claude-Code-Brücke zum NanoKVM Go+ (nur bei Bedarf) | LUKS + btrfs via disko, TPM-Unlock, Secure Boot (lanzaboote), WLAN (Intel BE200), kein CrowdSec |
+| ursalia | NixOS, Bare Metal (ASRock NUC BOX-1260P) | Paperless-ngx 3 + paperless-gpt (`dokumente`), HealthLog (`health`), Doku-Site (`doku`), Samba für den Scanner, Routing-Peer ins Heim-LAN, Build-Host für cuckoosegg, ESPHome-Build-Server für Home Assistant (nur Heim-LAN, Port 6055), Claude-Code-Brücke zum NanoKVM Go+ (nur bei Bedarf) | LUKS + btrfs via disko, TPM-Unlock, Secure Boot (lanzaboote), WLAN (Intel BE200), kein CrowdSec |
 | cuckoosegg | NixOS, VM auf dem Subraum-Proxmox | NetBird-Routing-Peer in die Subraum-Netze | Gruppe `subraum-devices` statt `servers`, kein Repo/Deploy-Key, wird per Push deployed |
 | zorlock | macOS + nix-darwin, Mac mini M4 | Ollama auf der Apple-GPU (`llm`), genutzt von paperless-gpt | Keins der `modules/*.nix`; FileVault-Unlock nach Reboot per LAN-SSH |
 | gusto | macOS + nix-darwin + home-manager, MacBook Pro | Admin-Workstation: Deploys, Secrets, Tofu, Doku | Laptop, kein sshd, keine Secrets, nicht überwacht; Apps als Homebrew-Casks, NetBird als offizielle App – siehe [gusto](#gusto--die-admin-workstation) und [macOS-Hosts](#macos-hosts) |
@@ -1520,7 +1629,7 @@ Alle Felder mit Typ, Standardwert und Bedeutung: [Inventar-Schema → sites](#si
 
 Jedes Gerät mit einer Adresse, auf die es ankommt: Server, VMs, Router, APs, KVMs, PDUs, Appliances.
 
-Alle Felder mit Typ, Standardwert und Bedeutung: [Inventar-Schema → hosts](#hosts-1).
+Alle Felder mit Typ, Standardwert und Bedeutung: [Inventar-Schema → hosts](#hosts-2).
 
 ##### Gerätearten
 
@@ -1588,7 +1697,7 @@ Alle Felder mit Typ, Standardwert und Bedeutung: [Inventar-Schema → services](
 }
 ```
 
-Alle Felder mit Typ, Standardwert und Bedeutung: [Inventar-Schema → hosts](#hosts-1).
+Alle Felder mit Typ, Standardwert und Bedeutung: [Inventar-Schema → hosts](#hosts-2).
 
 **Link-Local.** Nur bei EUI-64 folgt die Adresse aus der MAC (`fe80::` + MAC mit umgedrehtem U/L-Bit und `ff:fe` in der Mitte); das abgeleitete `ipv6LinkLocal` wird dann berechnet. Viele Systeme nutzen stattdessen `stable-privacy` (RFC 7217: stabil, aber nicht berechenbar), auch macOS und tvOS leiten sie nicht aus der MAC ab. Ist die Adresse stabil und bekannt, trägt man sie direkt ein (`"fe80::…"`); genau das macht `just inventory-collect`, wenn sie nicht zu EUI-64 passt. `eui64` braucht eine `mac`; mit einer *lokal verwalteten* WLAN-MAC (private WLAN-Adresse) ist es ein Fehler, weil diese MAC – und damit die Adresse – meist zufällig ist. Eine lokal verwaltete Ethernet-MAC ist in Ordnung (QEMUs `52:54:00:…` ist eine).
 
@@ -1659,7 +1768,7 @@ Ein geänderter Host-Key soll eine Entscheidung sein, daher `--force` – am bes
 "unlock": { "methods": ["tpm", "nbde"], "threshold": 1, "tang": ["nas"], "fallback": "remote-ssh" }
 ```
 
-Alle Felder mit Typ, Standardwert und Bedeutung: [Inventar-Schema → hosts](#hosts-1).
+Alle Felder mit Typ, Standardwert und Bedeutung: [Inventar-Schema → hosts](#hosts-2).
 
 | Fall | `unlock` |
 | --- | --- |
@@ -3501,7 +3610,7 @@ Ein Layer-2-Netz mit seinem IPv4-Präfix.
 | <span id="networks-dhcppool"></span>`dhcpPool` | Objekt |  | Range the DHCP server hands out dynamically; static addresses must lie outside it. |
 | <span id="networks-dhcppool-end"></span>`dhcpPool.end` | String: an IPv4 address | Pflicht | Last address of the pool. |
 | <span id="networks-dhcppool-start"></span>`dhcpPool.start` | String: an IPv4 address | Pflicht | First address of the pool. |
-| <span id="networks-dhcpserver"></span>`dhcpServer` | ID aus [hosts](#hosts-1) |  | The host serving DHCP for IPv4 here; it needs an interface in this network. |
+| <span id="networks-dhcpserver"></span>`dhcpServer` | ID aus [hosts](#hosts-2) |  | The host serving DHCP for IPv4 here; it needs an interface in this network. |
 | <span id="networks-ipv4"></span>`ipv4` | String: an IPv4 prefix like 192.0.2.0/24 |  | IPv4 prefix. |
 | <span id="networks-ipv6"></span>`ipv6` | String: an IPv6 prefix like 2001:db8::/64 |  | IPv6 prefix, when it is fixed (ULA or static GUA). |
 | <span id="networks-name"></span>`name` | String | Pflicht | Display name. |
@@ -3544,7 +3653,7 @@ Jedes Gerät mit einer Adresse, die zählt – von diesem Flake verwaltet oder n
 | <span id="hosts-availability"></span>`availability` | eins von `always-on` `intermittent` | Standard `"always-on"` | intermittent: being offline is normal (a laptop) and is not an incident. |
 | <span id="hosts-contracts"></span>`contracts` | Liste von ID aus [contracts](#contracts-1), ohne Duplikate |  | The contracts this is paid for by (a rented VM, its extra IPv4, a line, a plan). |
 | <span id="hosts-criticality"></span>`criticality` | eins von `core` `service` `lab` | Standard `"service"` | core: the lab stops working without it; service: a service is down; lab: nothing depends on it. |
-| <span id="hosts-inside"></span>`inside` | ID aus [hosts](#hosts-1) |  | Physically built into another device, e.g. a PCIe KVM card in its host. |
+| <span id="hosts-inside"></span>`inside` | ID aus [hosts](#hosts-2) |  | Physically built into another device, e.g. a PCIe KVM card in its host. |
 | <span id="hosts-interfaces"></span>`interfaces` | Objekt: Name → Objekt |  | Network interfaces by name (as the OS calls them; for an appliance any label like lan/wan). A VLAN interface (eno1.10) is an entry of its own. |
 | <span id="hosts-interfaces-name-ipv4"></span>`interfaces.<name>.ipv4` | Objekt |  | IPv4 addressing of this interface in its network. |
 | <span id="hosts-interfaces-name-ipv4-address"></span>`interfaces.<name>.ipv4.address` | String: an IPv4 address |  | The address - required for reserved and static. |
@@ -3556,20 +3665,20 @@ Jedes Gerät mit einer Adresse, die zählt – von diesem Flake verwaltet oder n
 | <span id="hosts-interfaces-name-note"></span>`interfaces.<name>.note` | String |  | Free text: anything worth knowing that has no field of its own. |
 | <span id="hosts-kind"></span>`kind` | eins von `server` `hypervisor` `vm` `container` `router` `switch` `ap` `pdu` `ups` `kvm` `nas` `workstation` `laptop` `phone` `tablet` `watch` `appliance` | Pflicht | What the device is. |
 | <span id="hosts-managed"></span>`managed` | Boolean | Pflicht | Configured by this flake (nixosConfigurations/darwinConfigurations). Must match the flake. |
-| <span id="hosts-manages"></span>`manages` | Liste von ID aus [hosts](#hosts-1), ohne Duplikate |  | Only kvm: the machines this KVM gives out-of-band access to. |
+| <span id="hosts-manages"></span>`manages` | Liste von ID aus [hosts](#hosts-2), ohne Duplikate |  | Only kvm: the machines this KVM gives out-of-band access to. |
 | <span id="hosts-model"></span>`model` | String |  | Hardware model without the vendor (ThinkCentre M720q), or for a VM the provider's product or plan name. |
 | <span id="hosts-note"></span>`note` | String |  | Free text: anything worth knowing that has no field of its own. |
 | <span id="hosts-owner"></span>`owner` | ID aus [owners](#owners-1) | Pflicht | Who administers the device. |
-| <span id="hosts-power"></span>`power` | ID aus [hosts](#hosts-1) |  | Where the power comes from: a PDU/UPS, a PoE switch, or the host a card sits in. |
+| <span id="hosts-power"></span>`power` | ID aus [hosts](#hosts-2) |  | Where the power comes from: a PDU/UPS, a PoE switch, or the host a card sits in. |
 | <span id="hosts-productid"></span>`productId` | String |  | The vendor's product id for drivers and firmware: Lenovo machine type (10T7...), Apple model identifier (Mac16,10). Not for vm/container. |
-| <span id="hosts-runson"></span>`runsOn` | ID aus [hosts](#hosts-1) |  | Only vm/container: the machine it runs on. Optional - a rented VM's host is not in the inventory. |
+| <span id="hosts-runson"></span>`runsOn` | ID aus [hosts](#hosts-2) |  | Only vm/container: the machine it runs on. Optional - a rented VM's host is not in the inventory. |
 | <span id="hosts-serial"></span>`serial` | String |  | Serial number. Unique lab-wide. Not for vm/container. |
 | <span id="hosts-site"></span>`site` | ID aus [sites](#sites-1) |  | Where the device is. Optional for entries with runsOn or inside - they inherit it. |
 | <span id="hosts-sshhostkeys"></span>`sshHostKeys` | Liste von String: an OpenSSH public key "<type> <base64>" without comment, ohne Duplikate |  | The device's SSH host public keys (/etc/ssh/ssh_host_*_key.pub without the comment). Feeds known_hosts and the sops check. |
 | <span id="hosts-unlock"></span>`unlock` | Objekt |  | Disk unlock after a reboot. Leave it out for an unencrypted disk. |
 | <span id="hosts-unlock-fallback"></span>`unlock.fallback` | eins von `remote-ssh` `console` |  | How a human unlocks when the methods fail: over SSH (initrd, FileVault) or at the console/KVM. |
 | <span id="hosts-unlock-methods"></span>`unlock.methods` | Liste von eins von `tpm` `nbde`, ohne Duplikate | Pflicht | Automatic unlock methods. Empty when only a human can unlock. |
-| <span id="hosts-unlock-tang"></span>`unlock.tang` | Liste von ID aus [hosts](#hosts-1), ohne Duplikate |  | Tang servers for nbde; any one of them is enough. |
+| <span id="hosts-unlock-tang"></span>`unlock.tang` | Liste von ID aus [hosts](#hosts-2), ohne Duplikate |  | Tang servers for nbde; any one of them is enough. |
 | <span id="hosts-unlock-threshold"></span>`unlock.threshold` | Ganzzahl ≥ 1 | Standard `1` | How many of the methods must succeed (Clevis sss threshold). Defaults to 1. |
 | <span id="hosts-vendor"></span>`vendor` | String |  | Hardware manufacturer (Lenovo, Apple, GL.iNet). Not for vm/container. |
 
@@ -3756,7 +3865,7 @@ Was die Hosts betreiben und was von außen eingekauft ist.
 | <span id="services-endpoints-note"></span>`endpoints[].note` | String |  | Free text: anything worth knowing that has no field of its own. |
 | <span id="services-endpoints-port"></span>`endpoints[].port` | Ganzzahl 1–65535 |  | Port, when it is not the protocol's default. |
 | <span id="services-endpoints-via"></span>`endpoints[].via` | ID aus [services](#services-1) |  | The service it is reached through - the reverse proxy for exposure proxy (required there). Counts as a dependency. |
-| <span id="services-hosts"></span>`hosts` | Liste von ID aus [hosts](#hosts-1), ohne Duplikate |  | The machines it runs on. Exactly one of hosts and provider. |
+| <span id="services-hosts"></span>`hosts` | Liste von ID aus [hosts](#hosts-2), ohne Duplikate |  | The machines it runs on. Exactly one of hosts and provider. |
 | <span id="services-name"></span>`name` | String | Pflicht | Display name. |
 | <span id="services-note"></span>`note` | String |  | Free text: anything worth knowing that has no field of its own. |
 | <span id="services-package"></span>`package` | String |  | Only on managed hosts: option path of the package in the host's configuration (services.paperless.package) - version, license and language are read from there. |
@@ -4334,6 +4443,8 @@ Dienste sind nach Funktion benannt, nicht nach Produkt. Es gibt drei Arten der E
 | `auth` | Pocket ID | zummi | öffentlich (nginx) |
 | `mesh` | NetBird Management/Dashboard | grammi | öffentlich (Traefik terminiert TLS) |
 | `s3.aldrin` | Garage S3-API | aldrin | öffentlich (nginx) |
+| `cloud` | OpenCloud | aldrin | öffentlich (nginx), Login über Pocket ID; nicht hinter dem Reverse Proxy, dessen SSO würde die Sync-Clients aufhalten |
+| `tabs` | WebDAV für floccus (rclone) | aldrin | öffentlich (nginx), ein Account mit Basic Auth ([warum](#floccus-tabs-und-lesezeichen-über-tabs)) |
 | `rezepte` | Mealie | grammi | Reverse Proxy + SSO |
 | `grist` | Grist | grammi | Reverse Proxy + SSO |
 | `logs` | logchef | grammi | Reverse Proxy + SSO |
@@ -4343,6 +4454,7 @@ Dienste sind nach Funktion benannt, nicht nach Produkt. Es gibt drei Arten der E
 | `s3-admin` | garage-ui | aldrin | nur Mesh |
 | `dokumente` | Paperless + paperless-gpt (`/paperless-gpt/`) | ursalia | im Mesh direkt; von außen über den Reverse Proxy Freigabelinks per PIN und die App per SSO ([warum](#paperless-von-außen-freigabelinks-pin-und-app-sso)) |
 | `llm` | Ollama (hinter Caddy) | zorlock | nur Mesh |
+| `health` | [HealthLog](https://github.com/MBombeck/HealthLog) ([`0497d60`](https://github.com/MBombeck/HealthLog/tree/0497d60a893784e709899cdb6fbdf155ef29e3e3) von Marc Bombeck) | ursalia | nur Mesh (auch die iOS-App braucht NetBird), Login nur über Pocket ID (Gruppe `healthlog_users`); eigene verschlüsselte Off-host-Kopien in Garage auf aldrin (Bucket `healthlog-backups`, 30 Tage) |
 | `mqtt` | Mosquitto (Home-Assistant-Add-on) | Home Assistant (Heim-LAN, NetBird-Peer) | Port 8883, MQTT über TLS: zu Hause direkt zu HA (der Heimrouter (OPNsense) beantwortet den Namen lokal), von außen über den Reverse Proxy als TLS-Passthrough zum Peer, ohne SSO ([warum](#mqtt-von-außen-tls-passthrough-zu-home-assistant)) |
 | `acme` | dns01proxy (DNS-01 für Home Assistant) | grammi | nur Mesh, Port 8446; HA löst ihn über den Heimrouter (OPNsense) auf ([warum](#mqtt-von-außen-tls-passthrough-zu-home-assistant)) |
 | `doku` | Diese Dokumentation (private Fassung) | aldrin + ursalia | im Mesh nur Admin-Geräte ([warum](#private-doku-admin-geräte-heimnetz-login)), ein A-Record je Host; im Heimnetz über einen eigenen Eintrag des Routers ursalia, außer einer Deny-Liste; von außen über den Reverse Proxy eine Weiterleitung auf die öffentliche Doku, `/login` auf `doku-login` |
@@ -4386,6 +4498,7 @@ Die 20 Module unter `modules/` tragen die gemeinsame Konfiguration aller Hosts; 
 | Rezept | Zweck |
 | --- | --- |
 | `just try <host>` | Aktuellen Themen-Branch auf einen Host deployen und ihn dort halten, bis der Branch gemergt ist ([Branch vor dem Merge testen](#branch-vor-dem-merge-auf-einem-host-testen)) |
+| `just try-confirm <host> [minutes] [via]` | Wie `try`, rollt aber von selbst zurück, wenn der Host nicht innerhalb der Frist erreicht und bestätigt wird ([mit automatischem Zurückrollen](#mit-automatischem-zurückrollen-just-try-confirm)) |
 | `just release <host>` / `holds` | Halt ohne Merge aufheben / alle Halte anzeigen |
 | `just check <host>` | `git pull` + `nixos-rebuild dry-activate` |
 | `just secrets <host>` / `pull-secrets <host>` | Host-Secrets auf dem Host editieren und zurückholen |
@@ -4428,7 +4541,7 @@ eval $(op signin) && export SOPS_AGE_KEY_CMD='op read "op://<vault>/<item>/passw
 - Nach einem `nixos-rebuild` sagt `systemctl --failed` nichts über die Vergangenheit – der Switch räumt Failed-States ab. Stattdessen `journalctl -u <unit>`.
 - NetBird down, Tailscale noch da: `NIXLAB_DOMAIN=example-tailnet.ts.net` vor das Rezept setzen.
 - Tofu-Rezepte verweigern den Lauf gegen leeren State, damit keine zweite `servers`-Gruppe oder Token-Garnitur entsteht.
-- WLAN auf ursalia: `iw dev wlp2s0f0 link` zeigt Band, Signal und PHY-Modus. Das 5-GHz-Netz des Routers liegt auf einem DFS-Kanal mit 300 TU Beacon-Intervall, ein einzelner Scan kann es verpassen; Band, Signal, Raten und PHY-Modus gehen auch an VictoriaMetrics (node_exporter-Collector `wifi` plus `wifi_link_*`), Grafana-Dashboard „Homelab / WLAN“.
+- WLAN auf ursalia: `iw dev wlo1 link` zeigt Band, Signal und PHY-Modus. Das 5-GHz-Netz des Routers liegt auf einem DFS-Kanal mit 300 TU Beacon-Intervall, ein einzelner Scan kann es verpassen; Band, Signal, Raten und PHY-Modus gehen auch an VictoriaMetrics (node_exporter-Collector `wifi` plus `wifi_link_*`), Grafana-Dashboard „Homelab / WLAN“.
 - Nach einem Netzwechsel kann NetBird minutenlang an einem toten P2P-Weg festhalten und trotzdem `Connected` zeigen (gesehen auf ursalia, 2026-10-19). Abhilfe: `systemctl restart netbird-mesh` auf dem Host, notfalls über Tailscale.
 - Ein Proxy-Dienst hängt im NetBird-Dashboard bei „Issuing certificate…“ oder liefert von außen einen TLS-Fehler („internal error“): `just netbird-proxy-certs` – fragt die Namen ohne Zertifikat von außen ab und startet `netbird-proxy` auf grammi neu (NetBird-Diskussion #7118). Läuft auch am Ende von `just netbird-apply`.
 

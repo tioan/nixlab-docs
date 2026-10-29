@@ -35,6 +35,31 @@ just release ursalia
 just deploy ursalia
 ```
 
+## Mit automatischem Zurückrollen: `just try-confirm` { #confirm }
+
+Für Änderungen, die den Host abschneiden können – Netzwerk, NetBird, SSH, Firewall –, gibt es eine Variante mit Totmannschalter:
+
+```bash
+just try-confirm ursalia        # 5 Minuten zum Bestätigen
+just try-confirm ursalia 10     # 10 Minuten
+```
+
+1. Dieselben Prüfungen und derselbe Build wie bei `just try`, aber nixos-rebuild schaltet nichts um.
+2. Auf dem Host wird zuerst ein Timer gestellt: Nach Ablauf schaltet er zurück auf die Generation, die jetzt läuft.
+3. Dann wird der Branch mit `switch-to-configuration test` aktiviert, als eigene Unit auf dem Host – die Aktivierung übersteht eine abgerissene SSH-Verbindung. `test` lässt den Boot-Eintrag in Ruhe: Auch ein Neustart oder ein Hänger landet in der alten Generation.
+4. Die Workstation wartet, bis sie den Host wieder über das Mesh erreicht und die Aktivierung fertig ist, und fragt **Keep it? [y/N]**.
+5. Erst `y` stoppt den Timer, setzt Systemprofil und Boot-Eintrag und schreibt den Halt wie `just try`. Alles andere – `n`, keine Antwort, keine Verbindung – und der Host rollt bei Ablauf von selbst zurück (`n` sofort).
+
+Meldet sich der Host danach unter einem anderen Namen (Umbenennung), nennt `via` die Adresse, an die deployt wird; die Bestätigung geht immer an `<host>.peer.homelab.example`:
+
+```bash
+just try-confirm ursalia 10 root@ursalia-next.peer.homelab.example
+```
+
+Die Frage braucht ein echtes Terminal; ohne eines gilt die Antwort als „nein“.
+
+Das Muster – einspielen, von außen prüfen, nur bei Bestätigung innerhalb einer Frist behalten, sonst zurück – stammt von snowball (BBBSnowball): [`firewall-update.sh`](https://github.com/BBBSnowball/nixcfg/blob/35264a74189686e8ce0231b4752f85225d0c9e00/hosts/sonline0/firewall-update.sh) macht das für iptables-Regeln, `try-confirm` für eine ganze NixOS-Generation.
+
 ## Wer den Halt beachtet { #honoured }
 
 | Weg | Verhalten bei Halt |
@@ -62,3 +87,4 @@ Die Regel ist überall dieselbe: Ein Halt blockiert, solange das, was deployt we
 - **Macs** (gusto, zorlock) sind nicht abgedeckt – sie haben kein nächtliches Upgrade, das zurückdrehen würde.
 - **Zwei Themen auf einem Host** gleichzeitig gehen nicht: Das zweite `just try` bricht ab, bis das erste gemergt oder freigegeben ist.
 - Ein Host vor `modules/deploy-hold.nix` kennt keinen Halt; der erste `just try` darauf bringt das Modul mit.
+- **`try-confirm` und das nächtliche Upgrade:** Bis zur Bestätigung gibt es keinen Halt. Fällt die Frist über 04:00, baut `nixos-upgrade` main. Ändert der Branch den Hostnamen, baut es sogar main für den *neuen* Namen – beim Cut-over von ursalia (2026-10-27) bootete die NUC so die Konfiguration der M720q. Vorher `nixos-hold set` setzen oder nicht in die Nacht hinein testen.

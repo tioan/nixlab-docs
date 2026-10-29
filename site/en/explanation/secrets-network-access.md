@@ -10,6 +10,7 @@ Every host file is encrypted for exactly two recipients: the age key derived fro
 | `hosts/<host>/netbird.yaml` | host + admin | NetBird setup key (from Tofu) |
 | `hosts/<host>/desec.yaml` | host + admin | deSEC token (from Tofu) |
 | `hosts/<host>/github.yaml` | host + admin | GitHub deploy key (from `just github-key`) |
+| `hosts/<host>/waf.yaml` | host + admin | the WAF bouncer's key (from `just waf-key`, see [WAF](waf.md)) |
 | `terraform/*/secrets.yaml` | workstation + admin | API tokens for the providers |
 
 The workstation key lives in 1Password and is read via `SOPS_AGE_KEY_CMD`, never as a file. `env.sh` in each Tofu module decrypts the tokens only into the shell of the respective recipe.
@@ -19,7 +20,7 @@ The workstation key lives in 1Password and is read via `SOPS_AGE_KEY_CMD`, never
 - **NetBird mesh** (`192.0.2.0/24` and `2001:db8:203:0::/64`, peer names under `peer.homelab.example`): control plane on grammi, login via Pocket ID. Private range (RFC 1918) instead of CGNAT, because tailscaled drops packets from 100.64/10 while both clients run in parallel.
 - **Groups:** `servers` (all hosts except cuckoosegg), `subraum-devices`, `admin-workstations` (MacBook), plus person groups from Pocket ID.
 - **Home LAN** (`198.51.100.0/24`): routed through ursalia (metric 100), with the two Apple TVs as fallback (group `home-routers`, metric 200, own setup key via `just netbird-router-key`, owned by nobody, in no policy); for group `home-lan`, not for devices that are already at home (posture check `not-at-home`). Rosenpass is off mesh-wide since 2026-10-24 (until 2026-10-31, see [macOS hosts](macos-hosts.md#netbird-on-the-two-macs)); "Quantum-Resistance" in the Apple TVs' app belongs off for that time as well.
-- **ursalia's uplink:** WLAN into the home LAN's main network (Intel BE200, `hosts/ursalia/wifi.nix`): wpa_supplicant, WPA3 with WPA2 fallback, country DE, all bands, passphrase via sops. Its final spot has no cable; eno1 keeps DHCP as a fallback with a worse route metric, so the WLAN stays the primary link when both are up.
+- **ursalia's uplink:** WLAN into the home LAN's main network (Intel AX211, `hosts/ursalia/wifi.nix`): wpa_supplicant, WPA3 with WPA2 fallback, country DE, all bands, passphrase via sops. Its final spot has no cable; eno1 keeps DHCP as a fallback with a worse route metric, so the WLAN stays the primary link when both are up.
 - **zorlock's uplink:** WLAN as well (`en1`, Broadcom); `hosts/zorlock/wifi.nix` makes sure `homelab` is a preferred network (`networksetup`, only ever adds it, passphrase via sops in `hosts/zorlock/wifi.yaml`). nix-darwin has no Wi-Fi module; band choice stays with macOS.
 - **Exit nodes and IPv6:** aldrin and zummi as exit nodes for the group `exit-nodes`; the mesh is dual stack (`2001:db8:203:0::/64`) – see [Exit nodes & IPv6](#exit-nodes).
 - **Subraum:** routed through cuckoosegg for `subraum-access`. cuckoosegg itself may only reach grammi's ingest (TCP 8428/9428) and may only be reached from the MacBook via SSH.
@@ -140,6 +141,16 @@ The private version of this documentation (`doku.homelab.example`, on aldrin and
 - The list must never be empty – `just netbird-admin-peers` refuses an empty output, and the module fails the build with an assertion instead of quietly giving everyone 403.
 - v4 and v6 per device, like the mesh ([dual stack](#mesh-ipv6)). NetBird hands out a new v6 address when the groups in `ipv6_enabled_groups` change – then `just netbird-apply` and a deploy of aldrin and ursalia, or the device sees 403 over v6.
 
+### Pocket ID: admin pages only from admin devices { #pocket-id-admin }
+
+Since 2026-10-25 nginx on zummi answers Pocket ID's admin paths with 403 unless the request comes from an address in `admin-peers.json` – the same list as for the private docs. Closed is everything an admin session or an admin API key can do: `/settings/admin`, users, groups, OIDC clients, APIs, API keys, settings, audit log, signup tokens, SCIM (list: `$pocketid_admin_path` in `hosts/zummi/configuration.nix`, by the permissions of Pocket ID 2.19.1's routes – re-check on every minor bump). Login, account pages (`/api/users/me…`), the OIDC endpoints and logos stay public.
+
+So that admin devices arrive with their mesh address, a NetBird DNS zone points `auth.homelab.example` at zummi's mesh addresses for `admin-workstations` only (`terraform/netbird/pocket-id-admin.tf`); the vhost listens on the wildcard for it. Every other peer, NetBird's server on grammi included, keeps the public record.
+
+- Without NetBird on the device the public record applies: login works, the admin pages answer 403. A browser with its own DNS-over-HTTPS bypasses NetBird's DNS the same way.
+- `just pocketid-plan`/`-apply` therefore need NetBird on the MacBook.
+- A new admin device: into `admin-workstations`, `just netbird-apply`, then deploy zummi (and aldrin and ursalia, as for the docs).
+
 ### Paperless: from outside, share links (PIN) and the app (SSO)
 
 In the mesh `dokumente.homelab.example` resolves straight to ursalia through the NetBird zone (full app, Pocket ID login).
@@ -226,3 +237,15 @@ The add-on does not renew by itself: an HA automation starts it daily and restar
 - Mosquitto sees the proxy's mesh address as the sender of every outside connection (the add-on cannot take a PROXY header), so neither HA nor CrowdSec can block a single client by address. The proxy can filter by country or address range (`access_restrictions`), not set for now.
 - Certificate renewal needs grammi and the mesh – with 30 days of slack before expiry.
 - A device that restarts while the internet is down needs the time from somewhere other than the internet to check the certificate.
+
+### floccus: tabs and bookmarks through `tabs` { #tabs }
+
+floccus syncs bookmarks and open tabs between browsers, including profiles on devices outside the mesh. The target is a WebDAV server of its own on aldrin (`hosts/aldrin/floccus.nix`): `rclone serve webdav` on loopback, nginx in front as `tabs.homelab.example`, public.
+
+- **Not OpenCloud:** floccus only does basic auth. OpenCloud would need an app token for that, and it would reach every file in the account – in a browser on a device somebody else administers. The password here reaches one directory of tab lists.
+- **Not nginx DAV:** floccus asks for the file size with PROPFIND, which nginx only speaks with the `dav_ext` module, and that means building nginx from source on every update. rclone comes from the cache and handles everything floccus sends: GET, PUT, DELETE, MOVE, PROPFIND.
+- **Account:** one (`floccus`). `just floccus-password` puts a random password on the clipboard and its bcrypt hash into `hosts/aldrin/floccus.yaml`; without that file the module does nothing. The old password works until the next deploy of aldrin.
+- **Content:** floccus has a passphrase set, the server only sees the encrypted file.
+- **Backup:** `/data/floccus` is a btrfs subvolume of its own and gets the same btrbk snapshots as OpenCloud – local, on the same volume.
+
+**In floccus:** a profile with sync method WebDAV, URL `https://tabs.homelab.example/`, user `floccus`, the password from the recipe, the same passphrase on every device. For tabs a profile of type "Tabs", for bookmarks a separate one with another file name – two profiles must never share a file. On devices with separate browser profiles (work/private) set floccus up in the private profile only.

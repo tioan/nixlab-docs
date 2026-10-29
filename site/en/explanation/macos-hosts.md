@@ -31,6 +31,8 @@ nix-homebrew.taps."netbirdio/homebrew-tap" = inputs.netbirdio-tap;
 
 and `homebrew.taps` (the list nix-darwin writes into the Brewfile) is derived from that set automatically.
 
+**Homebrew's own version is pinned by tag.** nix-homebrew brings a Homebrew pin of its own (7.0.4 as of 2026-10-28), which lags behind the casks: since [Homebrew/brew#24369](https://github.com/Homebrew/brew/pull/24369) (2026-10-27) homebrew-cask writes `zap :not_required`, which only Homebrew 7.0.11 and later understand ([Homebrew/brew#24315](https://github.com/Homebrew/brew/pull/24315)) – with 7.0.4 `brew bundle` stopped at `android-platform-tools`. So `flake.nix` has its own input `brew-src` on a release tag and points nix-homebrew at it (`nix-homebrew.inputs.brew-src.follows`); `modules/darwin/homebrew.nix` names the package after that tag, so the switch diff shows the real version (`brew --version` cannot tell: it says `>=4.3.0 (shallow or no git repository)` with any pin). `just mac-upgrade` does not move a tag – updating Homebrew is an edit of that line. Once nix-homebrew pins 7.0.11 or later itself, the input and the `follows` go away.
+
 **A switch does what the configuration says – and nothing else.**
 
 - `onActivation.autoUpdate = false`: no `brew update` during a switch.

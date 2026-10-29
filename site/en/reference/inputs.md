@@ -13,7 +13,8 @@ Only `nixpkgs`, `nixpkgs-unstable` and `sops-nix` move with the nightly auto-upg
 | `lanzaboote` | v1.1.0 | ursalia (Secure Boot) | no |
 | `nixpkgs-darwin`, `nix-darwin` | 26.05-darwin | zorlock, gusto | no (no auto-upgrade) |
 | `home-manager` | release-26.05 | gusto (dotfiles) | no – together with `nix-darwin` |
-| `nix-homebrew` | main | Macs with Homebrew (gusto): Homebrew itself | no – `just mac-upgrade` |
+| `nix-homebrew` | main | Macs with Homebrew (gusto): the module that installs Homebrew | no – `just mac-upgrade` |
+| `brew-src` | tag `7.0.11` (`flake = false`) | Macs with Homebrew: Homebrew itself, instead of nix-homebrew's own pin | no – edit the tag in `flake.nix` |
 | `homebrew-core`, `homebrew-cask` | main (`flake = false`) | Macs with Homebrew: the pinned taps | no – `just mac-upgrade` |
 | `netbirdio-tap` | main (`flake = false`) | gusto: NetBird app (cask `netbird-ui`) | no – `just mac-upgrade` |
 | `stablyai-orca-tap` | main (`flake = false`) | gusto: Orca (cask `orca`), pinned by `apps` | no – `just mac-upgrade` |

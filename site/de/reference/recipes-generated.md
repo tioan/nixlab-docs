@@ -261,6 +261,15 @@ since the cookie covers all of homelab.example. Refuses to overwrite: rotating
 means `rm hosts/*/maintenance.yaml`, running this again, and deploying all
 four hosts. Commit, then deploy.
 
+## `just waf-key host`
+
+Register the WAF's nginx bouncer with a host's CrowdSec LAPI and store its
+key in hosts/<host>/waf.yaml (sops, host + admin - see modules/waf.nix).
+The key goes from cscli on the host straight into `sops encrypt` here,
+never printed or on disk in plaintext. Refuses to overwrite: rotating
+means `cscli bouncers delete nginx-appsec` on the host, `rm` the file, and
+running this again. Commit, then deploy the host.
+
 ## `just mac-upgrade`
 
 Update the Homebrew pins (Homebrew itself and every tap: flake input
@@ -418,9 +427,10 @@ file and deploy grammi when it changed. Via a temp file, so a failed
 
 Write the mesh addresses of the admin devices - the group
 admin-workstations (terraform/netbird/admin-peers.tf) to terraform/netbird/admin-peers.json - the allow list of
-the private docs site on aldrin and ursalia (flake.nix, docs-site). Runs
+the private docs site on aldrin and ursalia (flake.nix, docs-site) and of
+pocket-id's admin paths on zummi (hosts/zummi/configuration.nix). Runs
 after every netbird-apply; when the file changed, commit it and deploy
-aldrin and ursalia. Via a temp file, and refuses an empty list: an empty
+aldrin, ursalia and zummi. Via a temp file, and refuses an empty list: an empty
 allow list would lock every admin out (the module asserts it as well).
 
 ## `just netbird-import`
@@ -543,6 +553,43 @@ dns01proxy.nix): random, onto the Mac's clipboard for the Let's Encrypt
 add-on (httpreq_password), its bcrypt hash into hosts/grammi/
 dns01proxy.yaml. The old password stops working with the next deploy of
 grammi. Needs no 1Password - encrypting only takes the public keys.
+
+## `just floccus-password`
+
+Password for floccus' account on tabs.homelab.example (hosts/aldrin/
+floccus.nix): random, onto the Mac's clipboard for floccus, its bcrypt hash
+into hosts/aldrin/floccus.yaml. The old password stops working with the
+next deploy of aldrin. Needs no 1Password - encrypting only takes the
+public keys.
+
+## `just healthlog-secrets`
+
+HealthLog's own secrets on ursalia (hosts/ursalia/healthlog.nix): random
+ENCRYPTION_KEY, API_TOKEN_HMAC_KEY and database password into
+hosts/ursalia/healthlog.yaml. Once only - a new ENCRYPTION_KEY makes every
+encrypted field in the database unreadable (rotation is HealthLog's
+ENCRYPTION_KEYS keyring, not this). The encryption key goes onto the
+clipboard for 1Password; it is the one value a database backup cannot
+replace.
+
+## `just healthlog-oidc-secret`
+
+HealthLog's OIDC client secret (terraform/pocket-id/healthlog.tf) from Tofu
+state into hosts/ursalia/healthlog-oidc.yaml. Run after pocketid-apply has
+created (or replaced) the client.
+
+## `just healthlog-offhost`
+
+HealthLog's off-host copies (hosts/ursalia/healthlog.nix): bucket
+"healthlog-backups" in Garage on aldrin, a key "healthlog-backup" that may
+read and write only that bucket, and a lifecycle rule expiring every object
+after 30 days (HealthLog never expires anything itself). Through Garage's
+admin API v2 on aldrin; setting lifecycle needs the owner flag, which the
+key holds only for that one call. Key and secret go straight into
+hosts/ursalia/healthlog-offhost.yaml together with a new random
+BACKUP_ENCRYPTION_KEY, which also lands on the clipboard for 1Password -
+without it the objects are unreadable. Once only: it refuses when the file
+or the bucket exists.
 
 ## `just pocketid-plan`
 

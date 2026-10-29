@@ -3,6 +3,7 @@
 | Recipe | Purpose |
 | --- | --- |
 | `just try <host>` | Deploy the current topic branch to a host and hold it there until the branch is merged ([Test a branch before merging](../how-to/try-branch.md)) |
+| `just try-confirm <host> [minutes] [via]` | Like `try`, but rolls itself back unless the host is reached and confirmed within the deadline ([with automatic rollback](../how-to/try-branch.md#confirm)) |
 | `just release <host>` / `holds` | Drop a hold without merging / list every hold |
 | `just check <host>` | `git pull` + `nixos-rebuild dry-activate` |
 | `just secrets <host>` / `pull-secrets <host>` | Edit host secrets on the host and fetch them back |
