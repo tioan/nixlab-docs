@@ -1,6 +1,6 @@
 # Inputs and their pins
 
-Only `nixpkgs`, `nixpkgs-unstable` and `sops-nix` move with the nightly auto-upgrade (`updateInputs` in `modules/deploy.nix`). Anything that would lock the whole lab out on a broken release is pinned separately and bumped by hand.
+Only `nixpkgs`, `nixpkgs-unstable` and `sops-nix` move with the nightly auto-upgrade (`services.nixCache.prebuild.updateInputs` in `modules/deploy.nix`, updated by ursalia for every host). Anything that would lock the whole lab out on a broken release is pinned separately and bumped by hand.
 
 | Input | Branch / tag | Used by | Nightly? |
 | --- | --- | --- | --- |

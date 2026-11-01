@@ -161,7 +161,10 @@ http://127.0.0.1:8000. Ctrl-C stops it. English at /, German at /de/.
 
 ## `just sync host`
 
-Pull the latest config on a remote host, no rebuild
+Pull the latest config on a remote host, no rebuild. A modified flake.lock
+there is always the leftover of a nightly upgrade that never finished
+(modules/auto-upgrade-git.nix) - never built, never activated - and would
+make `git pull` refuse; discard it first.
 
 ## `just rebuild host`
 
@@ -433,6 +436,29 @@ after every netbird-apply; when the file changed, commit it and deploy
 aldrin, ursalia and zummi. Via a temp file, and refuses an empty list: an empty
 allow list would lock every admin out (the module asserts it as well).
 
+## `just netbird-group-sync-json`
+
+Write what the group sync on grammi needs (terraform/netbird/group-sync.tf:
+person groups in Tofu's order, people, grammi's mesh addresses) to
+terraform/netbird/group-sync.json. Runs after every netbird-apply; when
+the file changed, commit it and deploy grammi (the sync) and zummi (the
+addresses nginx lets read Pocket ID's users).
+
+## `just netbird-group-sync-pocketid-key`
+
+The group sync's Pocket ID API key into hosts/grammi/
+netbird-group-sync-pocketid.yaml. The key belongs to the Pocket ID admin
+user netbird-group-sync (no passkey, nothing but this key); create it in
+a browser session as that user (log in with a login code from the admin
+UI), name "netbird-group-sync", expiry one year. Old keys of that user:
+delete them, the expiry alert looks at the earliest. Encrypting needs
+only the public keys.
+
+## `just netbird-group-sync`
+
+Run the group sync on grammi now instead of waiting for its timer (every minute),
+and show what it did.
+
 ## `just netbird-import`
 
 Adopt what the NetBird account already has into Tofu state: looks each
@@ -546,6 +572,13 @@ home-assistant.tf): creates group and key only - the rest of the module
 needs the registered peer - and puts the key on the Mac's clipboard.
 One-off, valid for 24 h; run again if HA ever has to re-register.
 
+## `just netbird-key-mudi7`
+
+Setup key for the Mudi 7 travel router (terraform/netbird/
+travel-router.tf), on the Mac's clipboard: never printed, never on disk.
+Paste it on the Mudi at the silent `read -s` prompt of the join command
+in that file. One-off, valid for 24 h; run again if it has to re-register.
+
 ## `just dns01proxy-key-homeassistant`
 
 Password for Home Assistant's account on dns01proxy (hosts/grammi/
@@ -553,6 +586,15 @@ dns01proxy.nix): random, onto the Mac's clipboard for the Let's Encrypt
 add-on (httpreq_password), its bcrypt hash into hosts/grammi/
 dns01proxy.yaml. The old password stops working with the next deploy of
 grammi. Needs no 1Password - encrypting only takes the public keys.
+
+## `just alerting-webhook-key`
+
+Webhook for Alertmanager on grammi (hosts/grammi/alerting.nix): a random
+webhook ID onto the Mac's clipboard, for the trigger of HA's automation
+"nixlab Alertmanager", and the full URL into hosts/grammi/alerting.yaml.
+The ID is the only thing that keeps others from posting fake alerts, so
+it never goes through a terminal. The old ID stops working once HA has
+the new one; deploy grammi right after.
 
 ## `just floccus-password`
 
@@ -578,18 +620,34 @@ HealthLog's OIDC client secret (terraform/pocket-id/healthlog.tf) from Tofu
 state into hosts/ursalia/healthlog-oidc.yaml. Run after pocketid-apply has
 created (or replaced) the client.
 
+## `just bambuddy-secrets`
+
+Bambuddy's database password on ursalia (hosts/ursalia/bambuddy.nix):
+random, into hosts/ursalia/bambuddy.yaml. Once only: the role would get a
+new password on deploy, the running container would keep the old one.
+
+## `just bambuddy-oidc-secret`
+
+Bambuddy's OIDC client secret (terraform/pocket-id/bambuddy.tf) from Tofu
+state into hosts/ursalia/bambuddy-oidc.yaml. Run after pocketid-apply has
+created (or replaced) the client.
+
 ## `just healthlog-offhost`
 
 HealthLog's off-host copies (hosts/ursalia/healthlog.nix): bucket
 "healthlog-backups" in Garage on aldrin, a key "healthlog-backup" that may
 read and write only that bucket, and a lifecycle rule expiring every object
 after 30 days (HealthLog never expires anything itself). Through Garage's
-admin API v2 on aldrin; setting lifecycle needs the owner flag, which the
-key holds only for that one call. Key and secret go straight into
-hosts/ursalia/healthlog-offhost.yaml together with a new random
-BACKUP_ENCRYPTION_KEY, which also lands on the clipboard for 1Password -
-without it the objects are unreadable. Once only: it refuses when the file
-or the bucket exists.
+admin API v2 on aldrin, with the token from terraform/secrets.yaml like
+terraform/garage (terraform/lib.sh, garage_env); setting lifecycle needs
+the owner flag, which the key holds only for that one call. Key and secret
+go straight into hosts/ursalia/healthlog-offhost.yaml together with a new
+random BACKUP_ENCRYPTION_KEY, which also lands on the clipboard for
+1Password - without it the objects are unreadable. Once only: it refuses
+when the file or the bucket exists. Ran on 2026-10-26; bucket, key and
+permission are in terraform/garage since, the lifecycle rule is not (the
+provider has none). Should it ever run again, import the new bucket and key
+there (terraform/garage/README.md). New buckets go through terraform/garage.
 
 ## `just pocketid-plan`
 
@@ -611,6 +669,32 @@ this again.
 Once, 2026-10-22: move the Pocket ID API key from terraform/netbird/
 secrets.yaml, where it sat while netbird was its only user, to the shared
 terraform/secrets.yaml. Refuses if the shared file already exists.
+
+## `just garage-plan`
+
+(no comment)
+
+## `just garage-apply`
+
+(no comment)
+
+## `just garage-admin-token`
+
+Copy Garage's admin token from aldrin (hosts/aldrin/secrets.yaml, which the
+workstation key cannot read) into terraform/secrets.yaml - over SSH straight
+into sops, never printed. Again after rotating garage_admin_token.
+
+## `just nix-cache-secrets`
+
+The nix cache's secrets (modules/nix-cache.nix): both S3 keys from
+terraform/garage (nix-cache.tf, output nix_cache_keys) and a new signing key
+
+- from `tofu output` and `nix key generate-secret` straight into sops, never
+  on disk in plain text. The read key goes to secrets/nix-cache.yaml (every
+  substituting host), push key and signing key to hosts/ursalia/nix-cache.yaml.
+  Once only: a new signing key invalidates everything already in the cache,
+  so it refuses while either file exists. Prints the public key, which goes
+  into modules/nix-cache.nix.
 
 ## `just github-plan`
 

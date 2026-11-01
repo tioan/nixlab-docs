@@ -46,13 +46,39 @@ in
   };
 
   config = lib.mkIf cfg.enable {
-    # IPv6 forwarding turns off accepting router advertisements (accept_ra
-    # 1 only works while not forwarding). Harmless here: both hosts set
-    # their v6 address and default route statically through ifstate.
+    # Both hosts set their v6 address and default route statically through
+    # ifstate, so the public interface must ignore router advertisements.
+    # modules/networking.nix sets accept_ra = 0 for "all" and "default",
+    # but neither reaches an interface that already exists. Seen on zummi:
+    # ens6 at 2, and the kernel logging "ICMPv6: RA: ndisc_router_discovery
+    # failed to add default route" on every RA (216 a day) as the provider's
+    # route collided with ifstate's ::/0 via fe80::1. Pinned per interface
+    # here, where ifstate owns it.
     boot.kernel.sysctl = {
       "net.ipv4.ip_forward" = 1;
       "net.ipv6.conf.all.forwarding" = 1;
     };
+    networking.ifstate.settings.interfaces.${cfg.wanInterface}.sysctl.ipv6.accept_ra = 0;
+
+    # The pin alone does not survive a client restart. When routing starts,
+    # the client raises every accept_ra that is 1 to 2 (2 accepts RAs despite
+    # forwarding) and remembers the 1; when it stops, it writes the
+    # remembered value back unconditionally - EnableV6IPForwarding and
+    # DisableV6IPForwarding in
+    # client/internal/routemanager/systemops/v6forwarding_linux.go
+    # (netbirdio/netbird v0.81.0). Once ens6 had been 1 at a start, every
+    # restart turned ifstate's 0 into 1 on stop and 2 on start again. Set
+    # back to 0 right before each start, so the client finds 0, leaves it
+    # alone and remembers nothing, and after each stop, so a plain stop does
+    # not leave its restored 1 behind either.
+    systemd.services.netbird-mesh.serviceConfig =
+      let
+        acceptRaOff = "${pkgs.procps}/bin/sysctl -w net.ipv6.conf.${cfg.wanInterface}.accept_ra=0";
+      in
+      {
+        ExecStartPre = lib.mkAfter [ acceptRaOff ];
+        ExecStopPost = [ acceptRaOff ];
+      };
 
     # A table of its own that only counts: its chain accepts everything, so
     # it cannot let through what NetBird's chains drop - a drop in any base

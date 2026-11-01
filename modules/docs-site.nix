@@ -21,9 +21,11 @@
 #  - Login from the internet (option login): a NetBird reverse proxy
 #    service with SSO (terraform/netbird/reverse-proxy.tf, doku_login)
 #    forwards to a listener of its own here. The proxy sends a secret
-#    header, and only requests that carry it get the docs - every person's
-#    devices reach this port over the mesh (to-servers), and without the
-#    header the admin-only rule would end at the port. doku.homelab.example/login
+#    header, and only requests that carry it get the docs - the admin
+#    workstations and the other servers reach this port over the mesh
+#    (people's devices did too, until to-servers was narrowed to 80/443 on
+#    2026-11-01), and without the header the admin-only rule would end at
+#    the port. doku.homelab.example/login
 #    leads there; without zummi (Pocket ID) and grammi (proxy) it is gone,
 #    which is fine for a way meant for a device without NetBird.
 #  - The home LAN (option lan): the router answers doku.homelab.example with

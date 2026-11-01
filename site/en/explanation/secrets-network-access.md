@@ -20,6 +20,7 @@ The workstation key lives in 1Password and is read via `SOPS_AGE_KEY_CMD`, never
 - **NetBird mesh** (`192.0.2.0/24` and `2001:db8:203:0::/64`, peer names under `peer.homelab.example`): control plane on grammi, login via Pocket ID. Private range (RFC 1918) instead of CGNAT, because tailscaled drops packets from 100.64/10 while both clients run in parallel.
 - **Groups:** `servers` (all hosts except cuckoosegg), `subraum-devices`, `admin-workstations` (MacBook), plus person groups from Pocket ID.
 - **Home LAN** (`198.51.100.0/24`): routed through ursalia (metric 100), with the two Apple TVs as fallback (group `home-routers`, metric 200, own setup key via `just netbird-router-key`, owned by nobody, in no policy); for group `home-lan`, not for devices that are already at home (posture check `not-at-home`). Rosenpass is off mesh-wide since 2026-10-24 (until 2026-10-31, see [macOS hosts](macos-hosts.md#netbird-on-the-two-macs)); "Quantum-Resistance" in the Apple TVs' app belongs off for that time as well.
+- **Travel router** (Mudi 7, GL.iNet GL-E5800): peer `mudi7`, group `travel-routers`, own setup key via `just netbird-key-mudi7`, owned by nobody and in no policy for now. The OpenWrt package only ships NetBird 0.24.3; the binary is swapped by hand for the `linux_arm64` release at the mesh's version (`terraform/netbird/travel-router.tf`).
 - **ursalia's uplink:** WLAN into the home LAN's main network (Intel AX211, `hosts/ursalia/wifi.nix`): wpa_supplicant, WPA3 with WPA2 fallback, country DE, all bands, passphrase via sops. Its final spot has no cable; eno1 keeps DHCP as a fallback with a worse route metric, so the WLAN stays the primary link when both are up.
 - **zorlock's uplink:** WLAN as well (`en1`, Broadcom); `hosts/zorlock/wifi.nix` makes sure `homelab` is a preferred network (`networksetup`, only ever adds it, passphrase via sops in `hosts/zorlock/wifi.yaml`). nix-darwin has no Wi-Fi module; band choice stays with macOS.
 - **Exit nodes and IPv6:** aldrin and zummi as exit nodes for the group `exit-nodes`; the mesh is dual stack (`2001:db8:203:0::/64`) – see [Exit nodes & IPv6](#exit-nodes).
@@ -60,7 +61,7 @@ aldrin and zummi are exit nodes: a client can send all its traffic, IPv4 and IPv
 
 #### Who may { #exit-nodes-who }
 
-The Pocket ID group `exit-nodes`. Someone joins by being added to the group in Pocket ID (auth.homelab.example), followed by `just netbird-apply`; that carries the membership over to the NetBird group of the same name and so to all of the person's devices. The policy `exit-nodes` lets only this group into the routes' access group `exit-node-access`. Deliberately not everyone: whoever uses an exit node shows up with the server's address.
+The Pocket ID group `exit-nodes`. Someone joins by being added to the group in Pocket ID (auth.homelab.example); within a minute the [group sync](#group-sync) carries the membership over to the NetBird group of the same name and so to all of the person's devices. The policy `exit-nodes` lets only this group into the routes' access group `exit-node-access`. Deliberately not everyone: whoever uses an exit node shows up with the server's address.
 
 #### Using them { #exit-nodes-use }
 
@@ -102,11 +103,29 @@ The released NetBird provider (v0.0.10) knows neither `ipv6_enabled_groups` nor 
 
 Only 22/80/443 are open to the public. `modules/ssh.nix` allows root SSH only from mesh or Tailscale addresses; every host has its own login keypair. Mesh means both ranges, `192.0.2.0/24` and `2001:db8:203:0::/64` ([dual stack](#mesh-ipv6)).
 
+### Who reaches the servers { #to-servers }
+
+`nb-mesh` is a trusted interface on every host; what may reach a server over the mesh is decided by the NetBird policies alone (`terraform/netbird/main.tf`). Since 2026-11-01 (risk register R9) they are split by origin – policies can only allow, so split rather than subtract:
+
+| Policy | from | to | allows |
+|---|---|---|---|
+| `to-servers` | people's devices (`homelab`, `homelab_admins`) | all servers | TCP 80, 443 |
+| `to-smb` | people's devices | ursalia (group `smb-servers`) | TCP 445 |
+| `to-servers-icmp` | people's devices | all servers | ICMP |
+| `admin-to-servers` | `admin-workstations` (gusto) | all servers | everything |
+| `servers-to-servers` | `servers` | all servers | everything |
+
+People's devices thus reach only the web front doors (nginx, Traefik, Caddy with their own rules) and the Samba share – no longer SSH, exporters, Garage's admin API, VictoriaMetrics/-Logs or Traefik's `apps` entrypoint. `homelab_admins` gets no more than `homelab`: admin is a device named in `admin-workstations`, not a login. All of ICMP rather than just ping, because a NetBird rule cannot filter by ICMP type.
+
+The reverse proxy needs none of these policies: NetBird allows its peers to each service target's port by itself (`management/server/types/legacynmap/proxy_policies.go`, 0.81.0). cuckoosegg (only 8428/9428 on grammi), Home Assistant and the exit nodes keep policies of their own. Narrowing `servers-to-servers` to the ports in use is parked ([open item](../project/open-items.md)).
+
+To check from a device that is only in `homelab` (MacBook Pro, iPhone): `nc -zv grammi.peer.homelab.example 443` connects, `nc -zv grammi.peer.homelab.example 8090` and `… 8428` time out.
+
 ### Apps on grammi: only through Traefik `:8090`
 
 Mealie, Grist, logchef and Grafana listen on `127.0.0.1` only on grammi. The reverse proxy reaches them through Traefik's `apps` entrypoint (port 8090), which puts the maintenance switch and error pages in front of every app ([maintenance mode](../how-to/maintenance.md)). VictoriaMetrics (8428) and VictoriaLogs (9428) still listen on all addresses, because the other hosts push their metrics and logs into them over the mesh.
 
-**Deliberate gap:** `:8090` itself is open to every mesh peer (`nb-mesh` is trusted), without the proxy's SSO. Anyone in the mesh reaches every app directly with the matching `Host` header, VictoriaMetrics/-Logs even without a login, since they have none of their own. This is intended (2026-10-23): the NetBird policies decide who reaches grammi, and Mealie, Grist, logchef and Grafana ask for their own login. Revisit when peers that deserve less trust join the mesh, or once the proxy can reach loopback via `direct_upstream` ([open item](../project/open-items.md)).
+**Remaining gap:** `:8090` itself has no SSO. From 2026-10-23 to 2026-11-01 it was open to every mesh peer, every person's devices included; since [`to-servers`](#to-servers) was narrowed to 80/443, only the proxy, the admin devices and the other servers reach the port. It closes completely once the proxy can reach loopback via `direct_upstream` ([open item](../project/open-items.md)).
 
 ### Private docs: admin devices, home LAN, login
 
@@ -122,7 +141,7 @@ The private version of this documentation (`doku.homelab.example`, on aldrin and
 | Outside, `doku.homelab.example/login` | aldrin:8091 → 302 to `doku-login.homelab.example` → reverse proxy with SSO (`docs-readers`) → aldrin:8094 | private docs |
 | Home LAN, through the router's own record | straight to ursalia's LAN address | private docs, except devices on the deny list |
 
-**Login from the internet** (decided 2026-10-23): for a device without NetBird, e.g. a work laptop. `doku.homelab.example/login` leads to `doku-login.homelab.example`, a reverse proxy service of its own with SSO for the Pocket ID group `docs-readers` – a name of its own because the proxy's login is per service, not per path, and SSO on `doku` itself would put the public docs behind it. Its target is a listener on aldrin (port 8094) that serves the private site. Because every person's devices reach that port over the mesh as well (`to-servers`), the proxy sends a secret header (`X-Nixlab-Docs-Key`) and aldrin serves only requests that carry it; new key: `just docs-login-key`. This way depends on grammi and zummi – it is an addition for when the mesh is not at hand, not a replacement for it.
+**Login from the internet** (decided 2026-10-23): for a device without NetBird, e.g. a work laptop. `doku.homelab.example/login` leads to `doku-login.homelab.example`, a reverse proxy service of its own with SSO for the Pocket ID group `docs-readers` – a name of its own because the proxy's login is per service, not per path, and SSO on `doku` itself would put the public docs behind it. Its target is a listener on aldrin (port 8094) that serves the private site. Because the admin devices and the other servers reach that port over the mesh as well (until 2026-11-01 every person's devices too, see [`to-servers`](#to-servers)), the proxy sends a secret header (`X-Nixlab-Docs-Key`) and aldrin serves only requests that carry it; new key: `just docs-login-key`. This way depends on grammi and zummi – it is an addition for when the mesh is not at hand, not a replacement for it.
 
 **Home LAN** (decided 2026-10-23): the home router answers `doku.homelab.example` with ursalia's LAN address (a record of its own, like `mqtt.homelab.example`), and ursalia serves the private docs to the whole main home network – except the addresses on a deliberate deny list (`services.docsSite.lan` in `hosts/ursalia/configuration.nix`, inventory devices with a fixed address). A deny list by address catches only devices with a reserved address; guests and anything with a changing address get in. The Apple TVs belong on it once they have a reservation: as NetBird fallback routers into the LAN they masquerade mesh peers to their own address. Mesh devices are not affected – for them the name keeps resolving to the mesh addresses.
 
@@ -130,7 +149,7 @@ The private version of this documentation (`doku.homelab.example`, on aldrin and
 
 **What counts as an admin device:** the devices in the group `admin-workstations` (`terraform/netbird/subraum.tf`), today the MacBook – the same device that may also SSH to the Subraum devices. Deliberately not the person group `homelab_admins`: that one is filled from Pocket ID with *all* devices of an admin user. Today that would be none (Calla has no devices of its own), and a phone signing in under an admin user would be in at once. An admin here is a device named in Tofu, not a login. A further device in `admin-workstations` therefore also gets SSH to the Subraum devices – the same trust. Tofu reads the members on every `just netbird-apply` and writes name → address to `terraform/netbird/admin-peers.json`; `flake.nix` hands the addresses to `services.docsSite.allow`. A new admin device therefore gets in after `just netbird-apply`, a commit and a deploy of aldrin and ursalia.
 
-**Why nginx and not a NetBird policy:** `to-servers` lets the devices of all persons (`homelab` and `homelab_admins`) reach all ports on all servers. NetBird policies can only allow, never deny – a narrower rule for the docs would change nothing as long as `to-servers` stays as it is. Narrowing `to-servers` to a port list per service would work, but touches every service on every server for one static site. Moving the docs to a port of their own fails at the same point. So the policy still decides which hosts a device reaches, and nginx decides who gets the docs.
+**Why nginx and not a NetBird policy:** [`to-servers`](#to-servers) lets the devices of all persons (`homelab` and `homelab_admins`) reach port 443 on all servers, and the docs share 443 with everything else nginx serves there. A policy works per port, not per vhost. So the policy decides which ports a device reaches, and nginx decides who gets the docs.
 
 **Why no login in the mesh (Pocket ID):** you read the docs when something is broken. A login would tie them to zummi (Pocket ID) and, through the reverse proxy, to grammi – exactly the hosts they are meant to be independent of. An address list needs nothing at runtime but nginx on the host itself. The login from the internet above does not change that: the mesh and LAN ways keep working without it.
 
@@ -143,13 +162,29 @@ The private version of this documentation (`doku.homelab.example`, on aldrin and
 
 ### Pocket ID: admin pages only from admin devices { #pocket-id-admin }
 
-Since 2026-10-25 nginx on zummi answers Pocket ID's admin paths with 403 unless the request comes from an address in `admin-peers.json` – the same list as for the private docs. Closed is everything an admin session or an admin API key can do: `/settings/admin`, users, groups, OIDC clients, APIs, API keys, settings, audit log, signup tokens, SCIM (list: `$pocketid_admin_path` in `hosts/zummi/configuration.nix`, by the permissions of Pocket ID 2.19.1's routes – re-check on every minor bump). Login, account pages (`/api/users/me…`), the OIDC endpoints and logos stay public.
+Since 2026-10-25 nginx on zummi answers Pocket ID's admin paths with 403 unless the request comes from an address in `admin-peers.json` – the same list as for the private docs. Closed is everything an admin session or an admin API key can do: `/settings/admin`, users, groups, OIDC clients, APIs, API keys, settings, audit log, signup tokens, SCIM (list: `$pocketid_admin_path` in `hosts/zummi/configuration.nix`, by the permissions of Pocket ID 2.19.1's routes – re-check on every minor bump). Login, account pages (`/api/users/me…`), the OIDC endpoints and logos stay public. The one other exception: the [group sync](#group-sync)'s reads from grammi.
 
 So that admin devices arrive with their mesh address, a NetBird DNS zone points `auth.homelab.example` at zummi's mesh addresses for `admin-workstations` only (`terraform/netbird/pocket-id-admin.tf`); the vhost listens on the wildcard for it. Every other peer, NetBird's server on grammi included, keeps the public record.
 
 - Without NetBird on the device the public record applies: login works, the admin pages answer 403. A browser with its own DNS-over-HTTPS bypasses NetBird's DNS the same way.
 - `just pocketid-plan`/`-apply` therefore need NetBird on the MacBook.
 - A new admin device: into `admin-workstations`, `just netbird-apply`, then deploy zummi (and aldrin and ursalia, as for the docs).
+
+### Pocket ID → NetBird: group sync { #group-sync }
+
+Who is in which person group lives in Pocket ID only (`terraform/netbird/people.tf`). Until 2026-11-01 a change reached NetBird – and with it the reverse proxy's SSO group checks – only with the next `just netbird-apply`. Since then a timer on grammi reconciles every minute (`hosts/grammi/netbird-group-sync.nix`): for every person in `local.people` it sets `auto_groups` and `is_blocked` exactly as `netbird_user.person` computes them (person groups in Tofu's order, disabled in Pocket ID = blocked in NetBird), so the next plan shows no drift for them. Other groups in `auto_groups` stay untouched. Someone in neither `homelab` nor `homelab_admins` in Pocket ID is left alone and the run fails (the same check as Tofu's precondition). Every change is a line in the journal (`naddi: +home-lan`); right now instead of within a minute: `just netbird-group-sync`.
+
+Decided 2026-11-01 (1b) over an unattended `tofu apply` (applies everything, the state lives on the workstation) and over drift detection alone. NetBird's own JWT group sync stays off (reasons in the header of `people.tf`). A SCIM receiver that Pocket ID pushes changes to right away is noted for later.
+
+**Credentials**, each in a sops file of its own so either can be renewed alone:
+
+- **NetBird:** token of the service user `group-sync` (`terraform/netbird/group-sync.tf`), role admin – NetBird 0.81 allows nothing narrower for updating users (`network_admin` may only read them). Whoever owns grammi owns NetBird's database anyway. Store: `just netbird-group-sync-token`, renew yearly: `just netbird-group-sync-token renew`.
+- **Pocket ID:** API key of the dedicated admin user `netbird-group-sync` (no passkey, only for this key; shows up separately in the audit log, disabling the user locks the key at once). Pocket ID 2.19.1 cannot scope API keys: the key can do anything an admin can. It is fenced in on zummi: from grammi's mesh addresses nginx lets through only `GET` on the user list, single users and the key's own key list (`$pocketid_sync_allowed`), from the internet every admin path is 403. Fully usable, the key would only be from the admin devices. That is why the sync reaches Pocket ID at zummi's mesh name (TLS still for `auth.homelab.example`). Creating the key: log in as `netbird-group-sync` with a login code from the admin UI, create the API key "netbird-group-sync" valid for a year, delete that user's old keys, then `just netbird-group-sync-pocketid-key`.
+
+Then commit and deploy grammi each time. **Alerts** (`hosts/grammi/alerting.nix`): NetbirdGroupSyncStale (an hour without a clean run), SyncCredentialExpiring (token or key expire in less than 30 days), PersonNotManaged (someone is in `homelab`/`homelab_admins` in Pocket ID but not in `people.tf`); every failed run also trips UnitFailed.
+
+- A new person: after `just netbird-apply` commit the new `terraform/netbird/group-sync.json` and deploy grammi.
+- `group-sync.json` also holds grammi's mesh addresses; when they change (new v6 address), deploy zummi.
 
 ### Paperless: from outside, share links (PIN) and the app (SSO)
 

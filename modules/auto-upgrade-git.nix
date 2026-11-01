@@ -13,6 +13,23 @@ let
     cd ${toString cfg.flakeDir} || exit 0
     ${pkgs.git}/bin/git checkout -- flake.lock || true
   '';
+
+  # Runs as ExecStartPost, i.e. only after a successful run. The unit's own
+  # failed state is no record of past runs - the next switch clears it - so
+  # the time of the last success is kept for hosts/grammi/alerting.nix
+  # (NixosUpgradeStale). Same directory modules/metrics.nix points
+  # node_exporter's textfile collector at.
+  markSuccess = pkgs.writeShellScript "auto-upgrade-git-mark-success" ''
+    set -eu
+    out=/var/lib/prometheus-node-exporter-text-files/nixos-upgrade.prom
+    {
+      echo "# HELP nixlab_nixos_upgrade_last_success_seconds Unix time of the last successful nixos-upgrade run."
+      echo "# TYPE nixlab_nixos_upgrade_last_success_seconds gauge"
+      echo "nixlab_nixos_upgrade_last_success_seconds $(${pkgs.coreutils}/bin/date +%s)"
+    } > "$out.tmp"
+    ${pkgs.coreutils}/bin/chmod 0644 "$out.tmp"
+    ${pkgs.coreutils}/bin/mv "$out.tmp" "$out"
+  '';
 in
 {
   options.services.autoUpgradeGit = {
@@ -34,6 +51,16 @@ in
       type = lib.types.listOf lib.types.str;
       default = [ "nixpkgs" ];
       description = "Flake inputs to update before rebuilding. Empty list skips the update step entirely.";
+    };
+
+    pull = lib.mkOption {
+      type = lib.types.bool;
+      default = false;
+      description = ''
+        Fast-forward the checkout (`git pull --ff-only`) before updating and
+        rebuilding. With `updateInputs = [ ]` this makes the host follow a
+        flake.lock that is updated - and ideally prebuilt - elsewhere.
+      '';
     };
 
     dates = lib.mkOption {
@@ -113,6 +140,17 @@ in
       owner = "root";
     };
 
+    # Seed the success marker (markSuccess above) on the first activation
+    # with this module, so the alert has a value to age from instead of
+    # nothing at all. A switch is as good a starting point as any: the host
+    # has just been brought up to date.
+    system.activationScripts.nixos-upgrade-marker = ''
+      d=/var/lib/prometheus-node-exporter-text-files
+      if [ -d "$d" ] && [ ! -e "$d/nixos-upgrade.prom" ]; then
+        ${markSuccess}
+      fi
+    '';
+
     system.autoUpgrade = {
       enable = true;
       flake = "${toString cfg.flakeDir}#${cfg.flakeAttr}";
@@ -146,6 +184,17 @@ in
       # Discard the lock on any non-success result. Nothing is lost: that
       # lock was never built or activated, and the next run updates it again.
       serviceConfig.ExecStopPost = [ "${resetLock}" ];
+      serviceConfig.ExecStartPost = [ "${markSuccess}" ];
+
+      # ExecStopPost is bounded by TimeoutStopSec, 90s by default - and it
+      # runs while the timed-out build is still in this cgroup, dying slowly
+      # and holding the unit's memory, CPU and IO limits. On zummi on
+      # 2026-10-29, -30 and -31 a thrashing Go build ran into
+      # TimeoutStartSec, and the `git checkout` in resetLock then took longer
+      # than those 90s and was killed with it, leaving flake.lock modified.
+      # Ten minutes is plenty for one file; the reset at the start of the run
+      # (preStart below) catches whatever still slips through.
+      serviceConfig.TimeoutStopSec = "10min";
 
       # A hold (modules/deploy-hold.nix) means a topic branch is being tried
       # on this host; rebuilding the checkout would silently switch it back.
@@ -181,8 +230,18 @@ in
       # bury both bodies inside it. ExecStartPre is the plainer fit anyway,
       # and it fails the unit the same way, so a broken update stops short of
       # the rebuild and ExecStopPost above puts flake.lock back.
-      preStart = lib.optionalString (cfg.updateInputs != [ ]) ''
+      #
+      # Before anything else, put flake.lock back to HEAD: a lock left behind
+      # by a run that was killed too hard for ExecStopPost (power loss, a hard
+      # reset, resetLock's own timeout) must not be built tonight or block the
+      # pull below. Then, with `pull`, fast-forward to what was pushed
+      # elsewhere - typically the lock another host updated and prebuilt.
+      preStart = ''
         cd ${toString cfg.flakeDir}
+        git checkout -- flake.lock
+      '' + lib.optionalString cfg.pull ''
+        git pull --ff-only
+      '' + lib.optionalString (cfg.updateInputs != [ ]) ''
         ${config.nix.package}/bin/nix flake update ${lib.escapeShellArgs cfg.updateInputs}
       '';
 

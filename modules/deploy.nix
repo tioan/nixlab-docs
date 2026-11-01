@@ -33,12 +33,22 @@
     publicKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl";
   };
 
+  # The inputs the nightly run updates. nixpkgs-unstable is only evaluated
+  # by grammi (Grist) and ursalia (paperless), but bumping it for everyone is
+  # harmless - the others never read it - and keeps those on current security
+  # fixes like everything else.
+  #
+  # Since 2026-10-31 one host updates them for the whole lab: ursalia's
+  # nix-cache-prebuild (modules/nix-cache.nix) updates flake.lock, builds
+  # every host, fills the nix cache and pushes the lock. The hosts' own
+  # upgrade only pulls it and substitutes, instead of each one updating -
+  # and possibly building from source - on its own.
+  services.nixCache.prebuild.updateInputs = [ "nixpkgs" "nixpkgs-unstable" "sops-nix" ];
+
   services.autoUpgradeGit = {
     enable = true;
-    # nixpkgs-unstable is only evaluated by grammi (Grist), but bumping it
-    # from any host's run is harmless - the others never read it - and
-    # keeps Grist on current security fixes like everything else.
-    updateInputs = [ "nixpkgs" "nixpkgs-unstable" "sops-nix" ];
+    updateInputs = [ ];
+    pull = true;
 
     # These are rented VMs with out-of-band console access, so an unattended
     # reboot is recoverable - and the reboot window keeps it out of the way.

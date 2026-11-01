@@ -85,6 +85,7 @@ Der Ablauf für einen neuen Host: Tofu legt den Setup-Key an, `just netbird-key`
 | --- | --- | --- | --- | --- |
 | NixOS → Tofu | NetBird-Server auf grammi | `hosts/grammi/netbird.nix` | Provider über `https://mesh.homelab.example` | Die API, gegen die Tofu überhaupt erst läuft |
 | NixOS → Tofu | Bootstrap-Tokens | `just netbird-setup-owner`, `netbird-proxy-token` (SSH auf grammi, Server-API) | `terraform/netbird/secrets.yaml` bzw. `hosts/grammi/netbird-proxy.yaml` | Owner-PAT, Proxy-Token |
+| NixOS → Tofu | Garage-Admin-Token | `hosts/aldrin/secrets.yaml` (`garage_admin_token`), kopiert von `just garage-admin-token` (SSH auf aldrin) | `terraform/secrets.yaml`, `terraform/lib.sh` (`garage_env`) für `terraform/garage` und `just healthlog-offhost` | Volle Admin-API unter `http://aldrin.peer.homelab.example:3903` (nur Admin-Geräte im Mesh, `admin-peers.json`); nach einer Rotation das Recipe erneut ausführen |
 
 ## Tofu-State { #state }
 

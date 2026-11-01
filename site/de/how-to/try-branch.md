@@ -50,7 +50,7 @@ just try-confirm ursalia 10     # 10 Minuten
 4. Die Workstation wartet, bis sie den Host wieder über das Mesh erreicht und die Aktivierung fertig ist, und fragt **Keep it? [y/N]**.
 5. Erst `y` stoppt den Timer, setzt Systemprofil und Boot-Eintrag und schreibt den Halt wie `just try`. Alles andere – `n`, keine Antwort, keine Verbindung – und der Host rollt bei Ablauf von selbst zurück (`n` sofort).
 
-Meldet sich der Host danach unter einem anderen Namen (Umbenennung), nennt `via` die Adresse, an die deployt wird; die Bestätigung geht immer an `<host>.peer.homelab.example`:
+Meldet sich der Host danach unter einem anderen Namen (Umbenennung), nennt `via` die Adresse, an die deployt wird; die Bestätigung geht immer an `<host>.peer.homelab.example`. So war es beim Cut-over von ursalia (2026-10-29), als sich die NUC noch als ursalia-next meldete:
 
 ```bash
 just try-confirm ursalia 10 root@ursalia-next.peer.homelab.example

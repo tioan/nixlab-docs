@@ -157,6 +157,24 @@ in
         };
       }
     ]
+    # The nix cache in Garage on aldrin (modules/nix-cache.nix). A substituter
+    # asks for one narinfo per store path it might need, and most of them are
+    # 404 - by design, the cache only holds what cache.nixos.org lacks. That
+    # is crowdsecurity/http-probing to the letter: it banned the home IP
+    # (ursalia, and with it everyone at home) on 2026-10-31, minutes into the
+    # first nightly prebuild. The home address is dynamic and grammi's is not
+    # in the list above, so by path rather than by IP. The bucket is private;
+    # probing it yields nothing but 403s.
+    ++ lib.optional config.services.nginx.enable {
+      name = "homelab/nix-cache";
+      description = "Substituter lookups against the nix cache bucket";
+      whitelist = {
+        reason = "nix cache lookups";
+        expression = [
+          "evt.Meta.log_type in ['http_access-log', 'http_error-log'] && evt.Parsed.request startsWith '/nix-cache/'"
+        ];
+      };
+    }
     # NetBird's machine traffic on grammi - REST API, gRPC (signal/
     # management), relay and WebSocket proxy, by Traefik router name
     # (hosts/grammi/netbird.nix). All of it is authenticated (API token,

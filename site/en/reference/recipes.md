@@ -25,6 +25,8 @@
 | `just tf-state-passphrase` | Once: the passphrase for the Tofu states into `terraform/secrets.yaml` (never overwrites) |
 | `just github-key <host>` | New GitHub deploy key for a host (key via sops, registration via Tofu) |
 | `just github-plan` / `github-apply` | Change the repositories and deploy keys on GitHub |
+| `just garage-plan` / `garage-apply` | Change the buckets, keys and permissions in Garage on aldrin (`terraform/garage`) |
+| `just garage-admin-token` | Copy Garage's admin token from aldrin into `terraform/secrets.yaml` over SSH – once per workstation key, and again after rotating it |
 | `just desec-key <host>` / `desec-verify` | Rotate a deSEC token, or check the scopes from every host |
 | `just nanokvm-mcp-key` | Store the NanoKVM Go+ MCP API key encrypted for ursalia (then commit, deploy ursalia) |
 | `just kvm-bridge setup\|start\|stop\|status\|log` | Claude Code bridge to the NanoKVM Go+ on ursalia: set up once, start, stop, state, log |

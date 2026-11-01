@@ -26,6 +26,7 @@ host's `modules` list unchanged (see hosts/zummi for the reference usage).
 | `flakeDir` | Directory containing the flake (and its git checkout) to upgrade from. |
 | `flakeAttr` | nixosConfigurations attribute name to build, i.e. the `#<attr>` part of the flake ref. |
 | `updateInputs` | Flake inputs to update before rebuilding. Empty list skips the update step entirely. |
+| `pull` | Fast-forward the checkout (`git pull --ff-only`) before updating and rebuilding. With `updateInputs = [ ]` this makes the host follow a flake.lock that is updated - and ideally prebuilt - elsewhere. |
 | `dates` | systemd calendar expression for when to run, passed through to system.autoUpgrade.dates. |
 | `allowReboot` | Whether to allow automatic reboots after a kernel/boot-relevant upgrade. |
 | `rebootWindow` | Restrict automatic reboots to this time window. Null means no restriction beyond `dates`. |
@@ -127,6 +128,60 @@ this file is the lab's policy.
 
 [Source](https://github.com/tioan/nixlab-docs/blob/main/modules/deploy.nix)
 
+## disk-health.nix
+
+SMART health of a physical host's disks: smartd runs the drives' own
+self-tests and watches their attributes, smartctl_exporter publishes the
+values, vmagent ships them to grammi - dashboard
+hosts/grammi/dashboards/disk-health.json. For bare-metal hosts only; the
+VMs have no SMART to speak of. Switched on by listing the disks:
+
+
+```
+services.diskHealth.devices = [
+"/dev/disk/by-id/nvme-Samsung_SSD_980_PRO_2TB_S69ENX0RA37472W"
+"/dev/disk/by-id/ata-Samsung_SSD_870_QVO_8TB_S5SSNF0T503666T"
+];
+```
+
+
+Listed, not autodiscovered: behind the ArkKVM a host also sees the KVM's
+virtual USB drive and virtual media, which are not worth polling. By-id
+paths with model and serial rather than kernel names, because /dev/sdX
+moves with whatever USB devices are plugged in, and the path ends up in
+the exporter's `device` label - it should say which disk it is.
+
+Schedule, staggered by position in the list so no two tests of one host
+run at the same time (a long test reads the whole disk - 640 min on the
+8 TB QVO - and slows its I/O while it runs):
+
+```
+short     every Sunday, 03:00 for the first disk, 04:00 for the second, ...
+extended  monthly at 01:00, on the 1st for the first disk, the 2nd for
+the second, ...
+```
+
+smartd's -a additionally checks health and attributes every 30 minutes and
+logs every change and every failed test to the journal, which log
+shipping forwards to VictoriaLogs on grammi.
+
+smartctl_exporter 0.14 does not export the self-test log, so the outcome
+of the tests goes through node_exporter's textfile collector instead
+(hourly, same `device` label as the exporter - the by-id basename):
+
+
+```
+smart_selftest_running{device}                      1 while a test runs
+smart_selftest_last_passed{device,test}             1 = completed without error
+smart_selftest_last_power_on_hours{device,test}     power-on hours of that test
+```
+
+
+test is short/extended/other. last_passed is 0 for aborted tests too (a
+reboot during the 11 h QVO test, for instance) - the journal says which.
+
+[Source](https://github.com/tioan/nixlab-docs/blob/main/modules/disk-health.nix)
+
 ## docs-site.nix
 
 The private docs site (flake package docs-site, built from docs/) on the
@@ -154,9 +209,11 @@ above stays the one that does not depend on anything but the host
 - Login from the internet (option login): a NetBird reverse proxy
   service with SSO (terraform/netbird/reverse-proxy.tf, doku_login)
   forwards to a listener of its own here. The proxy sends a secret
-  header, and only requests that carry it get the docs - every person's
-  devices reach this port over the mesh (to-servers), and without the
-  header the admin-only rule would end at the port. doku.homelab.example/login
+  header, and only requests that carry it get the docs - the admin
+  workstations and the other servers reach this port over the mesh
+  (people's devices did too, until to-servers was narrowed to 80/443 on
+  2026-11-01), and without the header the admin-only rule would end at
+  the port. doku.homelab.example/login
   leads there; without zummi (Pocket ID) and grammi (proxy) it is gone,
   which is fine for a way meant for a device without NetBird.
 - The home LAN (option lan): the router answers doku.homelab.example with
@@ -456,6 +513,39 @@ configuration.nix under networking.ifstate.settings; only the shape of the
 setup lives here, so a new machine inherits it by importing this module.
 
 [Source](https://github.com/tioan/nixlab-docs/blob/main/modules/networking.nix)
+
+## nix-cache.nix
+
+The lab's own binary cache: bucket nix-cache in Garage on aldrin
+(terraform/garage/nix-cache.tf), filled every night by ursalia and read by
+every host next to cache.nixos.org.
+
+Why: the smaller hosts kept building what cache.nixos.org cannot have -
+anything built against this flake's own pins, sops-nix's
+sops-install-secrets above all, plus the hundreds of small configuration
+derivations. On zummi (2 vCPU, 1.8 GiB) that Go build thrashed inside the
+memory limits of nixos-upgrade and ran into its 2h timeout three nights in
+a row (2026-10-29 to -31). Now ursalia updates flake.lock, builds every
+host, uploads what it built and only then pushes the lock; the hosts pull
+it in their own nightly upgrade and substitute instead of building.
+
+Two halves, both here:
+
+- every host: the substituter, its public key and the read-only S3 key
+  (secrets/nix-cache.yaml, one file for all hosts).
+- prebuild.enable (ursalia): the nightly update + build + upload, with
+  the read-write key and the signing key (hosts/ursalia/nix-cache.yaml).
+  Both files come from `just nix-cache-secrets`.
+
+**Options** (`services.nixCache.prebuild`):
+
+| Option | Description |
+| --- | --- |
+| `enable` | Enable: the nightly flake.lock update, build of every host and upload to the nix cache |
+| `updateInputs` | Flake inputs the nightly run updates. |
+| `dates` | When to run. Early enough to be done before the hosts' nixos-upgrade (04:00 plus up to 45 minutes); a host that starts before the new lock is pushed just pulls nothing new tonight. |
+
+[Source](https://github.com/tioan/nixlab-docs/blob/main/modules/nix-cache.nix)
 
 ## nix.nix
 

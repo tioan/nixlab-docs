@@ -14,6 +14,7 @@ Ein Flake, `nixosConfigurations` für fünf Hosts plus `darwinConfigurations` f�
 | `terraform/netbird/` | OpenTofu: NetBird-Account, Policies, DNS-Zonen, Reverse-Proxy-Dienste, Personen/Gruppen (inkl. Pocket ID) |
 | `terraform/desec-tokens/` | OpenTofu: eng gescopte deSEC-Tokens pro Host für DNS-01 |
 | `terraform/github/` | OpenTofu: die Repos `nixlab` (privat) und `nixlab-docs` (öffentlich), Deploy-Keys pro Host |
+| `terraform/garage/` | OpenTofu: Buckets, Keys und Rechte in Garage auf aldrin (Lifecycle-Regeln von Hand) |
 | `topology.nix` | Generiert das Topologie-Dashboard für Grafana aus den Host-Configs |
 | `inventory.json` / `inventory.nix` | Lab-Inventar (jede Maschine: Art, Site, Uplink, Beziehungen, Entsperren) und seine Prüfung, siehe [Inventar](inventory.md) |
 | `inventory.schema.json` | JSON-Schema zum Bearbeiten von `inventory.json`, generiert |

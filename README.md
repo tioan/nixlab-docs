@@ -100,6 +100,7 @@ The flow for a new host: Tofu creates the setup key, `just netbird-key` writes i
 | --- | --- | --- | --- | --- |
 | NixOS → Tofu | NetBird server on grammi | `hosts/grammi/netbird.nix` | provider via `https://mesh.homelab.example` | The API Tofu runs against in the first place |
 | NixOS → Tofu | Bootstrap tokens | `just netbird-setup-owner`, `netbird-proxy-token` (SSH to grammi, server API) | `terraform/netbird/secrets.yaml` and `hosts/grammi/netbird-proxy.yaml` | Owner PAT, proxy token |
+| NixOS → Tofu | Garage admin token | `hosts/aldrin/secrets.yaml` (`garage_admin_token`), copied by `just garage-admin-token` (SSH to aldrin) | `terraform/secrets.yaml`, `terraform/lib.sh` (`garage_env`) for `terraform/garage` and `just healthlog-offhost` | Full admin API at `http://aldrin.peer.homelab.example:3903` (admin devices in the mesh only, `admin-peers.json`); after a rotation run the recipe again |
 
 ### Tofu state
 
@@ -138,6 +139,7 @@ The workstation key lives in 1Password and is read via `SOPS_AGE_KEY_CMD`, never
 - **NetBird mesh** (`192.0.2.0/24` and `2001:db8:203:0::/64`, peer names under `peer.homelab.example`): control plane on grammi, login via Pocket ID. Private range (RFC 1918) instead of CGNAT, because tailscaled drops packets from 100.64/10 while both clients run in parallel.
 - **Groups:** `servers` (all hosts except cuckoosegg), `subraum-devices`, `admin-workstations` (MacBook), plus person groups from Pocket ID.
 - **Home LAN** (`198.51.100.0/24`): routed through ursalia (metric 100), with the two Apple TVs as fallback (group `home-routers`, metric 200, own setup key via `just netbird-router-key`, owned by nobody, in no policy); for group `home-lan`, not for devices that are already at home (posture check `not-at-home`). Rosenpass is off mesh-wide since 2026-10-24 (until 2026-10-31, see [macOS hosts](#netbird-on-the-two-macs)); "Quantum-Resistance" in the Apple TVs' app belongs off for that time as well.
+- **Travel router** (Mudi 7, GL.iNet GL-E5800): peer `mudi7`, group `travel-routers`, own setup key via `just netbird-key-mudi7`, owned by nobody and in no policy for now. The OpenWrt package only ships NetBird 0.24.3; the binary is swapped by hand for the `linux_arm64` release at the mesh's version (`terraform/netbird/travel-router.tf`).
 - **ursalia's uplink:** WLAN into the home LAN's main network (Intel AX211, `hosts/ursalia/wifi.nix`): wpa_supplicant, WPA3 with WPA2 fallback, country DE, all bands, passphrase via sops. Its final spot has no cable; eno1 keeps DHCP as a fallback with a worse route metric, so the WLAN stays the primary link when both are up.
 - **zorlock's uplink:** WLAN as well (`en1`, Broadcom); `hosts/zorlock/wifi.nix` makes sure `homelab` is a preferred network (`networksetup`, only ever adds it, passphrase via sops in `hosts/zorlock/wifi.yaml`). nix-darwin has no Wi-Fi module; band choice stays with macOS.
 - **Exit nodes and IPv6:** aldrin and zummi as exit nodes for the group `exit-nodes`; the mesh is dual stack (`2001:db8:203:0::/64`) – see [Exit nodes & IPv6](#exit-nodes--ipv6).
@@ -178,7 +180,7 @@ aldrin and zummi are exit nodes: a client can send all its traffic, IPv4 and IPv
 
 ##### Who may
 
-The Pocket ID group `exit-nodes`. Someone joins by being added to the group in Pocket ID (auth.homelab.example), followed by `just netbird-apply`; that carries the membership over to the NetBird group of the same name and so to all of the person's devices. The policy `exit-nodes` lets only this group into the routes' access group `exit-node-access`. Deliberately not everyone: whoever uses an exit node shows up with the server's address.
+The Pocket ID group `exit-nodes`. Someone joins by being added to the group in Pocket ID (auth.homelab.example); within a minute the [group sync](#pocket-id--netbird-group-sync) carries the membership over to the NetBird group of the same name and so to all of the person's devices. The policy `exit-nodes` lets only this group into the routes' access group `exit-node-access`. Deliberately not everyone: whoever uses an exit node shows up with the server's address.
 
 ##### Using them
 
@@ -220,11 +222,29 @@ The released NetBird provider (v0.0.10) knows neither `ipv6_enabled_groups` nor 
 
 Only 22/80/443 are open to the public. `modules/ssh.nix` allows root SSH only from mesh or Tailscale addresses; every host has its own login keypair. Mesh means both ranges, `192.0.2.0/24` and `2001:db8:203:0::/64` ([dual stack](#dual-stack-in-the-mesh)).
 
+#### Who reaches the servers
+
+`nb-mesh` is a trusted interface on every host; what may reach a server over the mesh is decided by the NetBird policies alone (`terraform/netbird/main.tf`). Since 2026-11-01 (risk register R9) they are split by origin – policies can only allow, so split rather than subtract:
+
+| Policy | from | to | allows |
+|---|---|---|---|
+| `to-servers` | people's devices (`homelab`, `homelab_admins`) | all servers | TCP 80, 443 |
+| `to-smb` | people's devices | ursalia (group `smb-servers`) | TCP 445 |
+| `to-servers-icmp` | people's devices | all servers | ICMP |
+| `admin-to-servers` | `admin-workstations` (gusto) | all servers | everything |
+| `servers-to-servers` | `servers` | all servers | everything |
+
+People's devices thus reach only the web front doors (nginx, Traefik, Caddy with their own rules) and the Samba share – no longer SSH, exporters, Garage's admin API, VictoriaMetrics/-Logs or Traefik's `apps` entrypoint. `homelab_admins` gets no more than `homelab`: admin is a device named in `admin-workstations`, not a login. All of ICMP rather than just ping, because a NetBird rule cannot filter by ICMP type.
+
+The reverse proxy needs none of these policies: NetBird allows its peers to each service target's port by itself (`management/server/types/legacynmap/proxy_policies.go`, 0.81.0). cuckoosegg (only 8428/9428 on grammi), Home Assistant and the exit nodes keep policies of their own. Narrowing `servers-to-servers` to the ports in use is parked ([open item](#open-items)).
+
+To check from a device that is only in `homelab` (MacBook Pro, iPhone): `nc -zv grammi.peer.homelab.example 443` connects, `nc -zv grammi.peer.homelab.example 8090` and `… 8428` time out.
+
 #### Apps on grammi: only through Traefik `:8090`
 
 Mealie, Grist, logchef and Grafana listen on `127.0.0.1` only on grammi. The reverse proxy reaches them through Traefik's `apps` entrypoint (port 8090), which puts the maintenance switch and error pages in front of every app ([maintenance mode](#maintenance-mode)). VictoriaMetrics (8428) and VictoriaLogs (9428) still listen on all addresses, because the other hosts push their metrics and logs into them over the mesh.
 
-**Deliberate gap:** `:8090` itself is open to every mesh peer (`nb-mesh` is trusted), without the proxy's SSO. Anyone in the mesh reaches every app directly with the matching `Host` header, VictoriaMetrics/-Logs even without a login, since they have none of their own. This is intended (2026-10-23): the NetBird policies decide who reaches grammi, and Mealie, Grist, logchef and Grafana ask for their own login. Revisit when peers that deserve less trust join the mesh, or once the proxy can reach loopback via `direct_upstream` ([open item](#open-items)).
+**Remaining gap:** `:8090` itself has no SSO. From 2026-10-23 to 2026-11-01 it was open to every mesh peer, every person's devices included; since [`to-servers`](#who-reaches-the-servers) was narrowed to 80/443, only the proxy, the admin devices and the other servers reach the port. It closes completely once the proxy can reach loopback via `direct_upstream` ([open item](#open-items)).
 
 #### Private docs: admin devices, home LAN, login
 
@@ -240,7 +260,7 @@ The private version of this documentation (`doku.homelab.example`, on aldrin and
 | Outside, `doku.homelab.example/login` | aldrin:8091 → 302 to `doku-login.homelab.example` → reverse proxy with SSO (`docs-readers`) → aldrin:8094 | private docs |
 | Home LAN, through the router's own record | straight to ursalia's LAN address | private docs, except devices on the deny list |
 
-**Login from the internet** (decided 2026-10-23): for a device without NetBird, e.g. a work laptop. `doku.homelab.example/login` leads to `doku-login.homelab.example`, a reverse proxy service of its own with SSO for the Pocket ID group `docs-readers` – a name of its own because the proxy's login is per service, not per path, and SSO on `doku` itself would put the public docs behind it. Its target is a listener on aldrin (port 8094) that serves the private site. Because every person's devices reach that port over the mesh as well (`to-servers`), the proxy sends a secret header (`X-Nixlab-Docs-Key`) and aldrin serves only requests that carry it; new key: `just docs-login-key`. This way depends on grammi and zummi – it is an addition for when the mesh is not at hand, not a replacement for it.
+**Login from the internet** (decided 2026-10-23): for a device without NetBird, e.g. a work laptop. `doku.homelab.example/login` leads to `doku-login.homelab.example`, a reverse proxy service of its own with SSO for the Pocket ID group `docs-readers` – a name of its own because the proxy's login is per service, not per path, and SSO on `doku` itself would put the public docs behind it. Its target is a listener on aldrin (port 8094) that serves the private site. Because the admin devices and the other servers reach that port over the mesh as well (until 2026-11-01 every person's devices too, see [`to-servers`](#who-reaches-the-servers)), the proxy sends a secret header (`X-Nixlab-Docs-Key`) and aldrin serves only requests that carry it; new key: `just docs-login-key`. This way depends on grammi and zummi – it is an addition for when the mesh is not at hand, not a replacement for it.
 
 **Home LAN** (decided 2026-10-23): the home router answers `doku.homelab.example` with ursalia's LAN address (a record of its own, like `mqtt.homelab.example`), and ursalia serves the private docs to the whole main home network – except the addresses on a deliberate deny list (`services.docsSite.lan` in `hosts/ursalia/configuration.nix`, inventory devices with a fixed address). A deny list by address catches only devices with a reserved address; guests and anything with a changing address get in. The Apple TVs belong on it once they have a reservation: as NetBird fallback routers into the LAN they masquerade mesh peers to their own address. Mesh devices are not affected – for them the name keeps resolving to the mesh addresses.
 
@@ -248,7 +268,7 @@ The private version of this documentation (`doku.homelab.example`, on aldrin and
 
 **What counts as an admin device:** the devices in the group `admin-workstations` (`terraform/netbird/subraum.tf`), today the MacBook – the same device that may also SSH to the Subraum devices. Deliberately not the person group `homelab_admins`: that one is filled from Pocket ID with *all* devices of an admin user. Today that would be none (Calla has no devices of its own), and a phone signing in under an admin user would be in at once. An admin here is a device named in Tofu, not a login. A further device in `admin-workstations` therefore also gets SSH to the Subraum devices – the same trust. Tofu reads the members on every `just netbird-apply` and writes name → address to `terraform/netbird/admin-peers.json`; `flake.nix` hands the addresses to `services.docsSite.allow`. A new admin device therefore gets in after `just netbird-apply`, a commit and a deploy of aldrin and ursalia.
 
-**Why nginx and not a NetBird policy:** `to-servers` lets the devices of all persons (`homelab` and `homelab_admins`) reach all ports on all servers. NetBird policies can only allow, never deny – a narrower rule for the docs would change nothing as long as `to-servers` stays as it is. Narrowing `to-servers` to a port list per service would work, but touches every service on every server for one static site. Moving the docs to a port of their own fails at the same point. So the policy still decides which hosts a device reaches, and nginx decides who gets the docs.
+**Why nginx and not a NetBird policy:** [`to-servers`](#who-reaches-the-servers) lets the devices of all persons (`homelab` and `homelab_admins`) reach port 443 on all servers, and the docs share 443 with everything else nginx serves there. A policy works per port, not per vhost. So the policy decides which ports a device reaches, and nginx decides who gets the docs.
 
 **Why no login in the mesh (Pocket ID):** you read the docs when something is broken. A login would tie them to zummi (Pocket ID) and, through the reverse proxy, to grammi – exactly the hosts they are meant to be independent of. An address list needs nothing at runtime but nginx on the host itself. The login from the internet above does not change that: the mesh and LAN ways keep working without it.
 
@@ -261,13 +281,29 @@ The private version of this documentation (`doku.homelab.example`, on aldrin and
 
 #### Pocket ID: admin pages only from admin devices
 
-Since 2026-10-25 nginx on zummi answers Pocket ID's admin paths with 403 unless the request comes from an address in `admin-peers.json` – the same list as for the private docs. Closed is everything an admin session or an admin API key can do: `/settings/admin`, users, groups, OIDC clients, APIs, API keys, settings, audit log, signup tokens, SCIM (list: `$pocketid_admin_path` in `hosts/zummi/configuration.nix`, by the permissions of Pocket ID 2.19.1's routes – re-check on every minor bump). Login, account pages (`/api/users/me…`), the OIDC endpoints and logos stay public.
+Since 2026-10-25 nginx on zummi answers Pocket ID's admin paths with 403 unless the request comes from an address in `admin-peers.json` – the same list as for the private docs. Closed is everything an admin session or an admin API key can do: `/settings/admin`, users, groups, OIDC clients, APIs, API keys, settings, audit log, signup tokens, SCIM (list: `$pocketid_admin_path` in `hosts/zummi/configuration.nix`, by the permissions of Pocket ID 2.19.1's routes – re-check on every minor bump). Login, account pages (`/api/users/me…`), the OIDC endpoints and logos stay public. The one other exception: the [group sync](#pocket-id--netbird-group-sync)'s reads from grammi.
 
 So that admin devices arrive with their mesh address, a NetBird DNS zone points `auth.homelab.example` at zummi's mesh addresses for `admin-workstations` only (`terraform/netbird/pocket-id-admin.tf`); the vhost listens on the wildcard for it. Every other peer, NetBird's server on grammi included, keeps the public record.
 
 - Without NetBird on the device the public record applies: login works, the admin pages answer 403. A browser with its own DNS-over-HTTPS bypasses NetBird's DNS the same way.
 - `just pocketid-plan`/`-apply` therefore need NetBird on the MacBook.
 - A new admin device: into `admin-workstations`, `just netbird-apply`, then deploy zummi (and aldrin and ursalia, as for the docs).
+
+#### Pocket ID → NetBird: group sync
+
+Who is in which person group lives in Pocket ID only (`terraform/netbird/people.tf`). Until 2026-11-01 a change reached NetBird – and with it the reverse proxy's SSO group checks – only with the next `just netbird-apply`. Since then a timer on grammi reconciles every minute (`hosts/grammi/netbird-group-sync.nix`): for every person in `local.people` it sets `auto_groups` and `is_blocked` exactly as `netbird_user.person` computes them (person groups in Tofu's order, disabled in Pocket ID = blocked in NetBird), so the next plan shows no drift for them. Other groups in `auto_groups` stay untouched. Someone in neither `homelab` nor `homelab_admins` in Pocket ID is left alone and the run fails (the same check as Tofu's precondition). Every change is a line in the journal (`naddi: +home-lan`); right now instead of within a minute: `just netbird-group-sync`.
+
+Decided 2026-11-01 (1b) over an unattended `tofu apply` (applies everything, the state lives on the workstation) and over drift detection alone. NetBird's own JWT group sync stays off (reasons in the header of `people.tf`). A SCIM receiver that Pocket ID pushes changes to right away is noted for later.
+
+**Credentials**, each in a sops file of its own so either can be renewed alone:
+
+- **NetBird:** token of the service user `group-sync` (`terraform/netbird/group-sync.tf`), role admin – NetBird 0.81 allows nothing narrower for updating users (`network_admin` may only read them). Whoever owns grammi owns NetBird's database anyway. Store: `just netbird-group-sync-token`, renew yearly: `just netbird-group-sync-token renew`.
+- **Pocket ID:** API key of the dedicated admin user `netbird-group-sync` (no passkey, only for this key; shows up separately in the audit log, disabling the user locks the key at once). Pocket ID 2.19.1 cannot scope API keys: the key can do anything an admin can. It is fenced in on zummi: from grammi's mesh addresses nginx lets through only `GET` on the user list, single users and the key's own key list (`$pocketid_sync_allowed`), from the internet every admin path is 403. Fully usable, the key would only be from the admin devices. That is why the sync reaches Pocket ID at zummi's mesh name (TLS still for `auth.homelab.example`). Creating the key: log in as `netbird-group-sync` with a login code from the admin UI, create the API key "netbird-group-sync" valid for a year, delete that user's old keys, then `just netbird-group-sync-pocketid-key`.
+
+Then commit and deploy grammi each time. **Alerts** (`hosts/grammi/alerting.nix`): NetbirdGroupSyncStale (an hour without a clean run), SyncCredentialExpiring (token or key expire in less than 30 days), PersonNotManaged (someone is in `homelab`/`homelab_admins` in Pocket ID but not in `people.tf`); every failed run also trips UnitFailed.
+
+- A new person: after `just netbird-apply` commit the new `terraform/netbird/group-sync.json` and deploy grammi.
+- `group-sync.json` also holds grammi's mesh addresses; when they change (new v6 address), deploy zummi.
 
 #### Paperless: from outside, share links (PIN) and the app (SSO)
 
@@ -381,7 +417,7 @@ The pull hosts (zummi, aldrin, grammi, ursalia) keep `/etc/nixos` as a checkout 
 
 ### Nightly upgrade
 
-`modules/auto-upgrade-git.nix` updates `nixpkgs`, `nixpkgs-unstable` and `sops-nix`, builds, switches and pushes the new `flake.lock` back to GitHub with the host's deploy key. The GitHub host key is pinned because nobody is watching. A configuration error that only shows up on a cold boot therefore takes the host down at 04:00 – for the VMs there is the provider's console for that.
+Since 2026-10-31 only ursalia updates the inputs: `nix-cache-prebuild` (`modules/nix-cache.nix`) pulls `main` at 02:30, updates `nixpkgs`, `nixpkgs-unstable` and `sops-nix`, builds every host, uploads everything not on cache.nixos.org, signed, to the nix cache (bucket `nix-cache` in Garage on aldrin) and only then pushes the new `flake.lock` with its deploy key. If one host does not build, the lock is held back for all. From 04:00 `modules/auto-upgrade-git.nix` on every host resets `flake.lock` to HEAD, fast-forwards `main`, builds and switches – with the cache as a second substituter after cache.nixos.org, so even small hosts like zummi no longer build anything themselves. An aborted run no longer leaves a modified `flake.lock` behind (reset at the start and in `ExecStopPost`; `just sync` discards it too). The GitHub host key is pinned because nobody is watching. A configuration error that only shows up on a cold boot therefore takes the host down at 04:00 – for the VMs there is the provider's console for that.
 
 While `just try` holds a host on a topic branch, the upgrade skips it until the branch is merged ([Test a branch before merging](#test-a-branch-on-a-host-before-merging)).
 
@@ -393,12 +429,15 @@ Everything ends up on grammi: **vmagent** on every host sends metrics to Victori
 | --- | --- | --- |
 | `tailscale_*` | hosts with Tailscale | `tailscale metrics write`, every 30 s |
 | `fwupd_updates_*` | ursalia | `fwupdmgr get-updates` after each metadata refresh |
+| `smart_selftest_*` | ursalia | self-test log of every disk in `services.diskHealth.devices` (`smartctl -l selftest`), hourly (`modules/disk-health.nix`) |
 | `wifi_link_*` | ursalia | `iw dev wlo1 link` (PHY mode, width, MCS, NSS), every 30 s |
 | `node_wifi_*`, `wifi_link_*` | zorlock | `system_profiler SPAirPortDataType -json` every 60 s, same names as on ursalia (no receive rate, retries or separate receive PHY mode on macOS; macOS redacts SSID/BSSID without Location Services even for root, shown as "n/a" in the dashboard), plus `wifi_link_noise_dbm` |
 | `unit_cgroup_*` | all Linux hosts | CPU time and memory per systemd service from its cgroup, every 15 s (`unit-metrics` in `modules/metrics.nix`); counts every process of the unit, containers with `--cgroups=split` included |
 | `esphome_builder_data_bytes` | ursalia | Size of `/var/lib/esphome-builder` (toolchain cache), hourly |
 | `grafana_public_dashboard_info` | grammi | public dashboards from Grafana's API with their `dash` link and the template variables they use, every 10 s |
 | `netbird_expected_peers` | grammi | `terraform/netbird/expected-peers.json`, baked into the system at build time |
+| `nixlab_netbird_group_sync_*` | grammi | Pocket ID → NetBird group sync (`hosts/grammi/netbird-group-sync.nix`): last clean run, token and key expiry, Pocket ID users outside `people.tf` |
+| `nixlab_nixos_upgrade_last_success_seconds` | hosts with the nightly upgrade | time of the last successful `nixos-upgrade` (`modules/auto-upgrade-git.nix`), for the NixosUpgradeStale alert |
 
 The dashboards are JSON in `hosts/grammi/dashboards/`, provisioned from the repo (changes only via commit + deploy of grammi). `topology.json` is generated by `just topology`. "Export as image" is rendered by the Grafana image renderer on grammi (headless Chromium, loopback only `127.0.0.1:8082`); sharing outside see [access](#grafana-public-dashboards-through-dash).
 
@@ -408,7 +447,7 @@ The dashboards are JSON in `hosts/grammi/dashboards/`, provisioned from the repo
 | Topology | Hosts, exporters and data flows as a Graphviz diagram |
 | NetBird | Control plane reachable per host; peers per host as expected (Tofu) / known (network map) / connected P2P / connected relay, plus deviations; connection history, P2P latency, sync and setup times; netbird-server (signal, relay, gRPC, API); throughput and volume of the exit nodes aldrin/zummi per IP family ([exit nodes](#monitoring)) |
 | WLAN | ursalia's and zorlock's band (2.4 / 5 / 6 GHz) over time, channel, signal, PHY mode, link rate, traffic, MCS, retries, time associated |
-| Disk Health | SMART/NVMe of ursalia: status, critical warnings, wear, spare, temperature, data written |
+| Disk Health | SMART of ursalia's NVMe and SATA SSD: status, critical warnings, wear, spare, temperature, data written, ATA error counters, outcome and age of the last self-tests |
 | Paperless | Health (Celery, Redis, DB, index, classifier), documents, inbox, failed tasks, storage, log warnings |
 | paperless-gpt | OCR and suggestion backlog, OCR time per page, LLM requests, durations, tokens, errors; zorlock's GPU and memory |
 | ESPHome builds | The build server on ursalia: health, ESPHome version, builds and success rate, duration per build and device, CPU and memory next to Paperless, toolchain cache size, warnings. Builds and durations come from the log lines "Starting job …" / "Job … completed/failed" via LogsQL; device-builder has no metrics endpoint |
@@ -423,6 +462,34 @@ The dashboards are JSON in `hosts/grammi/dashboards/`, provisioned from the repo
 **Log level:** Vector turns journald's `PRIORITY` into the `level` field. Python services log to stderr, so journald files every line as an error. Lines in the format `<date> <time> INFO|WARNING|ERROR …` therefore take their level from the text, minus the colour codes (`modules/log-shipping.nix`).
 
 **Grafana pitfall:** state timelines with `mergeValues` and colour mode "thresholds" turn numbers into threshold buckets ("1+", "< 1") before value mappings are applied. Use colour mode "fixed" and put text and colour into the mappings.
+
+### Alerting
+
+**vmalert** on grammi evaluates rules, one instance against VictoriaMetrics, one against VictoriaLogs. **Alertmanager** groups, mutes and repeats. **Home Assistant** turns each group into a push notification on the iPhone and a notification in HA's web UI. Both disappear again once the alert resolves. Everything listens on `127.0.0.1` only. The single way out is the webhook to HA over the mesh (policy `alerting-home-assistant`, grammi → HA:8123 only). Alertmanager's web UI (alerts, silences) is at `alertmanager.homelab.example` or `alerts.homelab.example`, behind the reverse proxy with SSO, `homelab_admins` only. Code: `hosts/grammi/alerting.nix`.
+
+| Alert | Based on | Fires when |
+| --- | --- | --- |
+| UnitFailed | journal: systemd's "unit failed" (`MESSAGE_ID d9b373ed…`) per host and unit in 30 min (failures in the mute window: 3 h), plus `node_systemd_unit_state{state="failed"}` for 10 min | one failure is enough, the message gives the count |
+| NixosUpgradeStale | `nixlab_nixos_upgrade_last_success_seconds` | no success for 26 h, except under a deploy hold |
+| ResticBackupStale, ResticCheckFailed | `restic_backup_timestamp`, `restic_check_success` | newest snapshot older than 26 h, check failed |
+| BtrbkSnapshotStale | `btrbk_last_snapshot_timestamp_seconds` | older than 26 h |
+| CertExpiring | `ssl_certificate_expiry_seconds`, only `/var/lib/acme/<domain>/cert.pem` | less than 21 days |
+| DiskFull | `node_filesystem_*` | above 85 % for 15 min |
+| HostGone, TargetDown | `up` | host sent within the last 24 h, but not now; exporter down for 15 min |
+| NetbirdGroupSyncStale | `nixlab_netbird_group_sync_last_success_seconds` | no clean run for 1 h |
+| SyncCredentialExpiring | `nixlab_netbird_group_sync_credential_expiry_seconds` | the group sync's token or key expires in less than 30 days |
+| PersonNotManaged | `nixlab_netbird_group_sync_unmanaged_person` | Pocket ID user in `homelab`/`homelab_admins` who is not in `people.tf`, for 1 h |
+| Watchdog | `vector(1)` | always, as heartbeat |
+
+**Why the journal:** the next switch clears a unit's failed state. `systemctl --failed` and any single query show nothing afterwards. The crash loops of paperless-secret-key (October 2026, ~33 000 failed starts) and grist-core (~22 000 a day) never showed up as "failed", but every start left systemd's message in the journal.
+
+**Quiet:** between 04:00 and 06:00 (nightly upgrade and reboot window) everything but the Watchdog is muted. Whatever still fires at 06:00 is sent then. Hence a 3 h window for failures between 04:00 and 06:00, 30 min otherwise, so that a fixed unit clears its notification soon. Grouped by alert and host, repeated every 12 h. HostGone suppresses the other alerts of the same host.
+
+**Dead man's switch:** the Watchdog reaches HA every 5 min and restarts the timer `timer.nixlab_alerting_heartbeat` (20 min) there. If it runs out, the HA automation "nixlab Alerting stumm" reports that grammi, vmalert, Alertmanager or the path to HA is down. Without internet at home nothing arrives. Alertmanager keeps retrying, and an alert that still fires then arrives afterwards.
+
+**In HA:** automation "nixlab Alertmanager" (webhook, one run per group; tag `nixlab-<alert>-<host>`, so that the resolve removes the push and the web UI notification again), "nixlab Alerting stumm" and the timer. The push goes through the legacy service `notify.mobile_app_…`, because `notify.send_message` takes no `data.tag`. The webhook ID is the only secret: `just alerting-webhook-key` puts a new one on the clipboard (for the automation's trigger) and the URL into `hosts/grammi/alerting.yaml`. Deploy grammi afterwards.
+
+**Testing:** send a synthetic alert straight to Alertmanager: `ssh root@grammi.peer.homelab.example amtool --alertmanager.url=http://127.0.0.1:9093 alert add alertname=Test host=test --annotation=summary=Test`. It goes away by itself after 5 min. End to end: `systemd-run --unit=alerting-selftest false` on a host, UnitFailed arrives within about 5 min; the resolve follows once the failure drops out of the 30 min window.
 
 ## Web application firewall
 
@@ -1186,7 +1253,7 @@ just try-confirm ursalia 10     # 10 minutes
 4. The workstation waits until it reaches the host over the mesh again and the activation has finished, and asks **Keep it? [y/N]**.
 5. Only `y` stops the timer, sets the system profile and boot entry and writes the hold as `just try` does. Anything else – `n`, no answer, no connection – and the host rolls itself back at the deadline (`n` does it right away).
 
-When the host answers under a different name afterwards (a rename), `via` names the address to deploy to; the confirmation always goes to `<host>.peer.homelab.example`:
+When the host answers under a different name afterwards (a rename), `via` names the address to deploy to; the confirmation always goes to `<host>.peer.homelab.example`. That was the case at ursalia's cut-over (2026-10-29), when the NUC still answered as ursalia-next:
 
 ```bash
 just try-confirm ursalia 10 root@ursalia-next.peer.homelab.example
@@ -1241,6 +1308,7 @@ One flake, `nixosConfigurations` for five hosts plus `darwinConfigurations` for 
 | `terraform/netbird/` | OpenTofu: NetBird account, policies, DNS zones, reverse proxy services, people/groups (incl. Pocket ID) |
 | `terraform/desec-tokens/` | OpenTofu: narrowly scoped deSEC tokens per host for DNS-01 |
 | `terraform/github/` | OpenTofu: the repositories `nixlab` (private) and `nixlab-docs` (public), deploy keys per host |
+| `terraform/garage/` | OpenTofu: buckets, keys and permissions in Garage on aldrin (lifecycle rules by hand) |
 | `topology.nix` | Generates the Grafana topology dashboard from the host configs |
 | `inventory.json` / `inventory.nix` | Lab inventory (every machine: kind, site, uplink, relations, unlock) and its validation, see [Inventory](#inventory) |
 | `inventory.schema.json` | JSON Schema for editing `inventory.json`, generated |
@@ -1303,7 +1371,7 @@ What a host directory contains and who writes it. Not every host has every file.
 
 ## Inputs and their pins
 
-Only `nixpkgs`, `nixpkgs-unstable` and `sops-nix` move with the nightly auto-upgrade (`updateInputs` in `modules/deploy.nix`). Anything that would lock the whole lab out on a broken release is pinned separately and bumped by hand.
+Only `nixpkgs`, `nixpkgs-unstable` and `sops-nix` move with the nightly auto-upgrade (`services.nixCache.prebuild.updateInputs` in `modules/deploy.nix`, updated by ursalia for every host). Anything that would lock the whole lab out on a broken release is pinned separately and bumped by hand.
 
 | Input | Branch / tag | Used by | Nightly? |
 | --- | --- | --- | --- |
@@ -1335,7 +1403,7 @@ Three rented VMs carry the public services, ursalia and zorlock sit at home, cuc
 | grammi | NixOS, rented VM | NetBird server (`mesh.homelab.example`) + reverse proxy, Traefik, monitoring (VictoriaMetrics/-Logs, Grafana, logchef), Mealie, Grist, PostgreSQL | Central sink for metrics and logs of all hosts |
 | zummi | NixOS, rented VM | Pocket ID (`auth.homelab.example`) – login for all services and NetBird | pocket-id pinned separately |
 | aldrin | NixOS, rented VM | Garage S3 (`s3.aldrin.homelab.example`), garage-ui (`s3-admin`), backup target for restic, docs site (`doku`) | Forked garage-ui package with subpath support |
-| ursalia | NixOS, bare metal (ASRock NUC BOX-1260P) | Paperless-ngx 3 + paperless-gpt (`dokumente`), HealthLog (`health`), docs site (`doku`), Samba for the scanner, routing peer into the home LAN, build host for cuckoosegg, ESPHome build server for Home Assistant (home LAN only, port 6055), Claude Code bridge to the NanoKVM Go+ (on demand) | LUKS + btrfs via disko, TPM unlock, Secure Boot (lanzaboote), WLAN (Intel BE200), no CrowdSec |
+| ursalia | NixOS, bare metal (ASRock NUC BOX-1260P) | Paperless-ngx 3 + paperless-gpt (`dokumente`), HealthLog (`health`), Bambuddy (`bambuddy`), docs site (`doku`), Samba for the scanner, routing peer into the home LAN, build host for cuckoosegg, ESPHome build server for Home Assistant (home LAN only, port 6055), Claude Code bridge to the NanoKVM Go+ (on demand) | LUKS + btrfs via disko, TPM unlock, Secure Boot (lanzaboote), WLAN (Intel BE200), no CrowdSec |
 | cuckoosegg | NixOS, VM on the Subraum Proxmox | NetBird routing peer into the Subraum networks | Group `subraum-devices` instead of `servers`, no repo/deploy key, deployed by push |
 | zorlock | macOS + nix-darwin, Mac mini M4 | Ollama on the Apple GPU (`llm`), used by paperless-gpt | None of the `modules/*.nix`; FileVault unlock after reboot via LAN SSH |
 | gusto | macOS + nix-darwin + home-manager, MacBook Pro | Admin workstation: deploys, secrets, Tofu, docs | Laptop, no sshd, no secrets, not monitored; apps as Homebrew casks, NetBird as the official app – see [gusto](#gusto--the-admin-workstation) and [macOS hosts](#macos-hosts) |
@@ -4449,10 +4517,12 @@ Services are named by function, not by product. There are three kinds of reachab
 | `metrics` | Grafana | grammi | reverse proxy + SSO |
 | `dash` | Grafana, public dashboards only | grammi | reverse proxy without login, Traefik passes only the public-dashboard paths ([why](#grafana-public-dashboards-through-dash)) |
 | `vm` / `vl` | VictoriaMetrics / VictoriaLogs UI | grammi | reverse proxy + SSO |
+| `alertmanager` / `alerts` | Alertmanager UI (alerts, silences) | grammi | reverse proxy + SSO, `homelab_admins` only ([Alerting](#alerting)) |
 | `s3-admin` | garage-ui | aldrin | mesh only |
 | `dokumente` | Paperless + paperless-gpt (`/paperless-gpt/`) | ursalia | in the mesh directly; from outside, through the reverse proxy, share links via PIN and the app via SSO ([why](#paperless-from-outside-share-links-pin-and-the-app-sso)) |
 | `llm` | Ollama (behind Caddy) | zorlock | mesh only |
 | `health` | [HealthLog](https://github.com/MBombeck/HealthLog) ([`0497d60`](https://github.com/MBombeck/HealthLog/tree/0497d60a893784e709899cdb6fbdf155ef29e3e3) by Marc Bombeck) | ursalia | mesh only (the iOS app needs NetBird too), login via Pocket ID only (group `healthlog_users`); its own encrypted off-host copies in Garage on aldrin (bucket `healthlog-backups`, 30 days) |
+| `bambuddy` | [Bambuddy](https://github.com/maziggy/bambuddy) ([`98ecaf5`](https://github.com/maziggy/bambuddy/tree/98ecaf5020e3a20a5de49859b8ad5a754d5ad85c) by MartinNYHC) | ursalia | through the reverse proxy with SSO (groups `bambuddy_user` / `bambuddy_admin`), then Bambuddy's own login via Pocket ID; printers by IP in LAN mode; virtual printer for Bambu Studio on ursalia's LAN address (ports in the home LAN only, from outside via the NetBird route into the home LAN) |
 | `mqtt` | Mosquitto (Home Assistant add-on) | Home Assistant (home LAN, NetBird peer) | port 8883, MQTT over TLS: at home straight to HA (home router (OPNsense) answers the name locally), from outside through the reverse proxy as TLS passthrough to the peer, no SSO ([why](#mqtt-from-outside-tls-passthrough-to-home-assistant)) |
 | `acme` | dns01proxy (DNS-01 for Home Assistant) | grammi | mesh only, port 8446; HA resolves it through the home router (OPNsense) ([why](#mqtt-from-outside-tls-passthrough-to-home-assistant)) |
 | `doku` | This documentation (private version) | aldrin + ursalia | in the mesh admin devices only ([why](#private-docs-admin-devices-home-lan-login)), one A record per host; in the home LAN through a record of the router's own to ursalia, except a deny list; from outside a redirect to the public docs through the reverse proxy, `/login` to `doku-login` |
@@ -4470,17 +4540,19 @@ The 20 modules under `modules/` carry the configuration shared by all hosts; eve
 
 | Module | Purpose | Options / notes |
 | --- | --- | --- |
-| [auto-upgrade-git.nix](modules/auto-upgrade-git.nix) | Nightly `nixos-rebuild switch`, commits and pushes the new `flake.lock` back to the repo | `services.autoUpgradeGit`: `enable`, `flakeDir`, `flakeAttr`, `updateInputs`, `dates`, `allowReboot`, `rebootWindow`, `deployKeySecret`, `gitAuthorEmail`, `holdFile`, `holdCheck` |
+| [auto-upgrade-git.nix](modules/auto-upgrade-git.nix) | Nightly `nixos-rebuild switch`, commits and pushes the new `flake.lock` back to the repo | `services.autoUpgradeGit`: `enable`, `flakeDir`, `flakeAttr`, `updateInputs`, `dates`, `allowReboot`, `rebootWindow`, `deployKeySecret`, `gitAuthorEmail`, `holdFile`, `holdCheck`, `pull` |
 | [log-shipping.nix](modules/log-shipping.nix) | journald and nginx logs to VictoriaLogs via Vector | `services.logShipping`: `enable`, `victoriaLogsUrl` |
 | [metrics-shipping.nix](modules/metrics-shipping.nix) | vmagent scrapes the local exporters and remote-writes to VictoriaMetrics | `services.metricsShipping`: `enable`, `remoteWriteUrl`, `exporterPorts` |
+| [disk-health.nix](modules/disk-health.nix) | SMART of physical disks: smartd self-tests (short weekly, extended monthly, staggered per disk), smartctl_exporter, `smart_selftest_*` textfile metrics, dashboard Disk Health | `services.diskHealth.devices` (by-id paths; the order decides the test slot); on ursalia |
 | [deploy-hold.nix](modules/deploy-hold.nix) | Hold for `just try`: `nixos-hold`, metric `nixlab_deploy_hold_since_seconds`, warning in the login shell | on cuckoosegg too – [Test a branch before merging](#test-a-branch-on-a-host-before-merging) |
 | [deploy.nix](modules/deploy.nix) | The lab's policy for auto-upgrade-git: GitHub deploy key, pinned host key, reboot window 04:00–06:00 | kept apart from the mechanism so that stays reusable |
+| [nix-cache.nix](modules/nix-cache.nix) | The lab's own binary cache in Garage (`s3://nix-cache`): substituter and read key on every host; on ursalia the nightly lock update, build of every host and upload | `services.nixCache.prebuild`: `enable`, `updateInputs`, `dates`; secrets from `just nix-cache-secrets` |
 | [acme.nix](modules/acme.nix) | ACME defaults for every TLS host: DNS-01 against deSEC | token from `hosts/<host>/desec.yaml` (from Tofu) |
 | [netbird.nix](modules/netbird.nix) | NetBird client in the mesh, registration via setup key, local metrics | setup key from `hosts/<host>/netbird.yaml` (from Tofu) |
 | [tailscale.nix](modules/tailscale.nix) | Shared Tailscale agent | `tailscale serve` stays in the host config |
 | [ssh.nix](modules/ssh.nix) | Who may log in from where: root only via mesh or Tailscale | keys stay per host |
 | [firewall.nix](modules/firewall.nix) | Only 22/80/443 public, tailnet as trusted interface | |
-| [crowdsec.nix](modules/crowdsec.nix) | CrowdSec engine and firewall bouncer, whitelist for the lab hosts | workarounds for bugs in the nixpkgs modules, documented in the header |
+| [crowdsec.nix](modules/crowdsec.nix) | CrowdSec engine and firewall bouncer, whitelist for the lab hosts and for nix cache lookups | workarounds for bugs in the nixpkgs modules, documented in the header |
 | [networking.nix](modules/networking.nix) | ifstate skeleton, systemd-resolved with DNS over TLS, no fallback resolvers | addresses and routes stay in the host config |
 | [metrics.nix](modules/metrics.nix) | Prometheus exporters per host | protected by the firewall instead of bind addresses |
 | [logging.nix](modules/logging.nix) | Bounds journald, which otherwise grows up to 4 GB | |
@@ -4518,6 +4590,8 @@ The 20 modules under `modules/` carry the configuration shared by all hosts; eve
 | `just tf-state-passphrase` | Once: the passphrase for the Tofu states into `terraform/secrets.yaml` (never overwrites) |
 | `just github-key <host>` | New GitHub deploy key for a host (key via sops, registration via Tofu) |
 | `just github-plan` / `github-apply` | Change the repositories and deploy keys on GitHub |
+| `just garage-plan` / `garage-apply` | Change the buckets, keys and permissions in Garage on aldrin (`terraform/garage`) |
+| `just garage-admin-token` | Copy Garage's admin token from aldrin into `terraform/secrets.yaml` over SSH – once per workstation key, and again after rotating it |
 | `just desec-key <host>` / `desec-verify` | Rotate a deSEC token, or check the scopes from every host |
 | `just nanokvm-mcp-key` | Store the NanoKVM Go+ MCP API key encrypted for ursalia (then commit, deploy ursalia) |
 | `just kvm-bridge setup\|start\|stop\|status\|log` | Claude Code bridge to the NanoKVM Go+ on ursalia: set up once, start, stop, state, log |
@@ -4565,6 +4639,8 @@ eval $(op signin) && export SOPS_AGE_KEY_CMD='op read "op://<vault>/<item>/passw
 - [ ] NetBird provider: replace the build from PR #215 (IPv6 overlay) with the registry version again once it is released ([exit nodes & IPv6](#provider-from-pr-215))
 - [ ] Home Assistant: check whether `trusted_proxies`/`trusted_networks` know only `192.0.2.0/24` and add `2001:db8:203:0::/64` (not in the repo)
 - [ ] Upstream PRs to the NetBird provider (#247 `direct_upstream`/cluster targets, #248 `crowdsec_mode`); then switch the proxy targets on grammi to `localhost`
+- [ ] NetBird: narrow `servers-to-servers` to the ports in use (ingest 8428/9428, Garage 443, dns01proxy 8446, exporters, SSH for deploys, llm) – all ports today ([Who reaches the servers](#who-reaches-the-servers))
+- [ ] NetBird: feature request for ICMP types in policies ([netbird#8447](https://github.com/netbirdio/netbird/discussions/8447)); until then `to-servers-icmp` allows every ICMP type, not just ping ([Who reaches the servers](#who-reaches-the-servers))
 - [ ] Remove Tailscale from the servers once nothing depends on it any more
 - [ ] Grafana alerting (contact point still missing) for SMART, fwupd, Paperless, NetBird expected ≠ known, ursalia's WLAN (not associated, stuck on 2.4 GHz, weak signal)
 - [ ] Update notifications for the inputs pinned by hand (NetBird, Pocket ID)

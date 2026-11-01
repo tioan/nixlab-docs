@@ -6,6 +6,13 @@
   services.openssh = {
     enable = true;
 
+    # Only the declared keys (/etc/ssh/authorized_keys.d) count, never
+    # ~/.ssh/authorized_keys: the installer's key sat in /root/.ssh on ursalia
+    # unnoticed until 2026-10-16, and hoster images often leave one behind.
+    # Anything that should log in belongs in the host's
+    # openssh.authorizedKeys.keys.
+    authorizedKeysInHomedir = false;
+
     settings.PasswordAuthentication = false;
     settings.KbdInteractiveAuthentication = false;
 

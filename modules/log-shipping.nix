@@ -130,6 +130,15 @@ in
                 }
               }
             } else {
+              # root's session bus (user@0, started by every deploy or root
+              # login) finds systemd's D-Bus service files twice - through
+              # system-path and through XDG_DATA_DIRS - and logs each at
+              # PRIORITY 3. NixOS's doing, harmless, and not an error worth
+              # shipping; the lines stay in the local journal.
+              if (string(._SYSTEMD_USER_UNIT) ?? "") == "dbus-broker.service" &&
+                starts_with(string(.message) ?? "", "Ignoring duplicate name ") {
+                abort
+              }
               p, err = to_int(.PRIORITY)
               if err != null { p = 6 }
               .level = if p <= 3 {
