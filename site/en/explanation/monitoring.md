@@ -7,12 +7,13 @@ Everything ends up on grammi: **vmagent** on every host sends metrics to Victori
 | `tailscale_*` | hosts with Tailscale | `tailscale metrics write`, every 30 s |
 | `fwupd_updates_*` | ursalia | `fwupdmgr get-updates` after each metadata refresh |
 | `smart_selftest_*` | ursalia | self-test log of every disk in `services.diskHealth.devices` (`smartctl -l selftest`), hourly (`modules/disk-health.nix`) |
-| `wifi_link_*` | ursalia | `iw dev wlo1 link` (PHY mode, width, MCS, NSS), every 30 s |
-| `node_wifi_*`, `wifi_link_*` | zorlock | `system_profiler SPAirPortDataType -json` every 60 s, same names as on ursalia (no receive rate, retries or separate receive PHY mode on macOS; macOS redacts SSID/BSSID without Location Services even for root, shown as "n/a" in the dashboard), plus `wifi_link_noise_dbm` |
+| `wifi_link_*` | tummi | `iw dev wlo1 link` (PHY mode, width, MCS, NSS), every 30 s |
+| `node_wifi_*`, `wifi_link_*` | zorlock | `system_profiler SPAirPortDataType -json` every 60 s, same names as on tummi (no receive rate, retries or separate receive PHY mode on macOS; macOS redacts SSID/BSSID without Location Services even for root, shown as "n/a" in the dashboard), plus `wifi_link_noise_dbm` |
 | `unit_cgroup_*` | all Linux hosts | CPU time and memory per systemd service from its cgroup, every 15 s (`unit-metrics` in `modules/metrics.nix`); counts every process of the unit, containers with `--cgroups=split` included |
 | `esphome_builder_data_bytes` | ursalia | Size of `/var/lib/esphome-builder` (toolchain cache), hourly |
 | `grafana_public_dashboard_info` | grammi | public dashboards from Grafana's API with their `dash` link and the template variables they use, every 10 s |
-| `netbird_expected_peers` | grammi | `terraform/netbird/expected-peers.json`, baked into the system at build time |
+| `netbird_expected_peers` | grammi | `terraform/netbird/expected-peers.json`, baked into the system at build time; label `netbird_host` (the host it is about), since `host` is the sending host on every series as of 2026-11-02 |
+| `nixlab_remote_uplink_*` | gw-remote | OpenVPN's status file per uplink: connected, since when, bytes of the current session, every 30 s ([site gateway](site-gateway.md#monitoring)) |
 | `nixlab_netbird_group_sync_*` | grammi | Pocket ID → NetBird group sync (`hosts/grammi/netbird-group-sync.nix`): last clean run, token and key expiry, Pocket ID users outside `people.tf` |
 | `nixlab_nixos_upgrade_last_success_seconds` | hosts with the nightly upgrade | time of the last successful `nixos-upgrade` (`modules/auto-upgrade-git.nix`), for the NixosUpgradeStale alert |
 
@@ -56,6 +57,7 @@ The dashboards are JSON in `hosts/grammi/dashboards/`, provisioned from the repo
 | NetbirdGroupSyncStale | `nixlab_netbird_group_sync_last_success_seconds` | no clean run for 1 h |
 | SyncCredentialExpiring | `nixlab_netbird_group_sync_credential_expiry_seconds` | the group sync's token or key expires in less than 30 days |
 | PersonNotManaged | `nixlab_netbird_group_sync_unmanaged_person` | Pocket ID user in `homelab`/`homelab_admins` who is not in `people.tf`, for 1 h |
+| RemoteUplinkDown, RemoteSiteUnreachable | `nixlab_remote_uplink_connected` | one uplink of the remote site disconnected for 30 min; none for 10 min |
 | Watchdog | `vector(1)` | always, as heartbeat |
 
 **Why the journal:** the next switch clears a unit's failed state. `systemctl --failed` and any single query show nothing afterwards. The crash loops of paperless-secret-key (October 2026, ~33 000 failed starts) and grist-core (~22 000 a day) never showed up as "failed", but every start left systemd's message in the journal.

@@ -153,7 +153,7 @@ Host keys: lab hosts from `inventory.json` (`/etc/ssh/ssh_known_hosts`), GitHub 
 | `<host>.example-tailnet.ts.net` | Tailscale | as above | as above | break-glass while Tailscale still runs; not for cuckoosegg. Goes away with Tailscale. |
 | `aldrin.homelab.example`, `grammi.homelab.example`, `zummi.homelab.example` | public address | admin | as above | fallback when the mesh is down – root is refused on public addresses (`modules/ssh.nix`) |
 | `zorlock-lan` | 198.51.100.86 | admin | `zorlock.homelab.example.pub` | FileVault unlock after a reboot, from the home LAN |
-| `opnsense` | 198.51.100.1 | root | `opnsense.pub` | |
+| `gruffi` | 198.51.100.1 | root | `gruffi.homelab.example.pub` | home router (Flint 4, GL.iNet firmware, Dropbear) |
 | `arkkvm`, `arkkvm01` | `arkkvm01` (DHCP name) | root | `arkkvm.pub` | |
 | `subraum-router` | hackspace.c3pb.de | admin | `c3pb.de.pub` | jump host; forwards 8006 → Proxmox, 8080/8081 → Home Assistant |
 | `vogon`, `amnesia`, `unifi` | `<name>.subraum.c3pb.de` via `subraum-router` | root | `<name>.subraum.c3pb.de.pub` | |
@@ -175,21 +175,22 @@ The official app from NetBird's tap (cask `netbird-ui`, formula `netbird` for th
 
 ## The Claude app's MCP servers
 
-The desktop app and Claude Code start their local MCP servers as stdio processes through `mcp-run <server>` (`hosts/gusto/mcp.nix`, set up on 2026-10-23). On every start `mcp-run` decrypts only that server's section of `hosts/gusto/mcp.yaml`. The file is encrypted with sops for the keys `workstation` and `admin`; `op` may ask for Touch ID while doing so. Then `mcp-run` starts the server. No credential is in any of Claude's config files.
+The desktop app and Claude Code start their local MCP servers as stdio processes through `mcp-run <server>` (`hosts/gusto/mcp.nix`, set up on 2026-10-23). On every start `mcp-run` decrypts only that server's section of `hosts/gusto/mcp.yaml` (`moneymoney` has none and starts without sops). The file is encrypted with sops for the keys `workstation` and `admin`; `op` may ask for Touch ID while doing so. Then `mcp-run` starts the server. No credential is in any of Claude's config files.
 
 | Server | What | Start | Credentials in `mcp.yaml` | Desktop | Claude Code |
 | --- | --- | --- | --- | --- | --- |
 | `homeassistant` | [ha-mcp](https://github.com/homeassistant-ai/ha-mcp) as an app (add-on) on the Raspberry Pi, port 9583 | `uvx fastmcp-remote <url>`, bridges HTTP to stdio | `homeassistant.url`: the app's secret URL, host `homeassistant.peer.homelab.example` | yes | yes |
 | `feedbin` | [FeedbinMCP](https://github.com/admin/FeedbinMCP), admin's fork of [hypermoose/FeedbinMCP](https://github.com/hypermoose/FeedbinMCP) | `uv run --directory ~/Projects/personal/FeedbinMCP feedbin-mcp` | `feedbin.email`, `feedbin.password` | yes | no |
 | `arkkvm` | [arkkvm-mcp](https://github.com/admin/arkkvm-mcp) | `uv run --directory ~/Projects/arkkvm/arkkvm-mcp arkkvm-mcp`, host `arkkvm01`, keyboard layout `de` | `arkkvm.password` | yes | yes |
+| `moneymoney` | [moneymoney-mcp](https://github.com/pipamann/moneymoney-mcp) by Leon Heuser, read-only, through AppleScript to the running, unlocked app | `moneymoney-mcp`, built from tag [v0.4.0](https://github.com/pipamann/moneymoney-mcp/tree/3266505c450ff92ceaa79df3d59965f8ea28f22f) (`pkgs/moneymoney-mcp.nix`) | none | yes | no |
 
 - **ha-mcp rather than the built-in "Model Context Protocol Server" integration:** the built-in one only sees what is exposed to Assist and has no device registry. ha-mcp can handle automations, dashboards, registries, history and more, with write access. That is deliberate: Claude asks before every tool call, and ha-mcp takes a backup before it changes anything. The app talks to HA through the Supervisor, so no long-lived token is needed. Its secret URL is in the app's log at start.
 - **Reached over the mesh:** the same URL works at home and away. The NetBird policy `home-assistant-mcp` (`terraform/netbird/home-assistant.tf`) allows `admin-workstations` → HA, TCP 9583 only. Outside the LAN and the mesh the URL alone is of no use.
-- **No Feedbin in Claude Code:** feed articles are text from strangers, so a way in for prompt injection, and Claude Code has a shell and sops on gusto.
+- **No Feedbin and no MoneyMoney in Claude Code:** feed articles and transaction texts are text from strangers (anyone sending money picks the reference), so a way in for prompt injection, and Claude Code has a shell and sops on gusto.
 - **Configuration:** every switch merges the servers with `jq` into `mcpServers` of `~/Library/Application Support/Claude/claude_desktop_config.json` and `~/.claude.json`, by name. Servers added by hand stay; one removed here has to be deleted there by hand. The apps read the file at start, so restart them after a switch.
 - **Changing credentials:** `cd ~/Projects/homelab/nixlab && sops hosts/gusto/mcp.yaml`. The change applies from the next server start, without a switch, because `mcp-run` reads the file in the working copy. The HA URL can be taken straight from the clipboard, with its host replaced by the mesh name:
   `cd ~/Projects/homelab/nixlab && sops set hosts/gusto/mcp.yaml '["homeassistant"]["url"]' "\"$(pbpaste | sed -E 's#^http://[^/]+#http://homeassistant.peer.homelab.example:9583#')\""`
-- **MoneyMoney** is not set up yet, because MoneyMoney has not been on gusto since the reinstall. It used to run as `npx -y moneymoney-mcp`; that needs Node and the app running and unlocked.
+- **MoneyMoney built from the tag, not `npx -y moneymoney-mcp`:** upstream's `npx` resolves the newest release and its dependency ranges from npm on every start; for a server that reads the bank accounts the build from `package-lock.json` is pinned and fetches nothing at start. An update means bumping version and hashes (see the package file). Read-only on purpose: without `--enable-transfers` the `create_bank_transfer` tool does not exist. At the first access macOS asks under Automation whether Claude may control MoneyMoney (System Settings → Privacy & Security → Automation). Error `DATABASE_LOCKED`: unlock MoneyMoney.
 
 ## Backup
 

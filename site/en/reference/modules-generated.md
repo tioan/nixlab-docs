@@ -576,6 +576,33 @@ below is incidental.
 
 [Source](https://github.com/tioan/nixlab-docs/blob/main/modules/qemu-guest.nix)
 
+## samba-mesh.nix
+
+Samba for the NetBird mesh: the lab's SMB policy (SMB3 only, macOS
+friendly, no guests, no NetBIOS, mesh clients only) and the passwords of
+the Samba-only accounts from sops. Shares, the accounts themselves and
+their file permissions stay with the host - ursalia's Paperless consume
+share (hosts/ursalia/samba.nix), tummi's /data. Taken out of
+hosts/ursalia/samba.nix when tummi got a share (2026-11-01).
+
+Accounts are Samba-only (no shell, no login, no home); SMB authenticates
+with NTLMv2 against a password hash, which Pocket ID (passkeys, no LDAP)
+cannot serve. Their passwords: smb_password_<user> in the host's default
+sops file, entered with `just secrets <host>`.
+
+Reachable over the NetBird mesh only: smbd listens everywhere, the firewall
+admits 445 only on the trusted nb-mesh (openFirewall stays off, the LAN
+side has no 445), and "hosts allow" limits clients to the mesh.
+
+**Options** (`services.sambaMesh`):
+
+| Option | Description |
+| --- | --- |
+| `enable` | Enable: Samba for the NetBird mesh |
+| `users` | Samba-only accounts whose SMB password is set from sops (smb_password_<user>) on every boot and switch. The system users themselves are declared by the host. |
+
+[Source](https://github.com/tioan/nixlab-docs/blob/main/modules/samba-mesh.nix)
+
 ## ssh.nix
 
 Shared sshd policy. The authorized keys themselves stay per host - each host

@@ -31,6 +31,7 @@ nav = [
   { "Erklärung" = [
     "explanation/nixos-opentofu.md",
     "explanation/secrets-network-access.md",
+    "explanation/site-gateway.md",
     "explanation/deployment.md",
     "explanation/monitoring.md",
     "explanation/waf.md",
@@ -45,6 +46,7 @@ nav = [
     "how-to/software.md",
     "how-to/hotfix.md",
     "how-to/try-branch.md",
+    "how-to/restore-test.md",
   ] },
   { "Referenz" = [
     "reference/repository.md",

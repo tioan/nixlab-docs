@@ -545,6 +545,28 @@ Replace the service user's token (yearly, it expires after 365 days) and
 store the new one: the replace authenticates with the current token, then
 netbird-rotate-token swaps it in secrets.yaml.
 
+## `just gw-remote-pki`
+
+OpenVPN keys for gw-remote (hosts/gw-remote/container.nix, issue #84): a CA of
+its own, the server certificate, one client certificate per uplink
+profile of the Remote site's ER7206 and the tls-crypt key - encrypted
+straight into hosts/gw-remote/secrets.yaml (server side, for aldrin) and
+hosts/gw-remote/clients.yaml (workstation only), never on disk in plaintext.
+The CA key is thrown away: a new client means a new CA and new profiles
+for both uplinks, which is cheaper than keeping a CA key safe for years.
+RSA, not EC: which OpenVPN the ER7206 runs is not documented. Refuses to
+overwrite; delete both files to start over.
+
+## `just gw-remote-ovpn uplink out`
+
+The ER7206's OpenVPN client profile for one uplink (uplink1, uplink2 -
+hosts/gw-remote/site.json), with certificate, key and the tls-auth key
+inline, as the Omada controller imports it (VPN > VPN Client > OpenVPN,
+bound to that uplink's WAN). Kept to what the ER7206 takes: its client
+silently drops a profile with tls-crypt, the controller wants an IP as
+the server (aldrin's, from DNS), and newer options are left out. Written to <out> with mode 600 - it is the client's
+login, delete it after the import. Needs the workstation key (1Password).
+
 ## `just netbird-key host`
 
 Mint a fresh one-off setup key for one host and write it straight into
@@ -619,6 +641,13 @@ replace.
 HealthLog's OIDC client secret (terraform/pocket-id/healthlog.tf) from Tofu
 state into hosts/ursalia/healthlog-oidc.yaml. Run after pocketid-apply has
 created (or replaced) the client.
+
+## `just adguardhome-password`
+
+AdGuard Home's admin password on ursalia (hosts/ursalia/adguardhome.nix):
+random, onto the clipboard for 1Password - the only place the plaintext is
+kept - and only its bcrypt hash into hosts/ursalia/adguardhome.yaml. Also
+the rotation: run again, store the new one, commit, deploy ursalia.
 
 ## `just bambuddy-secrets`
 

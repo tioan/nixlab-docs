@@ -31,8 +31,24 @@ let
   # out, with a warning, instead of the whole configuration failing.
   setupKeyFile = ../hosts/${config.networking.hostName}/netbird.yaml;
   hasSetupKey = builtins.pathExists setupKeyFile;
+
+  # A peer without sops of its own (the gw-remote container on aldrin, which
+  # has no host key to decrypt with) gets the key as a plain file instead:
+  # its host decrypts hosts/<peer>/netbird.yaml and mounts it in.
+  externalKey = config.services.netbirdMesh.setupKeyPath;
 in
 {
+  imports = [
+    {
+      options.services.netbirdMesh.setupKeyPath = lib.mkOption {
+        type = lib.types.nullOr lib.types.str;
+        default = null;
+        example = "/run/secrets/netbird-setup-key";
+        description = "Setup key as a file decrypted elsewhere, instead of hosts/<host>/netbird.yaml through this host's sops.";
+      };
+    }
+  ];
+
   # Client from the same pin as the server (0.80 there, 26.05 ships 0.71):
   # one version across the mesh, bumped together with
   # `nix flake update nixpkgs-netbird`.
@@ -56,15 +72,17 @@ in
     port = 51820;
 
     login = {
-      enable = hasSetupKey;
+      enable = hasSetupKey || externalKey != null;
       # Picked up through LoadCredential by netbird-mesh-login.service, which
       # runs `netbird up` only while the client still reports NeedsLogin -
       # so a spent or expired key in sops is harmless once registered.
-      setupKeyFile = lib.mkIf hasSetupKey config.sops.secrets."netbird_setup_key".path;
+      setupKeyFile =
+        if externalKey != null then externalKey
+        else lib.mkIf hasSetupKey config.sops.secrets."netbird_setup_key".path;
     };
   };
 
-  warnings = lib.optional (!hasSetupKey)
+  warnings = lib.optional (!hasSetupKey && externalKey == null)
     "netbird: no hosts/${config.networking.hostName}/netbird.yaml - the client runs but cannot register; run `just netbird-key ${config.networking.hostName}`.";
 
   # The module's login script only acts on "NeedsLogin" and otherwise waits
@@ -100,7 +118,7 @@ in
   services.netbird.clients.mesh.environment.NB_MANAGEMENT_URL = "https://mesh.homelab.example:443";
 
   # Per host, next to its secrets.yaml (rule in .sops.yaml).
-  sops.secrets."netbird_setup_key" = lib.mkIf hasSetupKey {
+  sops.secrets."netbird_setup_key" = lib.mkIf (hasSetupKey && externalKey == null) {
     sopsFile = setupKeyFile;
     restartUnits = [ "${client.service.name}-login.service" ];
   };

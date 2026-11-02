@@ -18,10 +18,10 @@ Der Workstation-Key liegt in 1Password und wird über `SOPS_AGE_KEY_CMD` gelesen
 ## Netzwerk
 
 - **NetBird-Mesh** (`192.0.2.0/24` und `2001:db8:203:0::/64`, Peer-Namen unter `peer.homelab.example`): Control Plane auf grammi, Login über Pocket ID. Private Range (RFC 1918) statt CGNAT, weil tailscaled Pakete aus 100.64/10 verwirft, solange beide Clients parallel laufen.
-- **Gruppen:** `servers` (alle Hosts außer cuckoosegg), `subraum-devices`, `admin-workstations` (MacBook), dazu Personengruppen aus Pocket ID.
+- **Gruppen:** `servers` (alle Hosts außer cuckoosegg), `subraum-devices`, `remote-devices` (gw-remote, [Standort-Gateway](site-gateway.md)), `admin-workstations` (MacBook), dazu Personengruppen aus Pocket ID.
 - **Heim-LAN** (`198.51.100.0/24`): Route über ursalia (Metrik 100), die beiden Apple TVs als Rückfall (Gruppe `home-routers`, Metrik 200, eigener Setup-Key per `just netbird-router-key`, keiner Person zugeordnet, in keiner Policy); für Gruppe `home-lan`, nicht für Geräte, die schon zu Hause sind (Posture-Check `not-at-home`). Rosenpass ist seit 2026-10-24 im ganzen Mesh aus (bis 2026-10-31, siehe [macOS-Hosts](macos-hosts.md#netbird-auf-den-beiden-macs)); „Quantum-Resistance“ in der App der Apple TVs gehört für diese Zeit ebenfalls aus.
 - **Reiserouter** (Mudi 7, GL.iNet GL-E5800): Peer `mudi7`, Gruppe `travel-routers`, eigener Setup-Key per `just netbird-key-mudi7`, keiner Person zugeordnet und vorerst in keiner Policy. Das OpenWrt-Paket liefert nur NetBird 0.24.3; das Binary wird von Hand gegen das `linux_arm64`-Release in der Mesh-Version getauscht (`terraform/netbird/travel-router.tf`).
-- **Anbindung von ursalia:** WLAN ins Hauptnetz des Heim-LANs (Intel AX211, `hosts/ursalia/wifi.nix`): wpa_supplicant, WPA3 mit WPA2-Rückfall, Land DE, alle Bänder, Passwort per sops. Am endgültigen Platz gibt es kein Kabel; eno1 behält DHCP als Rückfall mit schlechterer Routen-Metrik, damit das WLAN die Hauptverbindung bleibt, wenn beide aktiv sind.
+- **Anbindung von ursalia:** seit 2026-11-02 per 2,5G-Kabel (`enp46s0`, `hosts/ursalia/lan.nix`) ins Hauptnetz des Heim-LANs, DHCP ohne Reservierung. Das WLAN (Intel AX211, `modules/home-wifi.nix`) ist aus: Am Flint 4 scheiterte die Anmeldung, weil das 5-GHz-Netz SAE H2E ankündigt und wpa_supplicant dafür die Passphrase in der eigenen Konfiguration braucht, die per `ext_password` aber nicht dort steht („SAE: Could not find PT for group 19“). Ein WLAN als Reserve neben dem Kabel ist bewusst weggelassen: Beide Verbindungen gleichzeitig aktiv hat NetBird auf der M720q schlecht vertragen.
 - **Anbindung von zorlock:** ebenfalls WLAN (`en1`, Broadcom); `hosts/zorlock/wifi.nix` stellt sicher, dass `homelab` als bevorzugtes Netz eingetragen ist (`networksetup`, fügt nur hinzu, Passwort per sops in `hosts/zorlock/wifi.yaml`). nix-darwin hat kein WLAN-Modul; die Bandwahl bleibt bei macOS.
 - **Exit-Nodes und IPv6:** aldrin und zummi als Exit-Nodes für die Gruppe `exit-nodes`; das Mesh ist Dualstack (`2001:db8:203:0::/64`) – siehe [Exit-Nodes & IPv6](#exit-nodes).
 - **Subraum:** Route über cuckoosegg für `subraum-access`. cuckoosegg selbst darf nur grammis Ingest (TCP 8428/9428) erreichen und nur vom MacBook per SSH erreicht werden.
@@ -98,6 +98,56 @@ Jeder Exit-Node zählt den weitergeleiteten Verkehr je Familie und Richtung in e
 #### Provider aus PR #215 { #netbird-provider-pr215 }
 
 Der veröffentlichte NetBird-Provider (v0.0.10) kennt `ipv6_enabled_groups` und `network_range_v6` nicht und setzt sie bei jedem Apply der Account-Settings zurück ([#243](https://github.com/netbirdio/terraform-provider-netbird/issues/243)). Bis [PR #215](https://github.com/netbirdio/terraform-provider-netbird/pull/215) veröffentlicht ist, baut `pkgs/terraform-provider-netbird.nix` den Provider aus diesem PR, und `terraform/netbird/env.sh` setzt ihn per `dev_overrides` ein; Tofu warnt deshalb bei jedem Lauf. Rückbau: Paket, Flake-Output und Block in `env.sh` entfernen, `tofu init -upgrade` ([offener Punkt](../project/open-items.md)).
+
+### DNS mit AdGuard Home { #adguard }
+
+AdGuard Home auf ursalia (`hosts/ursalia/adguardhome.nix`, seit 2026-11-01) filtert DNS für das Heim-LAN und für alle Personengeräte im Mesh. Upstream ist dieselbe DoT-Verbindung zu Freifunk München wie auf allen Hosts. Ausgewählt gegen Pi-hole (kann kein DoT zum Upstream ohne Zusatzdienst) und Technitium (Konfiguration nur über UI/API, liegt in `/var/lib` statt in der Flake).
+
+| Wer | Wie | Protokoll |
+| --- | --- | --- |
+| Heim-LAN | Der Flint 4 verteilt ursalia per DHCP als DNS-Server | DNS auf 53 (per nftables auf 5354 umgeleitet), DoT/DoQ auf 853 (`dns.homelab.example`), DoH über nginx (`https://dns.homelab.example/dns-query`) |
+| Personengeräte im Mesh (`homelab`, `homelab_admins`) | NetBird-Nameserver-Gruppe `adguard`, primär (`terraform/netbird/nameservers.tf`) | DNS auf 5354 über die Mesh-Adresse (Policies `to-dns-udp`/`to-dns-tcp`, nur ursalia); die Strecke läuft in WireGuard |
+| Server, Apple TVs, cuckoosegg, Home Assistant | gar nicht – eigene Resolver-Policy bzw. der Router | – |
+
+- **Port 5354 statt 53:** resolveds Stub belegt `127.0.0.53:53`, AdGuard kann daneben kein TCP auf `0.0.0.0:53` öffnen. Den Stub abschalten geht nicht (NixOS lässt `/etc/resolv.conf` auf ihn zeigen), feste Adressen bräuchten die Mesh-IP im Repo und `ip_nonlocal_bind` für den ganzen Host. Darum: AdGuard auf 5354, im LAN leitet nftables 53 dorthin um, die NetBird-Gruppe nutzt 5354 direkt. Auf ursalia selbst testen mit `dig @127.0.0.1 -p 5354`.
+- **Mesh-Namen** (`peer.homelab.example`, die Zonen aus `mesh-services.tf`) beantwortet der NetBird-Client selbst, sie erreichen AdGuard nie.
+- **Namen des Routers:** `doku.homelab.example`, `mqtt.homelab.example` und `.lan` gibt AdGuard an den Flint 4 weiter, nur für das LAN – siehe [unten](#adguard-router-names).
+- **ursalia selbst** löst nicht über AdGuard auf, sondern direkt über den Router (DHCP-DNS ignoriert): ein Ausfall von AdGuard darf ursalias NetBird und die Route ins Heim-LAN nicht mitnehmen.
+- **Konfiguration nur aus Nix** (`mutableSettings = false`): Änderungen in der UI sind nach einem Neustart weg. Die UI ist für Abfrageprotokoll (7 Tage), Statistik und kurzfristiges Freischalten.
+- **Admin-UI** über `adguard.homelab.example`: Reverse Proxy mit SSO für `homelab_admins`, danach AdGuards eigener Login (Benutzer `admin`). Beides: Den Listener auf ursalia (Port 8096) erreichen außer dem Proxy auch die Admin-Workstations (alle Ports), und AdGuard soll nicht davon abhängen, dass die Policies so eng bleiben – ohne eigenen Login stünde es jedem offen, der den Port direkt anspricht.
+- **Passwort:** Klartext nur in 1Password, ursalia bekommt nur den bcrypt-Hash (`hosts/ursalia/adguardhome.yaml`), den AdGuard beim Start in seine Konfiguration einsetzt. Neues Passwort: `just adguardhome-password`, in 1Password ablegen, committen, ursalia deployen.
+- **Break-Glass** ohne Pocket ID und Proxy: `ssh -L 3020:127.0.0.1:3020 root@ursalia.peer.homelab.example`, dann `http://127.0.0.1:3020` mit dem Passwort aus 1Password.
+- **Ausfall von ursalia im Mesh:** NetBird versucht AdGuard noch etwa eine Minute lang, weicht dann auf das DNS des Geräts aus und kehrt von selbst zurück, sobald AdGuard wieder antwortet (getestet 2026-11-01 mit dem iPhone: AdGuard 2 min gestoppt, Seiten luden weiter, gut 20 s nach dem Neustart wieder bei AdGuard). Ein Ausfall kostet also das Filtern, nicht die Namensauflösung. Im LAN gibt es keinen solchen Rückfall, solange der Flint 4 nur ursalia verteilt.
+- **Am Flint 4 von Hand:** DHCP-Option DNS auf ursalias LAN-Adresse; IPv6-DNS (RA/DHCPv6) prüfen – solange der Router sich dort selbst ankündigt, fragen Dualstack-Geräte teils an AdGuard vorbei. Für IPv6 hat ursalia eine feste Adresse im ULA des Heimnetzes, `<ULA-/64>::53` auf dem Kabel (aus `sites.home.ipv6Ula` und `ipv6SubnetId` abgeleitet, `hosts/ursalia/adguardhome.nix`); das OpenWrt-Image von gruffi (`openwrt/gruffi/`) soll genau diese ankündigen. ursalia selbst übernimmt angekündigte DNS-Server weder per DHCPv4 noch per RA/DHCPv6. Home Assistant behält den Router als DNS.
+
+#### Namen des Routers: bedingte Weiterleitung { #adguard-router-names }
+
+Manche Namen beantwortet der Router selbst mit einer LAN-Adresse (lokaler Eintrag), damit sie zu Hause direkt und auch ohne Internet funktionieren – etwa `mqtt.homelab.example` → Home Assistant. Seit AdGuard der DNS-Server im LAN ist, fragt kein Gerät mehr den Router direkt. AdGuard reicht diese Namen deshalb an den Router weiter (*Conditional Forwarding*), statt die Adressen selbst zu kennen:
+
+```nix
+upstream_dns = [
+  "tls://dot.ffmuc.net"                                   # alles andere
+  "[/doku.homelab.example/mqtt.homelab.example/lan/]198.51.100.1"  # diese Namen: der Router
+];
+```
+
+- **Syntax:** `[/name1/name2/]server` gilt für die genannten Namen *und alle Unternamen*; der spezifischste Treffer gewinnt. `[/sub.name/]#` nimmt einen Unternamen wieder aus (zurück zum normalen Upstream).
+- **Reihenfolge einer Anfrage:** Rewrites in AdGuard (hier nur `dns.homelab.example`) → Blocklisten → Cache → passender Upstream. Gefiltert wird also auch, was zum Router geht.
+- **Warum Weiterleiten statt Rewrite:** Die Einträge bleiben an *einer* Stelle, im Router. Keine IP doppelt im Repo, Änderungen am Router wirken sofort – bis auf den Cache: AdGuard hält die Antwort für ihre TTL; ungeduldig: UI → Settings → DNS settings → Clear cache.
+- **Nur fürs LAN:** Für die Mesh-Bereiche (`192.0.2.0/24`, `2001:db8:203:0::/64`) gibt es in AdGuard einen festen Client „NetBird mesh“ mit eigenen Upstreams – nur ffmuc. Eigene Upstreams eines Clients *ersetzen* die globale Liste ganz, die Weiterleitungszeile fehlt dort also. Ein Handy unterwegs bekommt für `mqtt.homelab.example` die öffentliche Antwort (Reverse Proxy) statt 198.51.100.168, das es dort nicht erreicht.
+- **Reverse-Lookups** (PTR für private Adressen) gehen per `local_ptr_upstreams` ebenfalls an den Router, der die DHCP-Namen kennt; private PTR-Anfragen verlassen das Haus nie.
+
+**Einen neuen lokalen Namen anlegen:**
+
+1. Eintrag am Router (Flint 4) anlegen.
+2. Den Namen in die Weiterleitungszeile in `hosts/ursalia/adguardhome.nix` aufnehmen, ursalia deployen. AdGuard weiß nicht von selbst, welche Namen der Router überschreibt – ohne diesen Schritt kommt im LAN die öffentliche Antwort.
+3. Prüfen, im LAN und im Mesh:
+
+```bash
+dig +short mqtt.homelab.example @ursalia.peer.homelab.example -p 5354
+```
+
+Das Gegenstück in NetBird sind Nameserver-Gruppen mit `domains` (Match-Domains): dieselbe Idee eine Ebene höher, pro Peer-Gruppe statt pro Client-Adresse.
 
 ## Zugriff
 
@@ -242,27 +292,27 @@ Seit 2026-10-23 lassen sich Dashboards nach außen teilen („Share externally�
 
 | Wo | Weg |
 | --- | --- |
-| Zu Hause | die OPNsense beantwortet `mqtt.homelab.example` mit HAs LAN-Adresse (lokaler DNS-Eintrag) → HA:8883 direkt, auch ohne Internet |
+| Zu Hause | der Heimrouter (Flint 4) beantwortet `mqtt.homelab.example` mit HAs LAN-Adresse (lokaler DNS-Eintrag) → HA:8883 direkt, auch ohne Internet |
 | Außen | öffentlicher CNAME auf den Reverse Proxy → `netbird-proxy` auf grammi, Port 8883 → durchs Mesh zu HA:8883 |
 
-**HA ist ein NetBird-Peer** (NetBird-Add-on, `terraform/netbird/home-assistant.tf`), in einer eigenen Gruppe `home-assistant` – nicht in `servers`, es erreicht also genau zwei Dinge, und außer dem Proxy erreicht nichts HA. Die DNS-Verwaltung durch NetBird ist für die Gruppe aus: HA löst weiter über die OPNsense auf, auch wenn das Internet weg ist.
+**HA ist ein NetBird-Peer** (NetBird-Add-on, `terraform/netbird/home-assistant.tf`), in einer eigenen Gruppe `home-assistant` – nicht in `servers`, es erreicht also genau zwei Dinge, und außer dem Proxy erreicht nichts HA. Die DNS-Verwaltung durch NetBird ist für die Gruppe aus: HA löst weiter über den Heimrouter (Flint 4) auf, auch wenn das Internet weg ist.
 
 **TLS endet in Mosquitto, nicht am Proxy.** Der Service `mqtt` (`terraform/netbird/reverse-proxy.tf`) läuft im L4-Modus `tls` mit dem Peer HA als Ziel: Der Proxy liest nur die SNI und reicht die Verbindung unverändert durch. Für einen L4-Service mit eigenem Port bindet der Proxy diesen Port selbst auf allen Adressen (einen PROXY-Header muss dort nur 127.0.0.1 schicken); grammis Firewall öffnet 8883 in `hosts/grammi/netbird-proxy.nix`.
 
 **Das Zertifikat** gilt für `homeassistant.homelab.example` und `mqtt.homelab.example`. HAs Let's-Encrypt-Add-on holt es per DNS-01 – aber ohne eigenen deSEC-Token (der ließe sich an keine Adresse binden, die Heimadresse wechselt). Es fragt stattdessen dns01proxy auf grammi (`hosts/grammi/dns01proxy.nix`, Provider `dns-httpreq`), unter `https://acme.homelab.example:8446`:
 
-- Der Port ist nur im Mesh offen, und die Policy `home-assistant-acme` lässt nur HA hin. HA löst den Namen über die OPNsense auf (lokaler Eintrag auf grammis Mesh-Adresse, `tofu output acme_proxy_address`), alle anderen Peers über die NetBird-Zone.
+- Der Port ist nur im Mesh offen, und die Policy `home-assistant-acme` lässt nur HA hin. HA löst den Namen über den Heimrouter (Flint 4) auf (lokaler Eintrag auf grammis Mesh-Adresse, `tofu output acme_proxy_address`), alle anderen Peers über die NetBird-Zone.
 - Der Proxy schreibt die TXT-Records mit grammis an die Adresse gebundenem Token. HAs Account (Passwort im Add-on, bcrypt-Hash in `hosts/grammi/dns01proxy.yaml`, `just dns01proxy-key-homeassistant`) darf nur Challenges für die beiden Namen oben beantworten.
 - dns01proxy spricht selbst HTTPS und holt sein eigenes Zertifikat für `acme.homelab.example` auf demselben Weg.
 
-**Die beiden lokalen DNS-Einträge** sind Host-Overrides in Unbound auf der OPNsense (Services → Unbound DNS → Overrides), von Hand gesetzt – der API-Schlüssel `inventory-ro` darf nur lesen:
+**Die beiden lokalen DNS-Einträge** sind `domain`-Einträge in dnsmasq auf gruffi, von Hand per SSH gesetzt (`uci add dhcp domain`, dann `name` und `ip`, `uci commit dhcp`, dnsmasq neu starten). Die Seite „Hostnames“ fehlt in GL.iNets LuCI (404 auf `view/network/hosts.js`):
 
 | Name | Adresse | Wozu |
 | --- | --- | --- |
 | `mqtt.homelab.example` | 198.51.100.168 (HAs LAN-Adresse) | MQTT bleibt im Heimnetz und läuft auch ohne Internet |
 | `acme.homelab.example` | 192.0.2.122 (grammis Mesh-Adresse, `tofu output acme_proxy_address`) | HA erreicht dns01proxy; NetBird verwaltet HAs DNS nicht |
 
-Ändert sich HAs Adresse oder grammis Mesh-Adresse (neue Lease, NetBird-Neuregistrierung), muss der Override von Hand nachgezogen werden.
+Ändert sich HAs Adresse oder grammis Mesh-Adresse (neue Lease, NetBird-Neuregistrierung), muss der Eintrag von Hand nachgezogen werden.
 
 Das Add-on erneuert nicht von selbst: Eine HA-Automation startet es täglich und startet Mosquitto wöchentlich neu, damit das erneuerte Zertifikat geladen wird.
 

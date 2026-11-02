@@ -5,6 +5,7 @@
 | `just try <host>` | Deploy the current topic branch to a host and hold it there until the branch is merged ([Test a branch before merging](../how-to/try-branch.md)) |
 | `just try-confirm <host> [minutes] [via]` | Like `try`, but rolls itself back unless the host is reached and confirmed within the deadline ([with automatic rollback](../how-to/try-branch.md#confirm)) |
 | `just release <host>` / `holds` | Drop a hold without merging / list every hold |
+| `just restore-test <host> [isolation]` | Restore grammi or zummi from restic into a throwaway VM on ursalia without network and measure the RTO ([Test a restore](../how-to/restore-test.md)) |
 | `just check <host>` | `git pull` + `nixos-rebuild dry-activate` |
 | `just secrets <host>` / `pull-secrets <host>` | Edit host secrets on the host and fetch them back |
 | `just topology` | Regenerate the topology dashboard (otherwise `nix flake check` fails) |
@@ -15,6 +16,7 @@
 | `just inventory-collect [--force] [host …]` | Fetch SSH host keys, interfaces (MAC, medium, link-local) and hardware (vendor, model, product id, serial) from the devices into `inventory.json` – fills gaps and reports differences; `--force` takes the device values |
 | `just services [--json]` | What the inventory's services run, from the host configurations: version, license, language ([Software view](inventory.md#software)) |
 | `just sbom [host …]` | SBOM (CycloneDX, SPDX, CSV) of the running system of each host into `sbom/` ([Software view](inventory.md#software)) |
+| `just wifi-qr [ssid]` | A WLAN of gruffi: SSID, PSK, encryption and a QR code to join it, from `openwrt/gruffi/uci.nix` and its `secrets.yaml` (prints the PSK); without an SSID the list of WLANs |
 | `just known-hosts` | Write `~/.ssh/known_hosts.nixlab` from the inventory – for a workstation outside this repo; gusto gets the keys system-wide |
 | `just netbird-plan` / `netbird-apply` | Change the NetBird account; apply also rewrites `expected-peers.json` (commit it, deploy grammi) and `admin-peers.json` (commit it, deploy aldrin and ursalia) |
 | `just netbird-proxy-certs` | Get proxy services without a certificate one and bring the dashboard up to date (NetBird #7118); runs at the end of `netbird-apply` |

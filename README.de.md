@@ -137,10 +137,10 @@ Der Workstation-Key liegt in 1Password und wird über `SOPS_AGE_KEY_CMD` gelesen
 ### Netzwerk
 
 - **NetBird-Mesh** (`192.0.2.0/24` und `2001:db8:203:0::/64`, Peer-Namen unter `peer.homelab.example`): Control Plane auf grammi, Login über Pocket ID. Private Range (RFC 1918) statt CGNAT, weil tailscaled Pakete aus 100.64/10 verwirft, solange beide Clients parallel laufen.
-- **Gruppen:** `servers` (alle Hosts außer cuckoosegg), `subraum-devices`, `admin-workstations` (MacBook), dazu Personengruppen aus Pocket ID.
+- **Gruppen:** `servers` (alle Hosts außer cuckoosegg), `subraum-devices`, `remote-devices` (gw-remote, [Standort-Gateway](#standort-gateway-remote)), `admin-workstations` (MacBook), dazu Personengruppen aus Pocket ID.
 - **Heim-LAN** (`198.51.100.0/24`): Route über ursalia (Metrik 100), die beiden Apple TVs als Rückfall (Gruppe `home-routers`, Metrik 200, eigener Setup-Key per `just netbird-router-key`, keiner Person zugeordnet, in keiner Policy); für Gruppe `home-lan`, nicht für Geräte, die schon zu Hause sind (Posture-Check `not-at-home`). Rosenpass ist seit 2026-10-24 im ganzen Mesh aus (bis 2026-10-31, siehe [macOS-Hosts](#netbird-auf-den-beiden-macs)); „Quantum-Resistance“ in der App der Apple TVs gehört für diese Zeit ebenfalls aus.
 - **Reiserouter** (Mudi 7, GL.iNet GL-E5800): Peer `mudi7`, Gruppe `travel-routers`, eigener Setup-Key per `just netbird-key-mudi7`, keiner Person zugeordnet und vorerst in keiner Policy. Das OpenWrt-Paket liefert nur NetBird 0.24.3; das Binary wird von Hand gegen das `linux_arm64`-Release in der Mesh-Version getauscht (`terraform/netbird/travel-router.tf`).
-- **Anbindung von ursalia:** WLAN ins Hauptnetz des Heim-LANs (Intel AX211, `hosts/ursalia/wifi.nix`): wpa_supplicant, WPA3 mit WPA2-Rückfall, Land DE, alle Bänder, Passwort per sops. Am endgültigen Platz gibt es kein Kabel; eno1 behält DHCP als Rückfall mit schlechterer Routen-Metrik, damit das WLAN die Hauptverbindung bleibt, wenn beide aktiv sind.
+- **Anbindung von ursalia:** seit 2026-11-02 per 2,5G-Kabel (`enp46s0`, `hosts/ursalia/lan.nix`) ins Hauptnetz des Heim-LANs, DHCP ohne Reservierung. Das WLAN (Intel AX211, `modules/home-wifi.nix`) ist aus: Am Flint 4 scheiterte die Anmeldung, weil das 5-GHz-Netz SAE H2E ankündigt und wpa_supplicant dafür die Passphrase in der eigenen Konfiguration braucht, die per `ext_password` aber nicht dort steht („SAE: Could not find PT for group 19“). Ein WLAN als Reserve neben dem Kabel ist bewusst weggelassen: Beide Verbindungen gleichzeitig aktiv hat NetBird auf der M720q schlecht vertragen.
 - **Anbindung von zorlock:** ebenfalls WLAN (`en1`, Broadcom); `hosts/zorlock/wifi.nix` stellt sicher, dass `homelab` als bevorzugtes Netz eingetragen ist (`networksetup`, fügt nur hinzu, Passwort per sops in `hosts/zorlock/wifi.yaml`). nix-darwin hat kein WLAN-Modul; die Bandwahl bleibt bei macOS.
 - **Exit-Nodes und IPv6:** aldrin und zummi als Exit-Nodes für die Gruppe `exit-nodes`; das Mesh ist Dualstack (`2001:db8:203:0::/64`) – siehe [Exit-Nodes & IPv6](#exit-nodes--ipv6).
 - **Subraum:** Route über cuckoosegg für `subraum-access`. cuckoosegg selbst darf nur grammis Ingest (TCP 8428/9428) erreichen und nur vom MacBook per SSH erreicht werden.
@@ -217,6 +217,56 @@ Jeder Exit-Node zählt den weitergeleiteten Verkehr je Familie und Richtung in e
 ##### Provider aus PR #215
 
 Der veröffentlichte NetBird-Provider (v0.0.10) kennt `ipv6_enabled_groups` und `network_range_v6` nicht und setzt sie bei jedem Apply der Account-Settings zurück ([#243](https://github.com/netbirdio/terraform-provider-netbird/issues/243)). Bis [PR #215](https://github.com/netbirdio/terraform-provider-netbird/pull/215) veröffentlicht ist, baut `pkgs/terraform-provider-netbird.nix` den Provider aus diesem PR, und `terraform/netbird/env.sh` setzt ihn per `dev_overrides` ein; Tofu warnt deshalb bei jedem Lauf. Rückbau: Paket, Flake-Output und Block in `env.sh` entfernen, `tofu init -upgrade` ([offener Punkt](#offene-punkte)).
+
+#### DNS mit AdGuard Home
+
+AdGuard Home auf ursalia (`hosts/ursalia/adguardhome.nix`, seit 2026-11-01) filtert DNS für das Heim-LAN und für alle Personengeräte im Mesh. Upstream ist dieselbe DoT-Verbindung zu Freifunk München wie auf allen Hosts. Ausgewählt gegen Pi-hole (kann kein DoT zum Upstream ohne Zusatzdienst) und Technitium (Konfiguration nur über UI/API, liegt in `/var/lib` statt in der Flake).
+
+| Wer | Wie | Protokoll |
+| --- | --- | --- |
+| Heim-LAN | Der Flint 4 verteilt ursalia per DHCP als DNS-Server | DNS auf 53 (per nftables auf 5354 umgeleitet), DoT/DoQ auf 853 (`dns.homelab.example`), DoH über nginx (`https://dns.homelab.example/dns-query`) |
+| Personengeräte im Mesh (`homelab`, `homelab_admins`) | NetBird-Nameserver-Gruppe `adguard`, primär (`terraform/netbird/nameservers.tf`) | DNS auf 5354 über die Mesh-Adresse (Policies `to-dns-udp`/`to-dns-tcp`, nur ursalia); die Strecke läuft in WireGuard |
+| Server, Apple TVs, cuckoosegg, Home Assistant | gar nicht – eigene Resolver-Policy bzw. der Router | – |
+
+- **Port 5354 statt 53:** resolveds Stub belegt `127.0.0.53:53`, AdGuard kann daneben kein TCP auf `0.0.0.0:53` öffnen. Den Stub abschalten geht nicht (NixOS lässt `/etc/resolv.conf` auf ihn zeigen), feste Adressen bräuchten die Mesh-IP im Repo und `ip_nonlocal_bind` für den ganzen Host. Darum: AdGuard auf 5354, im LAN leitet nftables 53 dorthin um, die NetBird-Gruppe nutzt 5354 direkt. Auf ursalia selbst testen mit `dig @127.0.0.1 -p 5354`.
+- **Mesh-Namen** (`peer.homelab.example`, die Zonen aus `mesh-services.tf`) beantwortet der NetBird-Client selbst, sie erreichen AdGuard nie.
+- **Namen des Routers:** `doku.homelab.example`, `mqtt.homelab.example` und `.lan` gibt AdGuard an den Flint 4 weiter, nur für das LAN – siehe [unten](#namen-des-routers-bedingte-weiterleitung).
+- **ursalia selbst** löst nicht über AdGuard auf, sondern direkt über den Router (DHCP-DNS ignoriert): ein Ausfall von AdGuard darf ursalias NetBird und die Route ins Heim-LAN nicht mitnehmen.
+- **Konfiguration nur aus Nix** (`mutableSettings = false`): Änderungen in der UI sind nach einem Neustart weg. Die UI ist für Abfrageprotokoll (7 Tage), Statistik und kurzfristiges Freischalten.
+- **Admin-UI** über `adguard.homelab.example`: Reverse Proxy mit SSO für `homelab_admins`, danach AdGuards eigener Login (Benutzer `admin`). Beides: Den Listener auf ursalia (Port 8096) erreichen außer dem Proxy auch die Admin-Workstations (alle Ports), und AdGuard soll nicht davon abhängen, dass die Policies so eng bleiben – ohne eigenen Login stünde es jedem offen, der den Port direkt anspricht.
+- **Passwort:** Klartext nur in 1Password, ursalia bekommt nur den bcrypt-Hash (`hosts/ursalia/adguardhome.yaml`), den AdGuard beim Start in seine Konfiguration einsetzt. Neues Passwort: `just adguardhome-password`, in 1Password ablegen, committen, ursalia deployen.
+- **Break-Glass** ohne Pocket ID und Proxy: `ssh -L 3020:127.0.0.1:3020 root@ursalia.peer.homelab.example`, dann `http://127.0.0.1:3020` mit dem Passwort aus 1Password.
+- **Ausfall von ursalia im Mesh:** NetBird versucht AdGuard noch etwa eine Minute lang, weicht dann auf das DNS des Geräts aus und kehrt von selbst zurück, sobald AdGuard wieder antwortet (getestet 2026-11-01 mit dem iPhone: AdGuard 2 min gestoppt, Seiten luden weiter, gut 20 s nach dem Neustart wieder bei AdGuard). Ein Ausfall kostet also das Filtern, nicht die Namensauflösung. Im LAN gibt es keinen solchen Rückfall, solange der Flint 4 nur ursalia verteilt.
+- **Am Flint 4 von Hand:** DHCP-Option DNS auf ursalias LAN-Adresse; IPv6-DNS (RA/DHCPv6) prüfen – solange der Router sich dort selbst ankündigt, fragen Dualstack-Geräte teils an AdGuard vorbei. Für IPv6 hat ursalia eine feste Adresse im ULA des Heimnetzes, `<ULA-/64>::53` auf dem Kabel (aus `sites.home.ipv6Ula` und `ipv6SubnetId` abgeleitet, `hosts/ursalia/adguardhome.nix`); das OpenWrt-Image von gruffi (`openwrt/gruffi/`) soll genau diese ankündigen. ursalia selbst übernimmt angekündigte DNS-Server weder per DHCPv4 noch per RA/DHCPv6. Home Assistant behält den Router als DNS.
+
+##### Namen des Routers: bedingte Weiterleitung
+
+Manche Namen beantwortet der Router selbst mit einer LAN-Adresse (lokaler Eintrag), damit sie zu Hause direkt und auch ohne Internet funktionieren – etwa `mqtt.homelab.example` → Home Assistant. Seit AdGuard der DNS-Server im LAN ist, fragt kein Gerät mehr den Router direkt. AdGuard reicht diese Namen deshalb an den Router weiter (*Conditional Forwarding*), statt die Adressen selbst zu kennen:
+
+```nix
+upstream_dns = [
+  "tls://dot.ffmuc.net"                                   # alles andere
+  "[/doku.homelab.example/mqtt.homelab.example/lan/]198.51.100.1"  # diese Namen: der Router
+];
+```
+
+- **Syntax:** `[/name1/name2/]server` gilt für die genannten Namen *und alle Unternamen*; der spezifischste Treffer gewinnt. `[/sub.name/]#` nimmt einen Unternamen wieder aus (zurück zum normalen Upstream).
+- **Reihenfolge einer Anfrage:** Rewrites in AdGuard (hier nur `dns.homelab.example`) → Blocklisten → Cache → passender Upstream. Gefiltert wird also auch, was zum Router geht.
+- **Warum Weiterleiten statt Rewrite:** Die Einträge bleiben an *einer* Stelle, im Router. Keine IP doppelt im Repo, Änderungen am Router wirken sofort – bis auf den Cache: AdGuard hält die Antwort für ihre TTL; ungeduldig: UI → Settings → DNS settings → Clear cache.
+- **Nur fürs LAN:** Für die Mesh-Bereiche (`192.0.2.0/24`, `2001:db8:203:0::/64`) gibt es in AdGuard einen festen Client „NetBird mesh“ mit eigenen Upstreams – nur ffmuc. Eigene Upstreams eines Clients *ersetzen* die globale Liste ganz, die Weiterleitungszeile fehlt dort also. Ein Handy unterwegs bekommt für `mqtt.homelab.example` die öffentliche Antwort (Reverse Proxy) statt 198.51.100.168, das es dort nicht erreicht.
+- **Reverse-Lookups** (PTR für private Adressen) gehen per `local_ptr_upstreams` ebenfalls an den Router, der die DHCP-Namen kennt; private PTR-Anfragen verlassen das Haus nie.
+
+**Einen neuen lokalen Namen anlegen:**
+
+1. Eintrag am Router (Flint 4) anlegen.
+2. Den Namen in die Weiterleitungszeile in `hosts/ursalia/adguardhome.nix` aufnehmen, ursalia deployen. AdGuard weiß nicht von selbst, welche Namen der Router überschreibt – ohne diesen Schritt kommt im LAN die öffentliche Antwort.
+3. Prüfen, im LAN und im Mesh:
+
+```bash
+dig +short mqtt.homelab.example @ursalia.peer.homelab.example -p 5354
+```
+
+Das Gegenstück in NetBird sind Nameserver-Gruppen mit `domains` (Match-Domains): dieselbe Idee eine Ebene höher, pro Peer-Gruppe statt pro Client-Adresse.
 
 ### Zugriff
 
@@ -361,27 +411,27 @@ Seit 2026-10-23 lassen sich Dashboards nach außen teilen („Share externally�
 
 | Wo | Weg |
 | --- | --- |
-| Zu Hause | die OPNsense beantwortet `mqtt.homelab.example` mit HAs LAN-Adresse (lokaler DNS-Eintrag) → HA:8883 direkt, auch ohne Internet |
+| Zu Hause | der Heimrouter (Flint 4) beantwortet `mqtt.homelab.example` mit HAs LAN-Adresse (lokaler DNS-Eintrag) → HA:8883 direkt, auch ohne Internet |
 | Außen | öffentlicher CNAME auf den Reverse Proxy → `netbird-proxy` auf grammi, Port 8883 → durchs Mesh zu HA:8883 |
 
-**HA ist ein NetBird-Peer** (NetBird-Add-on, `terraform/netbird/home-assistant.tf`), in einer eigenen Gruppe `home-assistant` – nicht in `servers`, es erreicht also genau zwei Dinge, und außer dem Proxy erreicht nichts HA. Die DNS-Verwaltung durch NetBird ist für die Gruppe aus: HA löst weiter über die OPNsense auf, auch wenn das Internet weg ist.
+**HA ist ein NetBird-Peer** (NetBird-Add-on, `terraform/netbird/home-assistant.tf`), in einer eigenen Gruppe `home-assistant` – nicht in `servers`, es erreicht also genau zwei Dinge, und außer dem Proxy erreicht nichts HA. Die DNS-Verwaltung durch NetBird ist für die Gruppe aus: HA löst weiter über den Heimrouter (Flint 4) auf, auch wenn das Internet weg ist.
 
 **TLS endet in Mosquitto, nicht am Proxy.** Der Service `mqtt` (`terraform/netbird/reverse-proxy.tf`) läuft im L4-Modus `tls` mit dem Peer HA als Ziel: Der Proxy liest nur die SNI und reicht die Verbindung unverändert durch. Für einen L4-Service mit eigenem Port bindet der Proxy diesen Port selbst auf allen Adressen (einen PROXY-Header muss dort nur 127.0.0.1 schicken); grammis Firewall öffnet 8883 in `hosts/grammi/netbird-proxy.nix`.
 
 **Das Zertifikat** gilt für `homeassistant.homelab.example` und `mqtt.homelab.example`. HAs Let's-Encrypt-Add-on holt es per DNS-01 – aber ohne eigenen deSEC-Token (der ließe sich an keine Adresse binden, die Heimadresse wechselt). Es fragt stattdessen dns01proxy auf grammi (`hosts/grammi/dns01proxy.nix`, Provider `dns-httpreq`), unter `https://acme.homelab.example:8446`:
 
-- Der Port ist nur im Mesh offen, und die Policy `home-assistant-acme` lässt nur HA hin. HA löst den Namen über die OPNsense auf (lokaler Eintrag auf grammis Mesh-Adresse, `tofu output acme_proxy_address`), alle anderen Peers über die NetBird-Zone.
+- Der Port ist nur im Mesh offen, und die Policy `home-assistant-acme` lässt nur HA hin. HA löst den Namen über den Heimrouter (Flint 4) auf (lokaler Eintrag auf grammis Mesh-Adresse, `tofu output acme_proxy_address`), alle anderen Peers über die NetBird-Zone.
 - Der Proxy schreibt die TXT-Records mit grammis an die Adresse gebundenem Token. HAs Account (Passwort im Add-on, bcrypt-Hash in `hosts/grammi/dns01proxy.yaml`, `just dns01proxy-key-homeassistant`) darf nur Challenges für die beiden Namen oben beantworten.
 - dns01proxy spricht selbst HTTPS und holt sein eigenes Zertifikat für `acme.homelab.example` auf demselben Weg.
 
-**Die beiden lokalen DNS-Einträge** sind Host-Overrides in Unbound auf der OPNsense (Services → Unbound DNS → Overrides), von Hand gesetzt – der API-Schlüssel `inventory-ro` darf nur lesen:
+**Die beiden lokalen DNS-Einträge** sind `domain`-Einträge in dnsmasq auf gruffi, von Hand per SSH gesetzt (`uci add dhcp domain`, dann `name` und `ip`, `uci commit dhcp`, dnsmasq neu starten). Die Seite „Hostnames“ fehlt in GL.iNets LuCI (404 auf `view/network/hosts.js`):
 
 | Name | Adresse | Wozu |
 | --- | --- | --- |
 | `mqtt.homelab.example` | 198.51.100.168 (HAs LAN-Adresse) | MQTT bleibt im Heimnetz und läuft auch ohne Internet |
 | `acme.homelab.example` | 192.0.2.122 (grammis Mesh-Adresse, `tofu output acme_proxy_address`) | HA erreicht dns01proxy; NetBird verwaltet HAs DNS nicht |
 
-Ändert sich HAs Adresse oder grammis Mesh-Adresse (neue Lease, NetBird-Neuregistrierung), muss der Override von Hand nachgezogen werden.
+Ändert sich HAs Adresse oder grammis Mesh-Adresse (neue Lease, NetBird-Neuregistrierung), muss der Eintrag von Hand nachgezogen werden.
 
 Das Add-on erneuert nicht von selbst: Eine HA-Automation startet es täglich und startet Mosquitto wöchentlich neu, damit das erneuerte Zertifikat geladen wird.
 
@@ -403,6 +453,118 @@ floccus synchronisiert Lesezeichen und offene Tabs zwischen Browsern, auch zwisc
 - **Backup:** `/data/floccus` ist ein eigenes btrfs-Subvolume und bekommt dieselben btrbk-Snapshots wie OpenCloud – lokal, auf demselben Volume.
 
 **In floccus:** Profil mit Sync-Methode WebDAV, URL `https://tabs.homelab.example/`, Benutzer `floccus`, Passwort aus dem Rezept, dieselbe Passphrase auf jedem Gerät. Für Tabs ein Profil vom Typ „Tabs“, für Lesezeichen ein eigenes mit einem anderen Dateinamen – zwei Profile dürfen nie dieselbe Datei teilen. Auf Geräten mit getrennten Browser-Profilen (dienstlich/privat) floccus nur im privaten Profil einrichten.
+
+## Standort-Gateway: Remote
+
+Der Remote-Standort (ein Verein, dessen Omada-Netz von hier aus mitbetreut wird) hängt über **gw-remote** am Lab: einen NixOS-Container auf aldrin, der OpenVPN-Server für den Router des Standorts und im Mesh der Routing-Peer in dessen vier VLANs ist. Nur das Admin-Gerät erreicht die Geräte dort, nichts hinter dem Router erreicht das Lab. Ein Klick auf einen Kasten springt zum passenden Abschnitt.
+
+### Aufbau
+
+<figure class="nx-diagram">
+<svg viewBox="0 0 680 490" role="img" aria-labelledby="gw-remote-title gw-remote-desc" xmlns="http://www.w3.org/2000/svg">
+<title id="gw-remote-title">Anbindung des Remote-Standorts über gw-remote</title>
+<desc id="gw-remote-desc">gusto erreicht über NetBird den Container gw-remote auf aldrin. Der ER7206 am Remote-Standort baut zwei OpenVPN-Tunnel dorthin auf, einen pro Uplink. Andere Peers haben keinen Zugriff, aus dem Standort kommen nur Antworten.</desc>
+<style>
+.nx-t { font-size: 14px; font-weight: 500; fill: #1f1e1d; }
+.nx-s { font-size: 12px; fill: #6b6965; }
+.nx-line { stroke: #b4b2a9; stroke-width: 0.75; fill: none; }
+.nx-frame { fill: none; stroke: #b4b2a9; stroke-width: 0.75; stroke-dasharray: 4 4; }
+.nx-box { fill: #fbfaf7; stroke: #b4b2a9; stroke-width: 0.75; }
+.nx-gray rect { fill: #f1efe8; stroke: #5f5e5a; stroke-width: 0.75; }
+.nx-gray .nx-t { fill: #444441; } .nx-gray .nx-s { fill: #5f5e5a; }
+.nx-purple rect { fill: #eeedfe; stroke: #534ab7; stroke-width: 0.75; }
+.nx-purple .nx-t { fill: #3c3489; } .nx-purple .nx-s { fill: #534ab7; }
+.nx-coral rect { fill: #faece7; stroke: #993c1d; stroke-width: 0.75; }
+.nx-coral .nx-t { fill: #712b13; } .nx-coral .nx-s { fill: #993c1d; }
+</style>
+<g class="nx-gray"><rect x="40" y="60" width="120" height="56" rx="8"/><text class="nx-t" x="100" y="83" text-anchor="middle">grammi</text><text class="nx-s" x="100" y="102" text-anchor="middle">NetBird-Mgmt</text></g>
+<a href="#access"><g class="nx-purple"><rect x="40" y="158" width="120" height="56" rx="8"/><text class="nx-t" x="100" y="181" text-anchor="middle">gusto</text><text class="nx-s" x="100" y="200" text-anchor="middle">MacBook, Mesh</text></g></a>
+<a href="#access"><g class="nx-gray"><rect x="40" y="290" width="120" height="56" rx="8"/><text class="nx-t" x="100" y="313" text-anchor="middle">Andere Peers</text><text class="nx-s" x="100" y="332" text-anchor="middle">keine Policy</text></g></a>
+<rect class="nx-frame" x="190" y="60" width="260" height="380" rx="16"/>
+<text class="nx-t" x="210" y="88">aldrin</text><text class="nx-s" x="210" y="106">Realtox DUS, feste IPv4</text>
+<rect class="nx-box" x="210" y="120" width="220" height="300" rx="12"/>
+<text class="nx-t" x="225" y="144">gw-remote (Container)</text>
+<a href="#access"><g class="nx-purple"><rect x="230" y="158" width="180" height="56" rx="8"/><text class="nx-t" x="320" y="181" text-anchor="middle">NetBird-Router</text><text class="nx-s" x="320" y="200" text-anchor="middle">Policy: nur gusto</text></g></a>
+<a href="#isolation"><g class="nx-gray"><rect x="230" y="224" width="180" height="56" rx="8"/><text class="nx-t" x="320" y="247" text-anchor="middle">nftables</text><text class="nx-s" x="320" y="266" text-anchor="middle">vom Standort: nur Antworten</text></g></a>
+<a href="#failover"><g class="nx-coral"><rect x="230" y="290" width="180" height="56" rx="8"/><text class="nx-t" x="320" y="313" text-anchor="middle">tun-remote-uplink1</text><text class="nx-s" x="320" y="332" text-anchor="middle">udp/1194</text></g></a>
+<a href="#failover"><g class="nx-coral"><rect x="230" y="356" width="180" height="56" rx="8"/><text class="nx-t" x="320" y="379" text-anchor="middle">tun-remote-uplink2</text><text class="nx-s" x="320" y="398" text-anchor="middle">udp/1195</text></g></a>
+<rect class="nx-frame" x="475" y="60" width="165" height="360" rx="16"/>
+<text class="nx-t" x="490" y="88">Remote-Standort</text>
+<g class="nx-coral"><rect x="485" y="100" width="145" height="56" rx="8"/><text class="nx-t" x="557" y="123" text-anchor="middle">LAN</text><text class="nx-s" x="557" y="142" text-anchor="middle">VLANs 1, 79, 80, 81</text></g>
+<line class="nx-line" x1="557" y1="156" x2="557" y2="176"/>
+<a href="#profiles"><g class="nx-coral"><rect x="485" y="176" width="145" height="56" rx="8"/><text class="nx-t" x="557" y="199" text-anchor="middle">ER7206</text><text class="nx-s" x="557" y="218" text-anchor="middle">OpenVPN-Client 2.3.8</text></g></a>
+<g class="nx-coral"><rect x="485" y="296" width="122" height="44" rx="8"/><text class="nx-t" x="546" y="323" text-anchor="middle">SFP WAN</text></g>
+<g class="nx-coral"><rect x="485" y="362" width="122" height="44" rx="8"/><text class="nx-t" x="546" y="389" text-anchor="middle">WAN (CGNAT)</text></g>
+<path class="nx-line" d="M622 232 L622 384 L609 384"/>
+<path class="nx-line" d="M622 318 L609 318"/>
+<line x1="160" y1="186" x2="227" y2="186" stroke="#7F77DD" stroke-width="1.5"/><path d="M222 182 L228 186 L222 190" stroke="#7F77DD" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+<line x1="485" y1="318" x2="413" y2="318" stroke="#D85A30" stroke-width="1.5"/><path d="M418 314 L412 318 L418 322" stroke="#D85A30" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+<line x1="485" y1="384" x2="413" y2="384" stroke="#D85A30" stroke-width="1.5" stroke-dasharray="5 4"/><path d="M418 380 L412 384 L418 388" stroke="#D85A30" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+<line x1="40" y1="462" x2="80" y2="462" stroke="#D85A30" stroke-width="1.5"/>
+<text class="nx-s" x="90" y="466">Tunnel aktiv, Metrik 100</text>
+<line x1="270" y1="462" x2="310" y2="462" stroke="#D85A30" stroke-width="1.5" stroke-dasharray="5 4"/>
+<text class="nx-s" x="320" y="466">Reserve, Metrik 200</text>
+<text class="nx-s" x="40" y="486">Pfeil = Richtung des Verbindungsaufbaus</text>
+</svg>
+</figure>
+
+### Wer darf rein
+
+Nur das Admin-Gerät: Die vier NetBird-Policies `remote-*` (`terraform/netbird/remote.tf`, eine je VLAN) haben `admin-workstations` als Quelle, also gusto, und keine Personengruppe. Alle anderen Peers bekommen die Route gar nicht erst. Ist gusto selbst am Standort, fällt die Route weg (Posture-Check `not-at-remote`), dann geht der Verkehr direkt.
+
+gw-remote selbst steckt in der Gruppe `remote-devices`, nicht in `servers`: Es beendet Tunnel aus einem Netz, das andere betreiben, und erreicht deshalb nur, was ihm ausdrücklich erlaubt ist, nämlich grammis Metrik- und Log-Eingang (`remote-devices-telemetry`, TCP 8428/9428), wie cuckoosegg.
+
+### Abschottung
+
+Aus dem Standort kommt nichts ins Lab. Dafür sorgen drei Schichten:
+
+- **Container mit eigenem Netz-Namespace** auf aldrin: `tun-remote-*` und ein eigenes `nb-mesh` treffen nie auf aldrins vertrauenswürdiges Mesh-Interface. Kein eigener Kernel – das war die bewusste Abwägung gegenüber einer VM (2026-10-22).
+- **nftables im Container** (`hosts/gw-remote/container.nix`): Die Tunnel sind nicht trusted. In den Tunnel dürfen neue Verbindungen nur von den Mesh-Adressen der Admin-Geräte (`admin-peers.json`), aus dem Tunnel kommen nur Antworten (`established,related`), an den Container selbst gar nichts. Masquerade je Tunnel: Der Standort sieht nur die Tunneladresse von gw-remote und braucht keine Route zurück.
+- **nftables auf aldrin** (`hosts/aldrin/gw-remote.nix`): Die OpenVPN-Ports werden nur von den Adressen der beiden Anschlüsse an den Container weitergeleitet, der Container erreicht nur das Internet, weder aldrin noch dessen Mesh.
+
+Kein CrowdSec auf den Ports: Der Bouncer hängt nur am Input-Hook, die Ports werden aber weitergeleitet, und Community-Blocklisten führen CGNAT-Adressen. Schutz sind der Quellfilter und `tls-auth`.
+
+Getestet am 2026-11-02: gusto erreicht die Geräte, ursalia und aldrin nicht; vom ER7206 aus bleiben gw-remote, aldrins Seite des Containers und Mesh-Adressen ohne Antwort.
+
+### Tunnel und Failover
+
+Ein OpenVPN-Server je Uplink, nicht einer für beide Clients: Mit einem Server würden beide Clients dieselben Netze per `iroute` anmelden, und OpenVPN statt des Kernels wählte, wer den Verkehr bekommt – ohne sauberen Rückweg, wenn der aktive wegfällt. Mit zwei Servern sind es zwei tun-Interfaces, und der Kernel wählt per Routen-Metrik.
+
+| Uplink | Leitung am ER7206 | Port | Interface | Metrik |
+| --- | --- | --- | --- | --- |
+| uplink1 | SFP WAN, Vodafone, feste IPv4 | udp/1194 | `tun-remote-uplink1` | 100 |
+| uplink2 | WAN, CGNAT | udp/1195 | `tun-remote-uplink2` | 200 |
+
+`client-connect` setzt die Routen zu den VLANs, sobald der Client eines Uplinks verbunden ist, `client-disconnect` nimmt sie wieder heraus. OpenVPN läuft dafür ohne root, nur mit `CAP_NET_ADMIN`. Die VLANs kommen aus dem Inventar (Netze mit `site: "remote"`), die Ports, Transfernetze und Metriken aus `hosts/gw-remote/site.json`.
+
+`keepalive 2 10`: Fällt ein Uplink aus, merkt gw-remote das nach 20 s. Im Test mit dem vorherigen `keepalive 10 60` war der Standort genau 120 s nicht erreichbar, das Zurückwechseln kostete 3 s. Verbindungen, die während des Ausfalls über uplink2 aufgebaut wurden, behalten nach dem Zurückwechseln dessen Masquerade-Adresse und können abbrechen.
+
+### Profile am ER7206
+
+Der ER7206 (Firmware 1.4.3) bringt **OpenVPN 2.3.8** mit. Daraus folgt:
+
+- kein `tls-crypt`: Ein Profil damit verwirft er stillschweigend – kein Paket, kein Log, keine Sitzung. Deshalb `tls-auth`.
+- kein Aushandeln des Ciphers: Der Server bietet GCM zuerst an und fällt für ihn auf `AES-256-CBC` mit `auth SHA256` zurück.
+- Der Controller nimmt als Server nur eine IP, keinen Namen. `just gw-remote-ovpn` schreibt aldrins Adresse ins Profil.
+- Die VPN-Statusseite des Controllers bleibt für diese Clients leer, auch wenn der Tunnel steht. Den Zustand zeigen die Metriken von gw-remote.
+
+Neues Profil (braucht den Workstation-Key):
+
+```bash
+just gw-remote-ovpn uplink1 ~/Downloads/remote-uplink1.ovpn
+```
+
+Im Controller als VPN-Client vom Typ OpenVPN anlegen (Name `remote_uplink1`, Bindestriche nimmt er nicht), Modus Certificate, Interface SFP WAN (uplink1) bzw. WAN (uplink2), alle vier VLANs als lokale Netze. Danach die Datei löschen. `just gw-remote-pki` legt die CA, das Server- und die beiden Client-Zertifikate an; der CA-Schlüssel wird verworfen, ein neuer Client heißt neue CA und neue Profile.
+
+### Überwachung
+
+gw-remote schickt Metriken und Logs an grammi wie jeder Host. Dazu kommen je Uplink `nixlab_remote_uplink_connected`, `…_connected_since_seconds` und die Bytes der laufenden Sitzung (`hosts/gw-remote/uplink-metrics.nix`, aus der Status-Datei von OpenVPN). Alarme: **RemoteUplinkDown** (ein Uplink seit 30 min getrennt – auch wenn eine Adresse aus dem Quellfilter gefallen ist) und **RemoteSiteUnreachable** (keiner seit 10 min). Dashboard: Zeile „Site tunnels“ in Homelab / NetBird.
+
+### Betrieb
+
+- **Befehle im Container:** `ssh root@aldrin.peer.homelab.example systemd-run -M gw-remote --wait --pipe -q -E PATH=/run/current-system/sw/bin /run/current-system/sw/bin/bash -c '…' </dev/null`. Nicht `nixos-container run` ohne Terminal: Das bleibt gestoppt hängen und hält das init des Containers am Leben (2026-11-02).
+- **Erstes Deploy:** Die NetBird-Anmeldung im Container ist bewusst kein Boot-Job (`Type=exec`). aldrin bringt seine Seite der Container-Verbindung erst hoch, wenn der Container „gebootet“ meldet – eine wartende Anmeldung hatte das verklemmt.
+- **Adresse von uplink2 geändert:** RemoteUplinkDown feuert, die neue Adresse steht in OpenVPNs Log oder per `tcpdump` auf aldrin; dann `sources.uplink2` in `hosts/aldrin/gw-remote.nix` anpassen. Ob die zusätzlich erlaubte Einzeladresse noch gebraucht wird, wird Ende November 2026 anhand der Logs geprüft.
 
 ## Deployment & Betrieb
 
@@ -430,12 +592,13 @@ Alles landet auf grammi: **vmagent** auf jedem Host schickt Metriken an Victoria
 | `tailscale_*` | Hosts mit Tailscale | `tailscale metrics write`, alle 30 s |
 | `fwupd_updates_*` | ursalia | `fwupdmgr get-updates` nach jedem Metadaten-Refresh |
 | `smart_selftest_*` | ursalia | Selbsttest-Log jeder Disk aus `services.diskHealth.devices` (`smartctl -l selftest`), stündlich (`modules/disk-health.nix`) |
-| `wifi_link_*` | ursalia | `iw dev wlo1 link` (PHY-Modus, Breite, MCS, NSS), alle 30 s |
-| `node_wifi_*`, `wifi_link_*` | zorlock | `system_profiler SPAirPortDataType -json` alle 60 s, dieselben Namen wie auf ursalia (unter macOS ohne Empfangsrate, Retries und eigenen PHY-Modus für den Empfang; SSID/BSSID schwärzt macOS ohne Ortungsdienste auch für root, im Dashboard „n/a“), dazu `wifi_link_noise_dbm` |
+| `wifi_link_*` | tummi | `iw dev wlo1 link` (PHY-Modus, Breite, MCS, NSS), alle 30 s |
+| `node_wifi_*`, `wifi_link_*` | zorlock | `system_profiler SPAirPortDataType -json` alle 60 s, dieselben Namen wie auf tummi (unter macOS ohne Empfangsrate, Retries und eigenen PHY-Modus für den Empfang; SSID/BSSID schwärzt macOS ohne Ortungsdienste auch für root, im Dashboard „n/a“), dazu `wifi_link_noise_dbm` |
 | `unit_cgroup_*` | alle Linux-Hosts | CPU-Zeit und Speicher je systemd-Dienst aus seiner cgroup, alle 15 s (`unit-metrics` in `modules/metrics.nix`); zählt alle Prozesse der Unit, Container mit `--cgroups=split` eingeschlossen |
 | `esphome_builder_data_bytes` | ursalia | Größe von `/var/lib/esphome-builder` (Toolchain-Cache), stündlich |
 | `grafana_public_dashboard_info` | grammi | öffentliche Dashboards aus der Grafana-API mit ihrem `dash`-Link und den genutzten Template-Variablen, alle 10 s |
-| `netbird_expected_peers` | grammi | `terraform/netbird/expected-peers.json`, beim Bauen ins System übernommen |
+| `netbird_expected_peers` | grammi | `terraform/netbird/expected-peers.json`, beim Bauen ins System übernommen; Label `netbird_host` (der Host, um den es geht), denn `host` ist seit 2026-11-02 auf jeder Serie der sendende Host |
+| `nixlab_remote_uplink_*` | gw-remote | Status-Datei von OpenVPN je Uplink: verbunden, seit wann, Bytes der laufenden Sitzung, alle 30 s ([Standort-Gateway](#überwachung)) |
 | `nixlab_netbird_group_sync_*` | grammi | Gruppensync Pocket ID → NetBird (`hosts/grammi/netbird-group-sync.nix`): letzter fehlerfreier Lauf, Ablauf von Token und Key, Pocket-ID-Nutzer außerhalb von `people.tf` |
 | `nixlab_nixos_upgrade_last_success_seconds` | Hosts mit nächtlichem Upgrade | Zeitpunkt des letzten erfolgreichen `nixos-upgrade` (`modules/auto-upgrade-git.nix`), für den Alarm NixosUpgradeStale |
 
@@ -479,6 +642,7 @@ Die Dashboards liegen als JSON in `hosts/grammi/dashboards/` und werden aus dem 
 | NetbirdGroupSyncStale | `nixlab_netbird_group_sync_last_success_seconds` | kein fehlerfreier Lauf seit 1 h |
 | SyncCredentialExpiring | `nixlab_netbird_group_sync_credential_expiry_seconds` | Token oder Key des Gruppensyncs laufen in weniger als 30 Tagen ab |
 | PersonNotManaged | `nixlab_netbird_group_sync_unmanaged_person` | Pocket-ID-Nutzer in `homelab`/`homelab_admins`, der nicht in `people.tf` steht, seit 1 h |
+| RemoteUplinkDown, RemoteSiteUnreachable | `nixlab_remote_uplink_connected` | ein Uplink des Remote-Standorts seit 30 min getrennt; keiner seit 10 min |
 | Watchdog | `vector(1)` | immer, als Heartbeat |
 
 **Warum das Journal:** Den Failed-State einer Unit löscht der nächste Switch. `systemctl --failed` und eine einzelne Abfrage zeigen danach nichts mehr. Die Crash-Loops von paperless-secret-key (Oktober 2026, ~33 000 Fehlstarts) und grist-core (~22 000 am Tag) tauchten nie als „failed“ auf, jeder Start hinterließ aber die systemd-Meldung im Journal.
@@ -695,7 +859,7 @@ Die privaten Schlüssel gibt es nur in 1Password; dessen Agent bietet sie an. Zw
 - **Ein Schlüssel pro Ziel**: `IdentityFile` nennt die *öffentliche* Hälfte (`hosts/gusto/ssh/*.pub`, verlinkt nach `~/.ssh/pub/`). Daran erkennt der Agent, welchen Schlüssel er anbieten soll; die private Hälfte liegt nie auf der Platte.
 - **Lab-Hosts werden erzeugt** aus `inventory.json` – jeder verwaltete Host außer gusto: `<host>` / `<host>.peer.homelab.example` über das Mesh als root (zorlock als admin); `<host>.example-tailnet.ts.net`, solange Tailscale noch läuft; und für Hosts mit öffentlicher Adresse (aldrin, grammi, zummi) `<host>.homelab.example` als admin – root ist auf öffentlichen Adressen gesperrt (`modules/ssh.nix`), so funktioniert dieser Ausweg, wenn das Mesh nicht geht. Die alternativen Namen nutzen `HostKeyAlias <host>.peer.homelab.example`, damit alle gegen den einen Host-Key aus dem Inventar geprüft werden.
 - **Host-Keys** kommen aus dem Inventar (`/etc/ssh/ssh_known_hosts`, wie auf jedem Host); GitHubs Schlüssel ist in `configuration.nix` festgeschrieben. `just known-hosts` braucht es auf gusto nicht.
-- Von Hand: `zorlock-lan` (FileVault entsperren), `opnsense`, `arkkvm`/`arkkvm01`, der Subraum-Router als Jumphost (mit seinen Portweiterleitungen), vogon, amnesia, unifi, git.c3pb.de, edi, ein Block für alte Switches, der Legacy-Algorithmen nur *ergänzt* (`+…`), und GitHub (mit 60 s ControlMaster).
+- Von Hand: `zorlock-lan` (FileVault entsperren), `gruffi`, `arkkvm`/`arkkvm01`, der Subraum-Router als Jumphost (mit seinen Portweiterleitungen), vogon, amnesia, unifi, git.c3pb.de, edi, ein Block für alte Switches, der Legacy-Algorithmen nur *ergänzt* (`+…`), und GitHub (mit 60 s ControlMaster).
 
 #### devShell und direnv
 
@@ -1292,6 +1456,61 @@ Die Regel ist überall dieselbe: Ein Halt blockiert, solange das, was deployt we
 - Ein Host vor `modules/deploy-hold.nix` kennt keinen Halt; der erste `just try` darauf bringt das Modul mit.
 - **`try-confirm` und das nächtliche Upgrade:** Bis zur Bestätigung gibt es keinen Halt. Fällt die Frist über 04:00, baut `nixos-upgrade` main. Ändert der Branch den Hostnamen, baut es sogar main für den *neuen* Namen – beim Cut-over von ursalia (2026-10-27) bootete die NUC so die Konfiguration der M720q. Vorher `nixos-hold set` setzen oder nicht in die Nacht hinein testen.
 
+## Restore testen
+
+Ein Backup ist nur so gut wie der letzte Restore, der funktioniert hat. `just restore-test <host>` holt grammi oder zummi aus dem restic-Backup in eine Wegwerf-VM auf ursalia zurück und misst, wie lange das dauert – von der leeren Disk, bis die Dienste antworten. Es braucht nichts als dieses Repository und den Recovery-Key `admin`, genau wie nach dem echten Verlust des Hosts.
+
+### Ausführen
+
+Aus einem Checkout, in einem Terminal, in dem `op` angemeldet ist (`op whoami`; sonst `eval "$(op signin)"`):
+
+```bash
+just restore-test grammi isolation
+just restore-test grammi
+just restore-test zummi
+```
+
+- `isolation` ist der Probelauf: Die VM bootet und muss beweisen, dass sie nichts erreicht. Kein Secret ist beteiligt. Zuerst laufen lassen, wenn sich [`tests/restore/vm.nix`](https://github.com/admin/nixlab/blob/main/tests/restore/vm.nix) geändert hat.
+- Ohne Modus ist es der Restore. 1Password fragt gleich am Anfang nach dem `admin`-Key (`op://<vault>/<item>/password`, andere Referenz per `NIXLAB_ADMIN_AGE_KEY`).
+- Etwa zwei Minuten pro Host. Wiederholen, wenn sich Backup-Pfade, Datenbanken oder das Datenverzeichnis eines Dienstes ändern, sonst alle paar Monate.
+
+### Was passiert
+
+1. **Build:** `lib.restoreTest.<host>` – die eigene Konfiguration des Hosts plus [`tests/restore/vm.nix`](https://github.com/admin/nixlab/blob/main/tests/restore/vm.nix) – wird auf ursalia als QEMU-VM gebaut.
+2. **T0:** Die VM startet mit leerer Disk. Ihre Dienste kommen leer hoch oder scheitern an fehlenden Secrets, wie nach einer Neuinstallation.
+3. **Während sie bootet**, auf ursalia: Der `admin`-Key entschlüsselt `restic_password` und den S3-Key aus `hosts/<host>/secrets.yaml` des Repositorys; restic stellt den neuesten Snapshot wieder her. Der `admin`-Key wird gleich danach gelöscht.
+4. **Isolation:** Die VM darf weder ursalia noch das Internet noch das S3 auf aldrin erreichen, und NetBird, Tailscale und die restic-Timer dürfen nicht laufen – geprüft, bevor irgendein Secret in die VM kommt. Die Prüfung beweist sich selbst am eigenen sshd der VM.
+5. **Secrets:** Der zurückgeholte SSH-Host-Key muss zu `inventory.json` passen; in der VM entschlüsselt sops-nix damit dann jedes Secret des Hosts.
+6. **Daten:** grammi – frischer Postgres-Cluster, `pg_dumpall`-Dump eingespielt, Zustand von mealie, Grist, Grafana, logchef und NetBird an Ort und Stelle. zummi – die pocket-id-Datenbank aus der konsistenten `.backup`-Kopie und der Let's-Encrypt-Account.
+7. **Prüfungen:** Jeder Dienst muss per HTTP antworten; die JWKS von pocket-id muss einen Schlüssel enthalten (beweist, dass der Encryption-Key zur Datenbank passt). Dann Anzahlen (User, Peers, Dokumente, OIDC-Clients) in der VM neben denselben Anzahlen auf dem echten Host – dort nur lesend.
+8. **Aufräumen:** VM und tmpfs werden gelöscht. Stirbt das Rezept mittendrin, beendet sich die VM nach 2 h selbst, und ein Timer löscht das tmpfs nach 3 h.
+
+### Isolation
+
+Die VM fährt die echte Konfiguration des Hosts mit echten Secrets. Sicher ist das nur, weil sie kein einziges Paket verschicken kann: QEMUs User-Netz mit `restrict=on` (`virtualisation.restrictNetwork`). Der einzige Weg hinein ist SSH auf dem Loopback von ursalia, mit einem Schlüssel, den es nur für diesen Lauf gibt. Ihre Disk, der zurückgeholte Host-Key und jedes entschlüsselte Secret liegen unter `/run/restore-test/<host>` auf ursalia, einem tmpfs – sie berühren nie eine Disk. Der Hostname bleibt der echte, weil die Module daran die sops-Dateien festmachen; ohne Netz taucht er nirgends auf.
+
+### Ergebnis 2026-11-02
+
+| | grammi | zummi |
+| --- | --- | --- |
+| Build (aus dem Cache) | 17–24 s | 14–20 s |
+| VM läuft | 12 s | 13 s |
+| Backup geholt | 2 s (65,7 MiB) | 2 s (5,2 MiB) |
+| Secrets entschlüsselt | 22 s (29/29) | 19 s (13/13) |
+| Daten am Platz | 29 s | 48 s |
+| **RTO: Dienste antworten** | **38 s** | **48 s** |
+| Anzahlen wiederhergestellt / live | NetBird-Peers 15/15, User 6/6; mealie-User 3/3; Grafana-User 3/3; Grist-Dokumente 6/6 | User 4/4, OIDC-Clients 13/13, ACME-Dateien 3/3 |
+
+Nicht gemessen: eine Ersatzmaschine mieten, NixOS darauf installieren, DNS umstellen. Die RTO oben ist der Teil danach.
+
+### Was der Test gefunden hat
+
+1. **Im zummi-Backup war keine pocket-id-Datenbank** – in keinem der 22 Snapshots vom 2026-08-10 bis 2026-11-02. Das nicht verankerte Exclude `"*.db"` traf auch die `.backup`-Kopie. Am selben Tag behoben (auf das Datenverzeichnis verankert).
+2. **grist braucht pocket-id zum Start** (OIDC-Discovery bei `auth.homelab.example`): Sind grammi und zummi beide weg, kommt zummi zuerst zurück.
+3. **netbird-server braucht `pkgs.netbird.io` zum Start** – er fragt jedes Mal nach der aktuellen GeoLite-Datei, obwohl die Dateien im Backup sind.
+4. **Nur numerische Besitzer:** restic hält UIDs, keine Namen, und `/var/lib/nixos` (die UID-Zuordnung) ist in keinem Backup. Ein neu installierter Host vergibt UIDs neu, deshalb chownt ein Restore die Dateien jedes Dienstes nach Namen (der Test macht das).
+5. **Wohin die pocket-id-Datenbank gehört** (`data/` im Arbeitsverzeichnis), steht in keinem Backup; die Kopie behält nur ihren Dateinamen.
+
 ## Repository-Struktur
 
 Ein Flake, `nixosConfigurations` für fünf Hosts plus `darwinConfigurations` für die beiden Macs (zorlock, gusto) und zwei `devShells`: eine zum Arbeiten am Repo, eine mit dnscontrol für das DNSControl-Repo. Jeder Host bekommt eine explizite Modulliste in `flake.nix`; was fehlt, fehlt mit Begründung im Kommentar daneben.
@@ -1396,14 +1615,15 @@ Die Homebrew-Inputs sind der Grund, warum ein Cask eine feste Version hat: Mit `
 
 ## Hosts & Rollen
 
-Drei gemietete VMs tragen die öffentlichen Dienste, ursalia und zorlock stehen zu Hause, cuckoosegg im Subraum; gusto ist die Admin-Workstation (ein MacBook). Alle Server sind über `<host>.peer.homelab.example` im NetBird-Mesh erreichbar; root-SSH gibt es nur dort. Art, Site, Uplink und Entsperren jeder Maschine – auch der Router, des KVM und der Appliances – stehen im [Inventar](#inventar), alles zusammen auf einen Blick in der [Lagekarte](#lagekarte).
+Drei gemietete VMs tragen die öffentlichen Dienste, ursalia, tummi und zorlock stehen zu Hause, cuckoosegg im Subraum; gusto ist die Admin-Workstation (ein MacBook). Alle Server sind über `<host>.peer.homelab.example` im NetBird-Mesh erreichbar; root-SSH gibt es nur dort. Art, Site, Uplink und Entsperren jeder Maschine – auch der Router, des KVM und der Appliances – stehen im [Inventar](#inventar), alles zusammen auf einen Blick in der [Lagekarte](#lagekarte).
 
 | Host | Plattform | Rolle | Besonderheiten |
 | --- | --- | --- | --- |
 | grammi | NixOS, gemietete VM | NetBird-Server (`mesh.homelab.example`) + Reverse Proxy, Traefik, Monitoring (VictoriaMetrics/-Logs, Grafana, logchef), Mealie, Grist, PostgreSQL | Zentrale Senke für Metriken und Logs aller Hosts |
 | zummi | NixOS, gemietete VM | Pocket ID (`auth.homelab.example`) – Login für alle Dienste und NetBird | pocket-id separat gepinnt |
 | aldrin | NixOS, gemietete VM | Garage S3 (`s3.aldrin.homelab.example`), garage-ui (`s3-admin`), Backup-Ziel für restic, Doku-Site (`doku`) | Fork-Paket garage-ui mit Subpath-Support |
-| ursalia | NixOS, Bare Metal (ASRock NUC BOX-1260P) | Paperless-ngx 3 + paperless-gpt (`dokumente`), HealthLog (`health`), Bambuddy (`bambuddy`), Doku-Site (`doku`), Samba für den Scanner, Routing-Peer ins Heim-LAN, Build-Host für cuckoosegg, ESPHome-Build-Server für Home Assistant (nur Heim-LAN, Port 6055), Claude-Code-Brücke zum NanoKVM Go+ (nur bei Bedarf) | LUKS + btrfs via disko, TPM-Unlock, Secure Boot (lanzaboote), WLAN (Intel BE200), kein CrowdSec |
+| ursalia | NixOS, Bare Metal (ASRock NUC BOX-1260P) | Paperless-ngx 3 + paperless-gpt (`dokumente`), HealthLog (`health`), Bambuddy (`bambuddy`), AdGuard Home (`dns`, `adguard`), Doku-Site (`doku`), Samba für den Scanner, Routing-Peer ins Heim-LAN, Build-Host für cuckoosegg, ESPHome-Build-Server für Home Assistant (nur Heim-LAN, Port 6055), Claude-Code-Brücke zum NanoKVM Go+ (nur bei Bedarf) | LUKS + btrfs via disko, TPM-Unlock, Secure Boot (lanzaboote), WLAN (Intel AX211, `home-wifi.nix`), kein CrowdSec |
+| tummi | NixOS, Bare Metal (ASRock NUC BOX-1260P) | Dateien kopieren und sortieren: 8 TB auf `/data`, SMB-Freigabe „Daten“ im Mesh | Aufbau wie ursalia (disko, TPM-Unlock, Secure Boot), WLAN mit Kabel als Fallback, keine Dienste nach außen |
 | cuckoosegg | NixOS, VM auf dem Subraum-Proxmox | NetBird-Routing-Peer in die Subraum-Netze | Gruppe `subraum-devices` statt `servers`, kein Repo/Deploy-Key, wird per Push deployed |
 | zorlock | macOS + nix-darwin, Mac mini M4 | Ollama auf der Apple-GPU (`llm`), genutzt von paperless-gpt | Keins der `modules/*.nix`; FileVault-Unlock nach Reboot per LAN-SSH |
 | gusto | macOS + nix-darwin + home-manager, MacBook Pro | Admin-Workstation: Deploys, Secrets, Tofu, Doku | Laptop, kein sshd, keine Secrets, nicht überwacht; Apps als Homebrew-Casks, NetBird als offizielle App – siehe [gusto](#gusto--die-admin-workstation) und [macOS-Hosts](#macos-hosts) |
@@ -1563,7 +1783,7 @@ Hostkeys: Lab-Hosts aus `inventory.json` (`/etc/ssh/ssh_known_hosts`), GitHub fe
 | `<host>.example-tailnet.ts.net` | Tailscale | wie oben | wie oben | Notzugang, solange Tailscale läuft; nicht für cuckoosegg. Fällt mit Tailscale weg. |
 | `aldrin.homelab.example`, `grammi.homelab.example`, `zummi.homelab.example` | öffentliche Adresse | admin | wie oben | Ausweichweg, wenn das Mesh nicht geht – root ist auf öffentlichen Adressen gesperrt (`modules/ssh.nix`) |
 | `zorlock-lan` | 198.51.100.86 | admin | `zorlock.homelab.example.pub` | FileVault-Entsperren nach einem Neustart, aus dem Heimnetz |
-| `opnsense` | 198.51.100.1 | root | `opnsense.pub` | |
+| `gruffi` | 198.51.100.1 | root | `gruffi.homelab.example.pub` | Heimrouter (Flint 4, GL.iNet-Firmware, Dropbear) |
 | `arkkvm`, `arkkvm01` | `arkkvm01` (DHCP-Name) | root | `arkkvm.pub` | |
 | `subraum-router` | hackspace.c3pb.de | admin | `c3pb.de.pub` | Jumphost; Weiterleitungen 8006 → Proxmox, 8080/8081 → Home Assistant |
 | `vogon`, `amnesia`, `unifi` | `<name>.subraum.c3pb.de` über `subraum-router` | root | `<name>.subraum.c3pb.de.pub` | |
@@ -1585,21 +1805,22 @@ Die offizielle App aus NetBirds Tap (Cask `netbird-ui`, Formula `netbird` für d
 
 ### MCP-Server der Claude-App
 
-Die Desktop-App und Claude Code starten ihre lokalen MCP-Server als stdio-Prozesse über `mcp-run <server>` (`hosts/gusto/mcp.nix`, eingerichtet am 2026-10-23). Bei jedem Start entschlüsselt `mcp-run` nur den Abschnitt dieses Servers aus `hosts/gusto/mcp.yaml`. Die Datei ist mit sops für die Schlüssel `workstation` und `admin` verschlüsselt; `op` fragt dabei unter Umständen nach Touch ID. Danach startet `mcp-run` den Server. In keiner Konfigdatei von Claude steht ein Zugangsdatum.
+Die Desktop-App und Claude Code starten ihre lokalen MCP-Server als stdio-Prozesse über `mcp-run <server>` (`hosts/gusto/mcp.nix`, eingerichtet am 2026-10-23). Bei jedem Start entschlüsselt `mcp-run` nur den Abschnitt dieses Servers aus `hosts/gusto/mcp.yaml` (`moneymoney` hat keinen und startet ohne sops). Die Datei ist mit sops für die Schlüssel `workstation` und `admin` verschlüsselt; `op` fragt dabei unter Umständen nach Touch ID. Danach startet `mcp-run` den Server. In keiner Konfigdatei von Claude steht ein Zugangsdatum.
 
 | Server | Was | Start | Zugangsdaten in `mcp.yaml` | Desktop | Claude Code |
 | --- | --- | --- | --- | --- | --- |
 | `homeassistant` | [ha-mcp](https://github.com/homeassistant-ai/ha-mcp) als App (Add-on) auf dem Raspberry Pi, Port 9583 | `uvx fastmcp-remote <url>`, Brücke von HTTP auf stdio | `homeassistant.url`: die geheime URL der App, Host `homeassistant.peer.homelab.example` | ja | ja |
 | `feedbin` | [FeedbinMCP](https://github.com/admin/FeedbinMCP), admins Fork von [hypermoose/FeedbinMCP](https://github.com/hypermoose/FeedbinMCP) | `uv run --directory ~/Projects/personal/FeedbinMCP feedbin-mcp` | `feedbin.email`, `feedbin.password` | ja | nein |
 | `arkkvm` | [arkkvm-mcp](https://github.com/admin/arkkvm-mcp) | `uv run --directory ~/Projects/arkkvm/arkkvm-mcp arkkvm-mcp`, Host `arkkvm01`, Tastaturlayout `de` | `arkkvm.password` | ja | ja |
+| `moneymoney` | [moneymoney-mcp](https://github.com/pipamann/moneymoney-mcp) von Leon Heuser, nur lesend, per AppleScript an die laufende, entsperrte App | `moneymoney-mcp`, gebaut aus dem Tag [v0.4.0](https://github.com/pipamann/moneymoney-mcp/tree/3266505c450ff92ceaa79df3d59965f8ea28f22f) (`pkgs/moneymoney-mcp.nix`) | keine | ja | nein |
 
 - **ha-mcp statt der eingebauten Integration „Model Context Protocol Server“:** Die eingebaute Integration sieht nur, was für Assist freigegeben ist, und keine Geräte-Registry. ha-mcp kann Automationen, Dashboards, Registries, Verlauf und mehr, mit Schreibrechten. Das ist bewusst so: Claude fragt vor jedem Werkzeugaufruf, und ha-mcp legt vor Änderungen ein Backup an. Die App spricht über den Supervisor mit HA, es braucht also kein Long-lived Token. Ihre geheime URL steht beim Start im Log der App.
 - **Erreichbar über das Mesh:** Zu Hause und unterwegs gilt dieselbe URL. Die NetBird-Policy `home-assistant-mcp` (`terraform/netbird/home-assistant.tf`) erlaubt `admin-workstations` → HA, nur TCP 9583. Außerhalb von LAN und Mesh nützt die URL allein nichts.
-- **Feedbin nicht in Claude Code:** Feed-Artikel sind fremder Text, also ein Weg für Prompt Injection, und Claude Code hat auf gusto eine Shell und sops.
+- **Feedbin und MoneyMoney nicht in Claude Code:** Feed-Artikel und Umsatztexte sind fremder Text (den Verwendungszweck bestimmt, wer überweist), also ein Weg für Prompt Injection, und Claude Code hat auf gusto eine Shell und sops.
 - **Konfig:** Jeder Switch trägt die Server per `jq` in `mcpServers` von `~/Library/Application Support/Claude/claude_desktop_config.json` bzw. `~/.claude.json` ein, nach Namen. Von Hand ergänzte Server bleiben erhalten; einen hier entfernten Server musst du dort von Hand löschen. Die Apps lesen die Datei beim Start, nach einem Switch also neu starten.
 - **Zugangsdaten ändern:** `cd ~/Projects/homelab/nixlab && sops hosts/gusto/mcp.yaml`. Die Änderung gilt ab dem nächsten Serverstart, ohne Switch, denn `mcp-run` liest die Datei im Arbeitsklon. Die HA-URL lässt sich direkt aus der Zwischenablage übernehmen, dabei wird der Host durch den Mesh-Namen ersetzt:
   `cd ~/Projects/homelab/nixlab && sops set hosts/gusto/mcp.yaml '["homeassistant"]["url"]' "\"$(pbpaste | sed -E 's#^http://[^/]+#http://homeassistant.peer.homelab.example:9583#')\""`
-- **MoneyMoney** ist noch nicht eingerichtet, weil MoneyMoney seit der Neuinstallation nicht auf gusto ist. Früher lief es als `npx -y moneymoney-mcp`; das braucht Node und die laufende, entsperrte App.
+- **MoneyMoney aus dem Tag gebaut, nicht `npx -y moneymoney-mcp`:** Das `npx` von Upstream holt bei jedem Start die neueste Version samt Abhängigkeits-Bereichen von npm. Für einen Server, der die Bankkonten liest, ist der Bau aus `package-lock.json` fest und lädt beim Start nichts. Ein Update heißt: Version und Hashes anheben (siehe Paketdatei). Bewusst nur lesend: Ohne `--enable-transfers` gibt es das Tool `create_bank_transfer` nicht. Beim ersten Zugriff fragt macOS unter Automation, ob Claude MoneyMoney steuern darf (System Settings → Privacy & Security → Automation). Fehler `DATABASE_LOCKED`: MoneyMoney entsperren.
 
 ### Sicherung
 
@@ -1859,7 +2080,7 @@ Nicht geprüft: ob ein Tang-Server wirklich Tang betreibt. Das steht in seiner C
 
 - oben nur `$schema` und die acht Abschnitte, alle vorhanden
 - gültige IDs und Interface-Namen, keine unbekannten Felder (fängt Tippfehler), Pflichtfelder vorhanden
-- Typen, Enums, Mindest-/Höchstwerte, Formate (MAC, IPv4-Adresse und -Präfix, IPv6-Präfix, Link-Local, SSH-Key), keine Duplikate in Listen
+- Typen, Enums, Mindest-/Höchstwerte, Formate (MAC, IPv4-Adresse und -Präfix, IPv6-Präfix, ULA-/48, Link-Local, SSH-Key), keine Duplikate in Listen
 - Referenzen zeigen auf einen vorhandenen Eintrag des richtigen Abschnitts
 
 ```
@@ -1881,7 +2102,7 @@ uplinks.fiber-home.asn: expected a whole number, got "AS64496"
 - Hardware: `vendor`/`productId`/`serial` nicht bei `vm`/`container`; keine Seriennummer doppelt
 - SSH-Keys: Key-Daten passen zum Typ, kein Key bei zwei Geräten
 - Interfaces: Netz an der Site des Hosts; `ipv4` braucht ein Netz, `address` je nach Modus, im Präfix, nicht Netz-/Broadcast-Adresse, statisch außerhalb des Pools, je Netz eindeutig; `reserved` braucht `mac` und einen `dhcpServer`; MAC eindeutig und kein Multicast; `eui64` braucht eine MAC und keine private WLAN-MAC
-- Netze: Präfix ohne Host-Bits; Pool im Präfix, Start ≤ Ende, nur mit `ipv4` und `dhcpServer`; `dhcpServer` an der Site und mit Interface im Netz; VLAN-ID je Site eindeutig
+- Netze: Präfix ohne Host-Bits; Pool im Präfix, Start ≤ Ende, nur mit `ipv4` und `dhcpServer`; `dhcpServer` an der Site und mit Interface im Netz; VLAN-ID je Site eindeutig; `ipv6SubnetId` je Site eindeutig und im delegierten Präfix des primären Anschlusses
 - Dienste: genau eins von `hosts`/`provider`; `package` nur auf verwalteten Hosts und nicht zusammen mit `version`; kein `core`/`service`-Dienst auf einem `intermittent`-Host; kein Verweis auf sich selbst, nichts zugleich in `dependsOn` und `uses`, keine harte Abhängigkeit von einem weniger kritischen Dienst; `dependsOn`/`via` zyklenfrei; `via` bei `proxy`, nicht bei `loopback`; jeder `fqdn` nur einmal je Port; `backup` nur bei `stateful`, `to` Pflicht bei `restic`/`arq`, optional bei `ha-backup`, sonst nicht, und auf ein `stateful`-Ziel; `contracts` nur mit `provider`
 - Verträge: `dueMonth` genau bei `year`; `renews` nicht vor `since`; ein Vertrag, den ein Host, Anschluss oder Dienst nennt, ist mit dessen Anbieter geschlossen (bei einem Host: dem Anbieter seiner Site); kein Anbieter, auf den nichts verweist
 
@@ -1930,7 +2151,7 @@ Das Schema in `inventory.schema.json` deckt nur Stufe 1 ab (ohne Referenzen) und
 | `providers.<id>` | `services`, `contracts`, `sites`, `uplinks`, `affects` (was mit ihm ausfällt: Dienste auf Hosts an einer Site, die er betreibt, oder hinter Anschlüssen, die alle seine sind, und alles, was hart von diesen oder seinen eigenen Diensten abhängt), `degrades` (Dienste, die sie oder deren Abhängige nur über `uses` nutzen), `monthly` (je Währung) |
 | `contracts.<id>` | `monthly` (Jahresbetrag durch 12, auf den Cent abgerundet; `null` bei `once` oder ohne Kosten), `covers` (`hosts`, `uplinks`, `services`, die ihn nennen) |
 | `costs` | `monthly` – das Lab pro Monat, je Währung; `byMonth` – zwölf Einträge, was in welchem Kalendermonat abgebucht wird (Monatsbeträge jeden Monat, Jahresbeträge in ihrem `dueMonth`). Einmalzahlungen bleiben draußen |
-| `networks.<id>` | `interfaces` – jedes Interface darin (`host`, `interface`, `mac`, `address`, `mode`); `reservations` – was der `dhcpServer` per MAC vergeben muss (`host`, `interface`, `mac`, `address`), nach Adresse sortiert |
+| `networks.<id>` | `interfaces` – jedes Interface darin (`host`, `interface`, `mac`, `address`, `mode`); `reservations` – was der `dhcpServer` per MAC vergeben muss (`host`, `interface`, `mac`, `address`), nach Adresse sortiert; `ipv6SubnetHex` – `ipv6SubnetId` in Hex (OpenWrt `ip6hint`); `ipv6Ula` – das `/64` des Netzes im `ipv6Ula` der Site |
 
 Neben `inventory`: `lib.inventory.knownHosts` (der Wert für `programs.ssh.knownHosts`) und `lib.inventory.knownHostsFile` (dasselbe als known_hosts-Text).
 
@@ -2070,7 +2291,7 @@ locals {
 
 ### Tests
 
-`tests/inventory.nix` enthält ein vollständiges, erfundenes Inventar (die Beispiele oben) und 94 Fälle. Jeder Fall ändert genau eine Sache und nennt die erwarteten Fehler – exakter Wortlaut und Reihenfolge – oder, bei gültigen Varianten, Werte der abgeleiteten Sicht. Ein Fall schlägt auch fehl, wenn ein kaputtes Inventar `.inventory` nicht werfen lässt.
+`tests/inventory.nix` enthält ein vollständiges, erfundenes Inventar (die Beispiele oben) und 98 Fälle. Jeder Fall ändert genau eine Sache und nennt die erwarteten Fehler – exakter Wortlaut und Reihenfolge – oder, bei gültigen Varianten, Werte der abgeleiteten Sicht. Ein Fall schlägt auch fehl, wenn ein kaputtes Inventar `.inventory` nicht werfen lässt.
 
 | Gruppe | Deckt ab |
 | --- | --- |
@@ -2082,7 +2303,7 @@ locals {
 | Hardware | `vendor`/`serial` bei einer VM, `model` bei einer VM erlaubt, Seriennummer doppelt; abgeleitete Hardware-Felder und Standardwerte |
 | SSH-Keys | Falsches Format, mit Kommentar, Key-Daten eines anderen Typs, derselbe Key bei zwei Hosts; abgeleitete known_hosts-Einträge und -Datei |
 | Interfaces | MAC-Format, Interface-Name, Link-Local-Wert, MAC doppelt, Multicast-MAC, `eui64` aus privater WLAN-MAC und ohne MAC, Netz an anderer Site, `ipv4` ohne Netz, Adresse je Modus, reserviert ohne MAC oder DHCP-Server, Adresse außerhalb/Broadcast/im Pool/ohne Präfix/doppelt; abgeleitetes Link-Local (EUI-64 einer QEMU-MAC, fest, zufällig) und VLAN |
-| Netze | Präfix-Format, VLAN-Bereich und Duplikat je Site (dieselbe ID an anderer Site erlaubt), Host-Bits, Pool außerhalb/rückwärts/ohne Server, DHCP-Server ohne Interface oder an anderer Site; abgeleitete Reservierungen |
+| Netze | Präfix-Format, VLAN-Bereich und Duplikat je Site (dieselbe ID an anderer Site erlaubt), Host-Bits, Pool außerhalb/rückwärts/ohne Server, DHCP-Server ohne Interface oder an anderer Site, Subnetz-ID außerhalb des delegierten Präfixes und doppelt je Site, ULA-Format; abgeleitete Reservierungen, Subnetz-Hex und ULA-`/64` |
 | Dienste | Weder/beides von `hosts` und `provider`, leere `hosts`, `package` mit `version`/ohne Hosts/auf nicht verwaltetem Host, kritischer Dienst auf einem zeitweise erreichbaren Host (ein `lab`-Dienst erlaubt), Selbstverweise, `uses` doppelt zu `dependsOn`, schwächere harte Abhängigkeit, Zyklen über `dependsOn` und `via`, Endpoint-Regeln und doppelte Namen, Domain-Format, alle Backup-Regeln; abgeleitete Abhängigkeiten, Upstream-Hosts, Backups außer Haus, `gaps` |
 | Anbieter, Verträge | Vertrag mit falschem Anbieter an Host, Anschluss und Dienst, an einem Anschluss ohne Anbieter, an einem Dienst auf Hosts; `dueMonth`, `renews` vor `since`, Betrag nicht in ganzen Cent, Datumsformat; ungenutzter und unbekannter Anbieter; abgeleitete Summen je Währung und Monat, `pending` bei fehlenden Kosten |
 
@@ -2682,156 +2903,166 @@ Jeder Abschnitt mit allen Feldern – **fett** sind Pflichtfelder, verschachtelt
 </g>
 <g id="node3" class="node">
 <title>networks</title>
-<polygon fill="#f1efe8" stroke="none" points="643.75,-609.18 522.75,-609.18 522.75,-394.43 643.75,-394.43 643.75,-609.18"/>
-<polygon fill="#f1efe8" stroke="none" points="522.75,-394.43 522.75,-609.18 643.75,-609.18 643.75,-394.43 522.75,-394.43"/>
+<polygon fill="#f1efe8" stroke="none" points="643.75,-609.81 522.75,-609.81 522.75,-375.81 643.75,-375.81 643.75,-609.81"/>
+<polygon fill="#f1efe8" stroke="none" points="522.75,-375.81 522.75,-609.81 643.75,-609.81 643.75,-375.81 522.75,-375.81"/>
 <g id="a_node3_95"><a data-target="networks" tabindex="0" role="link"><title>networks</title>
-<polygon fill="#d3d1c7" stroke="none" points="522.75,-589.93 522.75,-609.18 643.75,-609.18 643.75,-589.93 522.75,-589.93"/>
-<polygon fill="none" stroke="#b4b2a9" points="522.75,-589.93 522.75,-609.18 643.75,-609.18 643.75,-589.93 522.75,-589.93"/>
-<text text-anchor="start" x="562.25" y="-596.68" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">networks</text>
+<polygon fill="#d3d1c7" stroke="none" points="522.75,-590.56 522.75,-609.81 643.75,-609.81 643.75,-590.56 522.75,-590.56"/>
+<polygon fill="none" stroke="#b4b2a9" points="522.75,-590.56 522.75,-609.81 643.75,-609.81 643.75,-590.56 522.75,-590.56"/>
+<text text-anchor="start" x="562.25" y="-597.31" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">networks</text>
 </a>
 </g>
 <g id="a_node3_96"><a data-target="networks-dhcppool" tabindex="0" role="link"><title>networks.dhcpPool</title>
-<polygon fill="none" stroke="#b4b2a9" points="522.75,-570.68 522.75,-589.93 599,-589.93 599,-570.68 522.75,-570.68"/>
-<text text-anchor="start" x="526.75" y="-576.43" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">dhcpPool</text>
+<polygon fill="none" stroke="#b4b2a9" points="522.75,-571.31 522.75,-590.56 599,-590.56 599,-571.31 522.75,-571.31"/>
+<text text-anchor="start" x="526.75" y="-577.06" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">dhcpPool</text>
 </a>
 </g>
 <g id="a_node3_97"><a data-target="networks-dhcppool" tabindex="0" role="link"><title>networks.dhcpPool</title>
-<polygon fill="none" stroke="#b4b2a9" points="599,-570.68 599,-589.93 643.75,-589.93 643.75,-570.68 599,-570.68"/>
-<text text-anchor="start" x="603" y="-576.43" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">object</text>
+<polygon fill="none" stroke="#b4b2a9" points="599,-571.31 599,-590.56 643.75,-590.56 643.75,-571.31 599,-571.31"/>
+<text text-anchor="start" x="603" y="-577.06" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">object</text>
 </a>
 </g>
 <g id="a_node3_98"><a data-target="networks-dhcppool-end" tabindex="0" role="link"><title>networks.dhcpPool.end</title>
-<polygon fill="none" stroke="#b4b2a9" points="522.75,-551.43 522.75,-570.68 599,-570.68 599,-551.43 522.75,-551.43"/>
-<text text-anchor="start" x="526.75" y="-558.18" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">dhcpPool.end</text>
+<polygon fill="none" stroke="#b4b2a9" points="522.75,-552.06 522.75,-571.31 599,-571.31 599,-552.06 522.75,-552.06"/>
+<text text-anchor="start" x="526.75" y="-558.81" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">dhcpPool.end</text>
 </a>
 </g>
 <g id="a_node3_99"><a data-target="networks-dhcppool-end" tabindex="0" role="link"><title>networks.dhcpPool.end</title>
-<polygon fill="none" stroke="#b4b2a9" points="599,-551.43 599,-570.68 643.75,-570.68 643.75,-551.43 599,-551.43"/>
-<text text-anchor="start" x="603" y="-557.18" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
+<polygon fill="none" stroke="#b4b2a9" points="599,-552.06 599,-571.31 643.75,-571.31 643.75,-552.06 599,-552.06"/>
+<text text-anchor="start" x="603" y="-557.81" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
 </a>
 </g>
 <g id="a_node3_100"><a data-target="networks-dhcppool-start" tabindex="0" role="link"><title>networks.dhcpPool.start</title>
-<polygon fill="none" stroke="#b4b2a9" points="522.75,-532.18 522.75,-551.43 599,-551.43 599,-532.18 522.75,-532.18"/>
-<text text-anchor="start" x="526.75" y="-538.93" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">dhcpPool.start</text>
+<polygon fill="none" stroke="#b4b2a9" points="522.75,-532.81 522.75,-552.06 599,-552.06 599,-532.81 522.75,-532.81"/>
+<text text-anchor="start" x="526.75" y="-539.56" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">dhcpPool.start</text>
 </a>
 </g>
 <g id="a_node3_101"><a data-target="networks-dhcppool-start" tabindex="0" role="link"><title>networks.dhcpPool.start</title>
-<polygon fill="none" stroke="#b4b2a9" points="599,-532.18 599,-551.43 643.75,-551.43 643.75,-532.18 599,-532.18"/>
-<text text-anchor="start" x="603" y="-537.93" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
+<polygon fill="none" stroke="#b4b2a9" points="599,-532.81 599,-552.06 643.75,-552.06 643.75,-532.81 599,-532.81"/>
+<text text-anchor="start" x="603" y="-538.56" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
 </a>
 </g>
 <g id="a_node3_102"><a data-target="networks-dhcpserver" tabindex="0" role="link"><title>networks.dhcpServer</title>
-<polygon fill="none" stroke="#b4b2a9" points="522.75,-511.43 522.75,-532.18 599,-532.18 599,-511.43 522.75,-511.43"/>
-<text text-anchor="start" x="526.75" y="-517.93" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">dhcpServer</text>
+<polygon fill="none" stroke="#b4b2a9" points="522.75,-512.06 522.75,-532.81 599,-532.81 599,-512.06 522.75,-512.06"/>
+<text text-anchor="start" x="526.75" y="-518.56" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">dhcpServer</text>
 </a>
 </g>
 <g id="a_node3_103"><a data-target="networks-dhcpserver" tabindex="0" role="link"><title>networks.dhcpServer</title>
-<polygon fill="none" stroke="#b4b2a9" points="599,-511.43 599,-532.18 643.75,-532.18 643.75,-511.43 599,-511.43"/>
-<text text-anchor="start" x="603" y="-518.68" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">→ hosts</text>
+<polygon fill="none" stroke="#b4b2a9" points="599,-512.06 599,-532.81 643.75,-532.81 643.75,-512.06 599,-512.06"/>
+<text text-anchor="start" x="603" y="-519.31" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">→ hosts</text>
 </a>
 </g>
 <g id="a_node3_104"><a data-target="networks-ipv4" tabindex="0" role="link"><title>networks.ipv4</title>
-<polygon fill="none" stroke="#b4b2a9" points="522.75,-492.18 522.75,-511.43 599,-511.43 599,-492.18 522.75,-492.18"/>
-<text text-anchor="start" x="526.75" y="-497.93" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">ipv4</text>
+<polygon fill="none" stroke="#b4b2a9" points="522.75,-492.81 522.75,-512.06 599,-512.06 599,-492.81 522.75,-492.81"/>
+<text text-anchor="start" x="526.75" y="-498.56" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">ipv4</text>
 </a>
 </g>
 <g id="a_node3_105"><a data-target="networks-ipv4" tabindex="0" role="link"><title>networks.ipv4</title>
-<polygon fill="none" stroke="#b4b2a9" points="599,-492.18 599,-511.43 643.75,-511.43 643.75,-492.18 599,-492.18"/>
-<text text-anchor="start" x="603" y="-497.93" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
+<polygon fill="none" stroke="#b4b2a9" points="599,-492.81 599,-512.06 643.75,-512.06 643.75,-492.81 599,-492.81"/>
+<text text-anchor="start" x="603" y="-498.56" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
 </a>
 </g>
 <g id="a_node3_106"><a data-target="networks-ipv6" tabindex="0" role="link"><title>networks.ipv6</title>
-<polygon fill="none" stroke="#b4b2a9" points="522.75,-472.93 522.75,-492.18 599,-492.18 599,-472.93 522.75,-472.93"/>
-<text text-anchor="start" x="526.75" y="-478.68" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">ipv6</text>
+<polygon fill="none" stroke="#b4b2a9" points="522.75,-473.56 522.75,-492.81 599,-492.81 599,-473.56 522.75,-473.56"/>
+<text text-anchor="start" x="526.75" y="-479.31" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">ipv6</text>
 </a>
 </g>
 <g id="a_node3_107"><a data-target="networks-ipv6" tabindex="0" role="link"><title>networks.ipv6</title>
-<polygon fill="none" stroke="#b4b2a9" points="599,-472.93 599,-492.18 643.75,-492.18 643.75,-472.93 599,-472.93"/>
-<text text-anchor="start" x="603" y="-478.68" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
+<polygon fill="none" stroke="#b4b2a9" points="599,-473.56 599,-492.81 643.75,-492.81 643.75,-473.56 599,-473.56"/>
+<text text-anchor="start" x="603" y="-479.31" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
 </a>
 </g>
-<g id="a_node3_108"><a data-target="networks-name" tabindex="0" role="link"><title>networks.name</title>
-<polygon fill="none" stroke="#b4b2a9" points="522.75,-453.68 522.75,-472.93 599,-472.93 599,-453.68 522.75,-453.68"/>
-<text text-anchor="start" x="526.75" y="-460.43" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">name</text>
+<g id="a_node3_108"><a data-target="networks-ipv6subnetid" tabindex="0" role="link"><title>networks.ipv6SubnetId</title>
+<polygon fill="none" stroke="#b4b2a9" points="522.75,-454.31 522.75,-473.56 599,-473.56 599,-454.31 522.75,-454.31"/>
+<text text-anchor="start" x="526.75" y="-460.06" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">ipv6SubnetId</text>
 </a>
 </g>
-<g id="a_node3_109"><a data-target="networks-name" tabindex="0" role="link"><title>networks.name</title>
-<polygon fill="none" stroke="#b4b2a9" points="599,-453.68 599,-472.93 643.75,-472.93 643.75,-453.68 599,-453.68"/>
-<text text-anchor="start" x="603" y="-459.43" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
+<g id="a_node3_109"><a data-target="networks-ipv6subnetid" tabindex="0" role="link"><title>networks.ipv6SubnetId</title>
+<polygon fill="none" stroke="#b4b2a9" points="599,-454.31 599,-473.56 643.75,-473.56 643.75,-454.31 599,-454.31"/>
+<text text-anchor="start" x="603" y="-460.06" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">integer</text>
 </a>
 </g>
-<g id="a_node3_110"><a data-target="networks-note" tabindex="0" role="link"><title>networks.note</title>
-<polygon fill="none" stroke="#b4b2a9" points="522.75,-434.43 522.75,-453.68 599,-453.68 599,-434.43 522.75,-434.43"/>
-<text text-anchor="start" x="526.75" y="-440.18" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">note</text>
+<g id="a_node3_110"><a data-target="networks-name" tabindex="0" role="link"><title>networks.name</title>
+<polygon fill="none" stroke="#b4b2a9" points="522.75,-435.06 522.75,-454.31 599,-454.31 599,-435.06 522.75,-435.06"/>
+<text text-anchor="start" x="526.75" y="-441.81" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">name</text>
 </a>
 </g>
-<g id="a_node3_111"><a data-target="networks-note" tabindex="0" role="link"><title>networks.note</title>
-<polygon fill="none" stroke="#b4b2a9" points="599,-434.43 599,-453.68 643.75,-453.68 643.75,-434.43 599,-434.43"/>
-<text text-anchor="start" x="603" y="-440.18" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
+<g id="a_node3_111"><a data-target="networks-name" tabindex="0" role="link"><title>networks.name</title>
+<polygon fill="none" stroke="#b4b2a9" points="599,-435.06 599,-454.31 643.75,-454.31 643.75,-435.06 599,-435.06"/>
+<text text-anchor="start" x="603" y="-440.81" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
 </a>
 </g>
-<g id="a_node3_112"><a data-target="networks-site" tabindex="0" role="link"><title>networks.site</title>
-<polygon fill="none" stroke="#b4b2a9" points="522.75,-413.68 522.75,-434.43 599,-434.43 599,-413.68 522.75,-413.68"/>
-<text text-anchor="start" x="526.75" y="-421.18" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">site</text>
+<g id="a_node3_112"><a data-target="networks-note" tabindex="0" role="link"><title>networks.note</title>
+<polygon fill="none" stroke="#b4b2a9" points="522.75,-415.81 522.75,-435.06 599,-435.06 599,-415.81 522.75,-415.81"/>
+<text text-anchor="start" x="526.75" y="-421.56" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">note</text>
 </a>
 </g>
-<g id="a_node3_113"><a data-target="networks-site" tabindex="0" role="link"><title>networks.site</title>
-<polygon fill="none" stroke="#b4b2a9" points="599,-413.68 599,-434.43 643.75,-434.43 643.75,-413.68 599,-413.68"/>
-<text text-anchor="start" x="603" y="-420.93" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">→ sites</text>
+<g id="a_node3_113"><a data-target="networks-note" tabindex="0" role="link"><title>networks.note</title>
+<polygon fill="none" stroke="#b4b2a9" points="599,-415.81 599,-435.06 643.75,-435.06 643.75,-415.81 599,-415.81"/>
+<text text-anchor="start" x="603" y="-421.56" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
 </a>
 </g>
-<g id="a_node3_114"><a data-target="networks-vlan" tabindex="0" role="link"><title>networks.vlan</title>
-<polygon fill="none" stroke="#b4b2a9" points="522.75,-394.43 522.75,-413.68 599,-413.68 599,-394.43 522.75,-394.43"/>
-<text text-anchor="start" x="526.75" y="-400.18" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">vlan</text>
+<g id="a_node3_114"><a data-target="networks-site" tabindex="0" role="link"><title>networks.site</title>
+<polygon fill="none" stroke="#b4b2a9" points="522.75,-395.06 522.75,-415.81 599,-415.81 599,-395.06 522.75,-395.06"/>
+<text text-anchor="start" x="526.75" y="-402.56" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">site</text>
 </a>
 </g>
-<g id="a_node3_115"><a data-target="networks-vlan" tabindex="0" role="link"><title>networks.vlan</title>
-<polygon fill="none" stroke="#b4b2a9" points="599,-394.43 599,-413.68 643.75,-413.68 643.75,-394.43 599,-394.43"/>
-<text text-anchor="start" x="603" y="-400.18" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">integer</text>
+<g id="a_node3_115"><a data-target="networks-site" tabindex="0" role="link"><title>networks.site</title>
+<polygon fill="none" stroke="#b4b2a9" points="599,-395.06 599,-415.81 643.75,-415.81 643.75,-395.06 599,-395.06"/>
+<text text-anchor="start" x="603" y="-402.31" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">→ sites</text>
+</a>
+</g>
+<g id="a_node3_116"><a data-target="networks-vlan" tabindex="0" role="link"><title>networks.vlan</title>
+<polygon fill="none" stroke="#b4b2a9" points="522.75,-375.81 522.75,-395.06 599,-395.06 599,-375.81 522.75,-375.81"/>
+<text text-anchor="start" x="526.75" y="-381.56" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">vlan</text>
+</a>
+</g>
+<g id="a_node3_117"><a data-target="networks-vlan" tabindex="0" role="link"><title>networks.vlan</title>
+<polygon fill="none" stroke="#b4b2a9" points="599,-375.81 599,-395.06 643.75,-395.06 643.75,-375.81 599,-375.81"/>
+<text text-anchor="start" x="603" y="-381.56" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">integer</text>
 </a>
 </g>
 </g>
 <g id="edge3" class="edge">
 <title>hosts:e&#45;&gt;networks:h</title>
-<path fill="none" stroke="#888780" stroke-width="1.1" d="M457.75,-449.18C527.86,-449.18 455.71,-588.6 515.26,-598.95"/>
-<polygon fill="#888780" stroke="#888780" stroke-width="1.1" points="514.94,-601.03 521.09,-599.42 515.28,-596.85 514.94,-601.03"/>
+<path fill="none" stroke="#888780" stroke-width="1.1" d="M457.75,-449.18C528.1,-449.18 455.49,-589.18 515.24,-599.57"/>
+<polygon fill="#888780" stroke="#888780" stroke-width="1.1" points="514.94,-601.66 521.09,-600.05 515.28,-597.47 514.94,-601.66"/>
 </g>
 <g id="node4" class="node">
 <title>owners</title>
 <polygon fill="#f1efe8" stroke="none" points="619.38,-322.31 547.12,-322.31 547.12,-245.31 619.38,-245.31 619.38,-322.31"/>
 <polygon fill="#f1efe8" stroke="none" points="547.12,-245.31 547.12,-322.31 619.38,-322.31 619.38,-245.31 547.12,-245.31"/>
-<g id="a_node4_116"><a data-target="owners" tabindex="0" role="link"><title>owners</title>
+<g id="a_node4_118"><a data-target="owners" tabindex="0" role="link"><title>owners</title>
 <polygon fill="#d3d1c7" stroke="none" points="547.12,-303.06 547.12,-322.31 619.38,-322.31 619.38,-303.06 547.12,-303.06"/>
 <polygon fill="none" stroke="#b4b2a9" points="547.12,-303.06 547.12,-322.31 619.38,-322.31 619.38,-303.06 547.12,-303.06"/>
 <text text-anchor="start" x="566.38" y="-309.81" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">owners</text>
 </a>
 </g>
-<g id="a_node4_117"><a data-target="owners-contact" tabindex="0" role="link"><title>owners.contact</title>
+<g id="a_node4_119"><a data-target="owners-contact" tabindex="0" role="link"><title>owners.contact</title>
 <polygon fill="none" stroke="#b4b2a9" points="547.12,-283.81 547.12,-303.06 587.38,-303.06 587.38,-283.81 547.12,-283.81"/>
 <text text-anchor="start" x="551.12" y="-289.56" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">contact</text>
 </a>
 </g>
-<g id="a_node4_118"><a data-target="owners-contact" tabindex="0" role="link"><title>owners.contact</title>
+<g id="a_node4_120"><a data-target="owners-contact" tabindex="0" role="link"><title>owners.contact</title>
 <polygon fill="none" stroke="#b4b2a9" points="587.38,-283.81 587.38,-303.06 619.38,-303.06 619.38,-283.81 587.38,-283.81"/>
 <text text-anchor="start" x="591.38" y="-289.56" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
 </a>
 </g>
-<g id="a_node4_119"><a data-target="owners-name" tabindex="0" role="link"><title>owners.name</title>
+<g id="a_node4_121"><a data-target="owners-name" tabindex="0" role="link"><title>owners.name</title>
 <polygon fill="none" stroke="#b4b2a9" points="547.12,-264.56 547.12,-283.81 587.38,-283.81 587.38,-264.56 547.12,-264.56"/>
 <text text-anchor="start" x="551.12" y="-271.31" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">name</text>
 </a>
 </g>
-<g id="a_node4_120"><a data-target="owners-name" tabindex="0" role="link"><title>owners.name</title>
+<g id="a_node4_122"><a data-target="owners-name" tabindex="0" role="link"><title>owners.name</title>
 <polygon fill="none" stroke="#b4b2a9" points="587.38,-264.56 587.38,-283.81 619.38,-283.81 619.38,-264.56 587.38,-264.56"/>
 <text text-anchor="start" x="591.38" y="-270.31" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
 </a>
 </g>
-<g id="a_node4_121"><a data-target="owners-note" tabindex="0" role="link"><title>owners.note</title>
+<g id="a_node4_123"><a data-target="owners-note" tabindex="0" role="link"><title>owners.note</title>
 <polygon fill="none" stroke="#b4b2a9" points="547.12,-245.31 547.12,-264.56 587.38,-264.56 587.38,-245.31 547.12,-245.31"/>
 <text text-anchor="start" x="551.12" y="-251.06" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">note</text>
 </a>
 </g>
-<g id="a_node4_122"><a data-target="owners-note" tabindex="0" role="link"><title>owners.note</title>
+<g id="a_node4_124"><a data-target="owners-note" tabindex="0" role="link"><title>owners.note</title>
 <polygon fill="none" stroke="#b4b2a9" points="587.38,-245.31 587.38,-264.56 619.38,-264.56 619.38,-245.31 587.38,-245.31"/>
 <text text-anchor="start" x="591.38" y="-251.06" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
 </a>
@@ -2844,376 +3075,386 @@ Jeder Abschnitt mit allen Feldern – **fett** sind Pflichtfelder, verschachtelt
 </g>
 <g id="node7" class="node">
 <title>sites</title>
-<polygon fill="#f1efe8" stroke="none" points="811.75,-434.06 708.75,-434.06 708.75,-315.56 811.75,-315.56 811.75,-434.06"/>
-<polygon fill="#f1efe8" stroke="none" points="708.75,-315.56 708.75,-434.06 811.75,-434.06 811.75,-315.56 708.75,-315.56"/>
-<g id="a_node7_123"><a data-target="sites" tabindex="0" role="link"><title>sites</title>
-<polygon fill="#d3d1c7" stroke="none" points="708.75,-414.81 708.75,-434.06 811.75,-434.06 811.75,-414.81 708.75,-414.81"/>
-<polygon fill="none" stroke="#b4b2a9" points="708.75,-414.81 708.75,-434.06 811.75,-434.06 811.75,-414.81 708.75,-414.81"/>
-<text text-anchor="start" x="749.38" y="-421.56" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">sites</text>
+<polygon fill="#f1efe8" stroke="none" points="811.75,-434.68 708.75,-434.68 708.75,-296.93 811.75,-296.93 811.75,-434.68"/>
+<polygon fill="#f1efe8" stroke="none" points="708.75,-296.93 708.75,-434.68 811.75,-434.68 811.75,-296.93 708.75,-296.93"/>
+<g id="a_node7_125"><a data-target="sites" tabindex="0" role="link"><title>sites</title>
+<polygon fill="#d3d1c7" stroke="none" points="708.75,-415.43 708.75,-434.68 811.75,-434.68 811.75,-415.43 708.75,-415.43"/>
+<polygon fill="none" stroke="#b4b2a9" points="708.75,-415.43 708.75,-434.68 811.75,-434.68 811.75,-415.43 708.75,-415.43"/>
+<text text-anchor="start" x="749.38" y="-422.18" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">sites</text>
 </a>
 </g>
-<g id="a_node7_124"><a data-target="sites-city" tabindex="0" role="link"><title>sites.city</title>
-<polygon fill="none" stroke="#b4b2a9" points="708.75,-395.56 708.75,-414.81 751.25,-414.81 751.25,-395.56 708.75,-395.56"/>
-<text text-anchor="start" x="712.75" y="-402.31" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">city</text>
+<g id="a_node7_126"><a data-target="sites-city" tabindex="0" role="link"><title>sites.city</title>
+<polygon fill="none" stroke="#b4b2a9" points="708.75,-396.18 708.75,-415.43 751.25,-415.43 751.25,-396.18 708.75,-396.18"/>
+<text text-anchor="start" x="712.75" y="-402.93" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">city</text>
 </a>
 </g>
-<g id="a_node7_125"><a data-target="sites-city" tabindex="0" role="link"><title>sites.city</title>
-<polygon fill="none" stroke="#b4b2a9" points="751.25,-395.56 751.25,-414.81 811.75,-414.81 811.75,-395.56 751.25,-395.56"/>
-<text text-anchor="start" x="755.25" y="-401.31" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
+<g id="a_node7_127"><a data-target="sites-city" tabindex="0" role="link"><title>sites.city</title>
+<polygon fill="none" stroke="#b4b2a9" points="751.25,-396.18 751.25,-415.43 811.75,-415.43 811.75,-396.18 751.25,-396.18"/>
+<text text-anchor="start" x="755.25" y="-401.93" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
 </a>
 </g>
-<g id="a_node7_126"><a data-target="sites-kind" tabindex="0" role="link"><title>sites.kind</title>
-<polygon fill="none" stroke="#b4b2a9" points="708.75,-376.31 708.75,-395.56 751.25,-395.56 751.25,-376.31 708.75,-376.31"/>
-<text text-anchor="start" x="712.75" y="-383.06" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">kind</text>
+<g id="a_node7_128"><a data-target="sites-ipv6ula" tabindex="0" role="link"><title>sites.ipv6Ula</title>
+<polygon fill="none" stroke="#b4b2a9" points="708.75,-376.93 708.75,-396.18 751.25,-396.18 751.25,-376.93 708.75,-376.93"/>
+<text text-anchor="start" x="712.75" y="-382.68" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">ipv6Ula</text>
 </a>
 </g>
-<g id="a_node7_127"><a data-target="sites-kind" tabindex="0" role="link"><title>sites.kind</title>
-<polygon fill="none" stroke="#b4b2a9" points="751.25,-376.31 751.25,-395.56 811.75,-395.56 811.75,-376.31 751.25,-376.31"/>
-<text text-anchor="start" x="755.25" y="-382.06" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">enum</text>
+<g id="a_node7_129"><a data-target="sites-ipv6ula" tabindex="0" role="link"><title>sites.ipv6Ula</title>
+<polygon fill="none" stroke="#b4b2a9" points="751.25,-376.93 751.25,-396.18 811.75,-396.18 811.75,-376.93 751.25,-376.93"/>
+<text text-anchor="start" x="755.25" y="-382.68" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
 </a>
 </g>
-<g id="a_node7_128"><a data-target="sites-note" tabindex="0" role="link"><title>sites.note</title>
-<polygon fill="none" stroke="#b4b2a9" points="708.75,-357.06 708.75,-376.31 751.25,-376.31 751.25,-357.06 708.75,-357.06"/>
-<text text-anchor="start" x="712.75" y="-362.81" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">note</text>
+<g id="a_node7_130"><a data-target="sites-kind" tabindex="0" role="link"><title>sites.kind</title>
+<polygon fill="none" stroke="#b4b2a9" points="708.75,-357.68 708.75,-376.93 751.25,-376.93 751.25,-357.68 708.75,-357.68"/>
+<text text-anchor="start" x="712.75" y="-364.43" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">kind</text>
 </a>
 </g>
-<g id="a_node7_129"><a data-target="sites-note" tabindex="0" role="link"><title>sites.note</title>
-<polygon fill="none" stroke="#b4b2a9" points="751.25,-357.06 751.25,-376.31 811.75,-376.31 811.75,-357.06 751.25,-357.06"/>
-<text text-anchor="start" x="755.25" y="-362.81" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
+<g id="a_node7_131"><a data-target="sites-kind" tabindex="0" role="link"><title>sites.kind</title>
+<polygon fill="none" stroke="#b4b2a9" points="751.25,-357.68 751.25,-376.93 811.75,-376.93 811.75,-357.68 751.25,-357.68"/>
+<text text-anchor="start" x="755.25" y="-363.43" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">enum</text>
 </a>
 </g>
-<g id="a_node7_130"><a data-target="sites-provider" tabindex="0" role="link"><title>sites.provider</title>
-<polygon fill="none" stroke="#b4b2a9" points="708.75,-336.31 708.75,-357.06 751.25,-357.06 751.25,-336.31 708.75,-336.31"/>
-<text text-anchor="start" x="712.75" y="-342.81" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">provider</text>
+<g id="a_node7_132"><a data-target="sites-note" tabindex="0" role="link"><title>sites.note</title>
+<polygon fill="none" stroke="#b4b2a9" points="708.75,-338.43 708.75,-357.68 751.25,-357.68 751.25,-338.43 708.75,-338.43"/>
+<text text-anchor="start" x="712.75" y="-344.18" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">note</text>
 </a>
 </g>
-<g id="a_node7_131"><a data-target="sites-provider" tabindex="0" role="link"><title>sites.provider</title>
-<polygon fill="none" stroke="#b4b2a9" points="751.25,-336.31 751.25,-357.06 811.75,-357.06 811.75,-336.31 751.25,-336.31"/>
-<text text-anchor="start" x="755.25" y="-343.56" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">→ providers</text>
+<g id="a_node7_133"><a data-target="sites-note" tabindex="0" role="link"><title>sites.note</title>
+<polygon fill="none" stroke="#b4b2a9" points="751.25,-338.43 751.25,-357.68 811.75,-357.68 811.75,-338.43 751.25,-338.43"/>
+<text text-anchor="start" x="755.25" y="-344.18" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
 </a>
 </g>
-<g id="a_node7_132"><a data-target="sites-uplinks" tabindex="0" role="link"><title>sites.uplinks</title>
-<polygon fill="none" stroke="#b4b2a9" points="708.75,-315.56 708.75,-336.31 751.25,-336.31 751.25,-315.56 708.75,-315.56"/>
-<text text-anchor="start" x="712.75" y="-323.06" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">uplinks</text>
+<g id="a_node7_134"><a data-target="sites-provider" tabindex="0" role="link"><title>sites.provider</title>
+<polygon fill="none" stroke="#b4b2a9" points="708.75,-317.68 708.75,-338.43 751.25,-338.43 751.25,-317.68 708.75,-317.68"/>
+<text text-anchor="start" x="712.75" y="-324.18" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">provider</text>
 </a>
 </g>
-<g id="a_node7_133"><a data-target="sites-uplinks" tabindex="0" role="link"><title>sites.uplinks</title>
-<polygon fill="none" stroke="#b4b2a9" points="751.25,-315.56 751.25,-336.31 811.75,-336.31 811.75,-315.56 751.25,-315.56"/>
-<text text-anchor="start" x="755.25" y="-322.81" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">[→ uplinks]</text>
+<g id="a_node7_135"><a data-target="sites-provider" tabindex="0" role="link"><title>sites.provider</title>
+<polygon fill="none" stroke="#b4b2a9" points="751.25,-317.68 751.25,-338.43 811.75,-338.43 811.75,-317.68 751.25,-317.68"/>
+<text text-anchor="start" x="755.25" y="-324.93" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">→ providers</text>
+</a>
+</g>
+<g id="a_node7_136"><a data-target="sites-uplinks" tabindex="0" role="link"><title>sites.uplinks</title>
+<polygon fill="none" stroke="#b4b2a9" points="708.75,-296.93 708.75,-317.68 751.25,-317.68 751.25,-296.93 708.75,-296.93"/>
+<text text-anchor="start" x="712.75" y="-304.43" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">uplinks</text>
+</a>
+</g>
+<g id="a_node7_137"><a data-target="sites-uplinks" tabindex="0" role="link"><title>sites.uplinks</title>
+<polygon fill="none" stroke="#b4b2a9" points="751.25,-296.93 751.25,-317.68 811.75,-317.68 811.75,-296.93 751.25,-296.93"/>
+<text text-anchor="start" x="755.25" y="-304.18" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">[→ uplinks]</text>
 </a>
 </g>
 </g>
 <g id="edge5" class="edge">
 <title>hosts:e&#45;&gt;sites:h</title>
-<path fill="none" stroke="#888780" stroke-width="1.1" d="M457.75,-210.68C541.11,-210.68 579.18,-182.08 643.75,-234.81 710.74,-289.51 624.97,-416.69 701.38,-424.09"/>
-<polygon fill="#888780" stroke="#888780" stroke-width="1.1" points="701,-426.18 707.09,-424.36 701.19,-421.98 701,-426.18"/>
+<path fill="none" stroke="#888780" stroke-width="1.1" d="M457.75,-210.68C541.11,-210.68 579.21,-182.05 643.75,-234.81 710.91,-289.7 624.74,-417.29 701.36,-424.72"/>
+<polygon fill="#888780" stroke="#888780" stroke-width="1.1" points="701,-426.8 707.09,-424.98 701.19,-422.61 701,-426.8"/>
 </g>
 <g id="edge6" class="edge">
 <title>networks:e&#45;&gt;hosts:h</title>
-<path fill="none" stroke="#888780" stroke-width="1.1" d="M644.75,-521.81C683.59,-521.81 669.2,-579.85 643.75,-609.18 608.09,-650.28 572.15,-605 522.75,-627.81 490.53,-642.68 495.03,-678.41 465.15,-683.36"/>
+<path fill="none" stroke="#888780" stroke-width="1.1" d="M644.75,-522.43C683.59,-522.43 669.28,-580.54 643.75,-609.81 608.01,-650.78 572.17,-605.14 522.75,-627.81 490.5,-642.6 495.02,-678.4 465.15,-683.36"/>
 <polygon fill="#888780" stroke="#888780" stroke-width="1.1" points="465.23,-681.25 459.41,-683.8 465.55,-685.43 465.23,-681.25"/>
 </g>
 <g id="edge7" class="edge">
 <title>networks:e&#45;&gt;sites:h</title>
-<path fill="none" stroke="#888780" stroke-width="1.1" d="M643.75,-424.06C669.93,-424.06 678.32,-424.37 701.16,-424.42"/>
-<polygon fill="#888780" stroke="#888780" stroke-width="1.1" points="701.08,-426.52 707.09,-424.43 701.09,-422.32 701.08,-426.52"/>
+<path fill="none" stroke="#888780" stroke-width="1.1" d="M643.75,-405.43C671.22,-405.43 677.53,-421.69 701.2,-424.61"/>
+<polygon fill="#888780" stroke="#888780" stroke-width="1.1" points="700.97,-426.7 707.09,-424.96 701.22,-422.51 700.97,-426.7"/>
 </g>
 <g id="node6" class="node">
 <title>services</title>
 <polygon fill="#f1efe8" stroke="none" points="174.25,-970.81 0,-970.81 0,-382.81 174.25,-382.81 174.25,-970.81"/>
 <polygon fill="#f1efe8" stroke="none" points="0,-382.81 0,-970.81 174.25,-970.81 174.25,-382.81 0,-382.81"/>
-<g id="a_node6_134"><a data-target="services" tabindex="0" role="link"><title>services</title>
+<g id="a_node6_138"><a data-target="services" tabindex="0" role="link"><title>services</title>
 <polygon fill="#d3d1c7" stroke="none" points="0,-951.56 0,-970.81 174.25,-970.81 174.25,-951.56 0,-951.56"/>
 <polygon fill="none" stroke="#b4b2a9" points="0,-951.56 0,-970.81 174.25,-970.81 174.25,-951.56 0,-951.56"/>
 <text text-anchor="start" x="68" y="-958.31" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">services</text>
 </a>
 </g>
-<g id="a_node6_135"><a data-target="services-backup" tabindex="0" role="link"><title>services.backup</title>
+<g id="a_node6_139"><a data-target="services-backup" tabindex="0" role="link"><title>services.backup</title>
 <polygon fill="none" stroke="#b4b2a9" points="0,-932.31 0,-951.56 107,-951.56 107,-932.31 0,-932.31"/>
 <text text-anchor="start" x="4" y="-938.06" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">backup</text>
 </a>
 </g>
-<g id="a_node6_136"><a data-target="services-backup" tabindex="0" role="link"><title>services.backup</title>
+<g id="a_node6_140"><a data-target="services-backup" tabindex="0" role="link"><title>services.backup</title>
 <polygon fill="none" stroke="#b4b2a9" points="107,-932.31 107,-951.56 174.25,-951.56 174.25,-932.31 107,-932.31"/>
 <text text-anchor="start" x="111" y="-938.06" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">[object]</text>
 </a>
 </g>
-<g id="a_node6_137"><a data-target="services-backup-interval" tabindex="0" role="link"><title>services.backup[].interval</title>
+<g id="a_node6_141"><a data-target="services-backup-interval" tabindex="0" role="link"><title>services.backup[].interval</title>
 <polygon fill="none" stroke="#b4b2a9" points="0,-913.06 0,-932.31 107,-932.31 107,-913.06 0,-913.06"/>
 <text text-anchor="start" x="4" y="-918.81" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">backup[].interval</text>
 </a>
 </g>
-<g id="a_node6_138"><a data-target="services-backup-interval" tabindex="0" role="link"><title>services.backup[].interval</title>
+<g id="a_node6_142"><a data-target="services-backup-interval" tabindex="0" role="link"><title>services.backup[].interval</title>
 <polygon fill="none" stroke="#b4b2a9" points="107,-913.06 107,-932.31 174.25,-932.31 174.25,-913.06 107,-913.06"/>
 <text text-anchor="start" x="111" y="-918.81" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">enum</text>
 </a>
 </g>
-<g id="a_node6_139"><a data-target="services-backup-keep" tabindex="0" role="link"><title>services.backup[].keep</title>
+<g id="a_node6_143"><a data-target="services-backup-keep" tabindex="0" role="link"><title>services.backup[].keep</title>
 <polygon fill="none" stroke="#b4b2a9" points="0,-893.81 0,-913.06 107,-913.06 107,-893.81 0,-893.81"/>
 <text text-anchor="start" x="4" y="-899.56" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">backup[].keep</text>
 </a>
 </g>
-<g id="a_node6_140"><a data-target="services-backup-keep" tabindex="0" role="link"><title>services.backup[].keep</title>
+<g id="a_node6_144"><a data-target="services-backup-keep" tabindex="0" role="link"><title>services.backup[].keep</title>
 <polygon fill="none" stroke="#b4b2a9" points="107,-893.81 107,-913.06 174.25,-913.06 174.25,-893.81 107,-893.81"/>
 <text text-anchor="start" x="111" y="-899.56" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">object</text>
 </a>
 </g>
-<g id="a_node6_141"><a data-target="services-backup-keep-all" tabindex="0" role="link"><title>services.backup[].keep.all</title>
+<g id="a_node6_145"><a data-target="services-backup-keep-all" tabindex="0" role="link"><title>services.backup[].keep.all</title>
 <polygon fill="none" stroke="#b4b2a9" points="0,-874.56 0,-893.81 107,-893.81 107,-874.56 0,-874.56"/>
 <text text-anchor="start" x="4" y="-880.31" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">backup[].keep.all</text>
 </a>
 </g>
-<g id="a_node6_142"><a data-target="services-backup-keep-all" tabindex="0" role="link"><title>services.backup[].keep.all</title>
+<g id="a_node6_146"><a data-target="services-backup-keep-all" tabindex="0" role="link"><title>services.backup[].keep.all</title>
 <polygon fill="none" stroke="#b4b2a9" points="107,-874.56 107,-893.81 174.25,-893.81 174.25,-874.56 107,-874.56"/>
 <text text-anchor="start" x="111" y="-880.31" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">boolean</text>
 </a>
 </g>
-<g id="a_node6_143"><a data-target="services-backup-keep-daily" tabindex="0" role="link"><title>services.backup[].keep.daily</title>
+<g id="a_node6_147"><a data-target="services-backup-keep-daily" tabindex="0" role="link"><title>services.backup[].keep.daily</title>
 <polygon fill="none" stroke="#b4b2a9" points="0,-855.31 0,-874.56 107,-874.56 107,-855.31 0,-855.31"/>
 <text text-anchor="start" x="4" y="-861.06" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">backup[].keep.daily</text>
 </a>
 </g>
-<g id="a_node6_144"><a data-target="services-backup-keep-daily" tabindex="0" role="link"><title>services.backup[].keep.daily</title>
+<g id="a_node6_148"><a data-target="services-backup-keep-daily" tabindex="0" role="link"><title>services.backup[].keep.daily</title>
 <polygon fill="none" stroke="#b4b2a9" points="107,-855.31 107,-874.56 174.25,-874.56 174.25,-855.31 107,-855.31"/>
 <text text-anchor="start" x="111" y="-861.06" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">integer</text>
 </a>
 </g>
-<g id="a_node6_145"><a data-target="services-backup-keep-last" tabindex="0" role="link"><title>services.backup[].keep.last</title>
+<g id="a_node6_149"><a data-target="services-backup-keep-last" tabindex="0" role="link"><title>services.backup[].keep.last</title>
 <polygon fill="none" stroke="#b4b2a9" points="0,-836.06 0,-855.31 107,-855.31 107,-836.06 0,-836.06"/>
 <text text-anchor="start" x="4" y="-841.81" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">backup[].keep.last</text>
 </a>
 </g>
-<g id="a_node6_146"><a data-target="services-backup-keep-last" tabindex="0" role="link"><title>services.backup[].keep.last</title>
+<g id="a_node6_150"><a data-target="services-backup-keep-last" tabindex="0" role="link"><title>services.backup[].keep.last</title>
 <polygon fill="none" stroke="#b4b2a9" points="107,-836.06 107,-855.31 174.25,-855.31 174.25,-836.06 107,-836.06"/>
 <text text-anchor="start" x="111" y="-841.81" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">integer</text>
 </a>
 </g>
-<g id="a_node6_147"><a data-target="services-backup-keep-monthly" tabindex="0" role="link"><title>services.backup[].keep.monthly</title>
+<g id="a_node6_151"><a data-target="services-backup-keep-monthly" tabindex="0" role="link"><title>services.backup[].keep.monthly</title>
 <polygon fill="none" stroke="#b4b2a9" points="0,-816.81 0,-836.06 107,-836.06 107,-816.81 0,-816.81"/>
 <text text-anchor="start" x="4" y="-822.56" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">backup[].keep.monthly</text>
 </a>
 </g>
-<g id="a_node6_148"><a data-target="services-backup-keep-monthly" tabindex="0" role="link"><title>services.backup[].keep.monthly</title>
+<g id="a_node6_152"><a data-target="services-backup-keep-monthly" tabindex="0" role="link"><title>services.backup[].keep.monthly</title>
 <polygon fill="none" stroke="#b4b2a9" points="107,-816.81 107,-836.06 174.25,-836.06 174.25,-816.81 107,-816.81"/>
 <text text-anchor="start" x="111" y="-822.56" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">integer</text>
 </a>
 </g>
-<g id="a_node6_149"><a data-target="services-backup-keep-weekly" tabindex="0" role="link"><title>services.backup[].keep.weekly</title>
+<g id="a_node6_153"><a data-target="services-backup-keep-weekly" tabindex="0" role="link"><title>services.backup[].keep.weekly</title>
 <polygon fill="none" stroke="#b4b2a9" points="0,-797.56 0,-816.81 107,-816.81 107,-797.56 0,-797.56"/>
 <text text-anchor="start" x="4" y="-803.31" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">backup[].keep.weekly</text>
 </a>
 </g>
-<g id="a_node6_150"><a data-target="services-backup-keep-weekly" tabindex="0" role="link"><title>services.backup[].keep.weekly</title>
+<g id="a_node6_154"><a data-target="services-backup-keep-weekly" tabindex="0" role="link"><title>services.backup[].keep.weekly</title>
 <polygon fill="none" stroke="#b4b2a9" points="107,-797.56 107,-816.81 174.25,-816.81 174.25,-797.56 107,-797.56"/>
 <text text-anchor="start" x="111" y="-803.31" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">integer</text>
 </a>
 </g>
-<g id="a_node6_151"><a data-target="services-backup-method" tabindex="0" role="link"><title>services.backup[].method</title>
+<g id="a_node6_155"><a data-target="services-backup-method" tabindex="0" role="link"><title>services.backup[].method</title>
 <polygon fill="none" stroke="#b4b2a9" points="0,-778.31 0,-797.56 107,-797.56 107,-778.31 0,-778.31"/>
 <text text-anchor="start" x="4" y="-785.06" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">backup[].method</text>
 </a>
 </g>
-<g id="a_node6_152"><a data-target="services-backup-method" tabindex="0" role="link"><title>services.backup[].method</title>
+<g id="a_node6_156"><a data-target="services-backup-method" tabindex="0" role="link"><title>services.backup[].method</title>
 <polygon fill="none" stroke="#b4b2a9" points="107,-778.31 107,-797.56 174.25,-797.56 174.25,-778.31 107,-778.31"/>
 <text text-anchor="start" x="111" y="-784.06" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">enum</text>
 </a>
 </g>
-<g id="a_node6_153"><a data-target="services-backup-note" tabindex="0" role="link"><title>services.backup[].note</title>
+<g id="a_node6_157"><a data-target="services-backup-note" tabindex="0" role="link"><title>services.backup[].note</title>
 <polygon fill="none" stroke="#b4b2a9" points="0,-759.06 0,-778.31 107,-778.31 107,-759.06 0,-759.06"/>
 <text text-anchor="start" x="4" y="-764.81" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">backup[].note</text>
 </a>
 </g>
-<g id="a_node6_154"><a data-target="services-backup-note" tabindex="0" role="link"><title>services.backup[].note</title>
+<g id="a_node6_158"><a data-target="services-backup-note" tabindex="0" role="link"><title>services.backup[].note</title>
 <polygon fill="none" stroke="#b4b2a9" points="107,-759.06 107,-778.31 174.25,-778.31 174.25,-759.06 107,-759.06"/>
 <text text-anchor="start" x="111" y="-764.81" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
 </a>
 </g>
-<g id="a_node6_155"><a data-target="services-backup-to" tabindex="0" role="link"><title>services.backup[].to</title>
+<g id="a_node6_159"><a data-target="services-backup-to" tabindex="0" role="link"><title>services.backup[].to</title>
 <polygon fill="none" stroke="#b4b2a9" points="0,-738.31 0,-759.06 107,-759.06 107,-738.31 0,-738.31"/>
 <text text-anchor="start" x="4" y="-744.81" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">backup[].to</text>
 </a>
 </g>
-<g id="a_node6_156"><a data-target="services-backup-to" tabindex="0" role="link"><title>services.backup[].to</title>
+<g id="a_node6_160"><a data-target="services-backup-to" tabindex="0" role="link"><title>services.backup[].to</title>
 <polygon fill="none" stroke="#b4b2a9" points="107,-738.31 107,-759.06 174.25,-759.06 174.25,-738.31 107,-738.31"/>
 <text text-anchor="start" x="111" y="-745.56" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">→ services</text>
 </a>
 </g>
-<g id="a_node6_157"><a data-target="services-contracts" tabindex="0" role="link"><title>services.contracts</title>
+<g id="a_node6_161"><a data-target="services-contracts" tabindex="0" role="link"><title>services.contracts</title>
 <polygon fill="none" stroke="#b4b2a9" points="0,-717.56 0,-738.31 107,-738.31 107,-717.56 0,-717.56"/>
 <text text-anchor="start" x="4" y="-724.06" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">contracts</text>
 </a>
 </g>
-<g id="a_node6_158"><a data-target="services-contracts" tabindex="0" role="link"><title>services.contracts</title>
+<g id="a_node6_162"><a data-target="services-contracts" tabindex="0" role="link"><title>services.contracts</title>
 <polygon fill="none" stroke="#b4b2a9" points="107,-717.56 107,-738.31 174.25,-738.31 174.25,-717.56 107,-717.56"/>
 <text text-anchor="start" x="111" y="-724.81" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">[→ contracts]</text>
 </a>
 </g>
-<g id="a_node6_159"><a data-target="services-criticality" tabindex="0" role="link"><title>services.criticality</title>
+<g id="a_node6_163"><a data-target="services-criticality" tabindex="0" role="link"><title>services.criticality</title>
 <polygon fill="none" stroke="#b4b2a9" points="0,-698.31 0,-717.56 107,-717.56 107,-698.31 0,-698.31"/>
 <text text-anchor="start" x="4" y="-704.06" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">criticality</text>
 </a>
 </g>
-<g id="a_node6_160"><a data-target="services-criticality" tabindex="0" role="link"><title>services.criticality</title>
+<g id="a_node6_164"><a data-target="services-criticality" tabindex="0" role="link"><title>services.criticality</title>
 <polygon fill="none" stroke="#b4b2a9" points="107,-698.31 107,-717.56 174.25,-717.56 174.25,-698.31 107,-698.31"/>
 <text text-anchor="start" x="111" y="-704.06" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">enum</text>
 </a>
 </g>
-<g id="a_node6_161"><a data-target="services-data" tabindex="0" role="link"><title>services.data</title>
+<g id="a_node6_165"><a data-target="services-data" tabindex="0" role="link"><title>services.data</title>
 <polygon fill="none" stroke="#b4b2a9" points="0,-679.06 0,-698.31 107,-698.31 107,-679.06 0,-679.06"/>
 <text text-anchor="start" x="4" y="-685.81" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">data</text>
 </a>
 </g>
-<g id="a_node6_162"><a data-target="services-data" tabindex="0" role="link"><title>services.data</title>
+<g id="a_node6_166"><a data-target="services-data" tabindex="0" role="link"><title>services.data</title>
 <polygon fill="none" stroke="#b4b2a9" points="107,-679.06 107,-698.31 174.25,-698.31 174.25,-679.06 107,-679.06"/>
 <text text-anchor="start" x="111" y="-684.81" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">enum</text>
 </a>
 </g>
-<g id="a_node6_163"><a data-target="services-dependson" tabindex="0" role="link"><title>services.dependsOn</title>
+<g id="a_node6_167"><a data-target="services-dependson" tabindex="0" role="link"><title>services.dependsOn</title>
 <polygon fill="none" stroke="#b4b2a9" points="0,-658.31 0,-679.06 107,-679.06 107,-658.31 0,-658.31"/>
 <text text-anchor="start" x="4" y="-664.81" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">dependsOn</text>
 </a>
 </g>
-<g id="a_node6_164"><a data-target="services-dependson" tabindex="0" role="link"><title>services.dependsOn</title>
+<g id="a_node6_168"><a data-target="services-dependson" tabindex="0" role="link"><title>services.dependsOn</title>
 <polygon fill="none" stroke="#b4b2a9" points="107,-658.31 107,-679.06 174.25,-679.06 174.25,-658.31 107,-658.31"/>
 <text text-anchor="start" x="111" y="-665.56" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">[→ services]</text>
 </a>
 </g>
-<g id="a_node6_165"><a data-target="services-endpoints" tabindex="0" role="link"><title>services.endpoints</title>
+<g id="a_node6_169"><a data-target="services-endpoints" tabindex="0" role="link"><title>services.endpoints</title>
 <polygon fill="none" stroke="#b4b2a9" points="0,-639.06 0,-658.31 107,-658.31 107,-639.06 0,-639.06"/>
 <text text-anchor="start" x="4" y="-644.81" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">endpoints</text>
 </a>
 </g>
-<g id="a_node6_166"><a data-target="services-endpoints" tabindex="0" role="link"><title>services.endpoints</title>
+<g id="a_node6_170"><a data-target="services-endpoints" tabindex="0" role="link"><title>services.endpoints</title>
 <polygon fill="none" stroke="#b4b2a9" points="107,-639.06 107,-658.31 174.25,-658.31 174.25,-639.06 107,-639.06"/>
 <text text-anchor="start" x="111" y="-644.81" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">[object]</text>
 </a>
 </g>
-<g id="a_node6_167"><a data-target="services-endpoints-exposure" tabindex="0" role="link"><title>services.endpoints[].exposure</title>
+<g id="a_node6_171"><a data-target="services-endpoints-exposure" tabindex="0" role="link"><title>services.endpoints[].exposure</title>
 <polygon fill="none" stroke="#b4b2a9" points="0,-619.81 0,-639.06 107,-639.06 107,-619.81 0,-619.81"/>
 <text text-anchor="start" x="4" y="-626.56" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">endpoints[].exposure</text>
 </a>
 </g>
-<g id="a_node6_168"><a data-target="services-endpoints-exposure" tabindex="0" role="link"><title>services.endpoints[].exposure</title>
+<g id="a_node6_172"><a data-target="services-endpoints-exposure" tabindex="0" role="link"><title>services.endpoints[].exposure</title>
 <polygon fill="none" stroke="#b4b2a9" points="107,-619.81 107,-639.06 174.25,-639.06 174.25,-619.81 107,-619.81"/>
 <text text-anchor="start" x="111" y="-625.56" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">enum</text>
 </a>
 </g>
-<g id="a_node6_169"><a data-target="services-endpoints-fqdn" tabindex="0" role="link"><title>services.endpoints[].fqdn</title>
+<g id="a_node6_173"><a data-target="services-endpoints-fqdn" tabindex="0" role="link"><title>services.endpoints[].fqdn</title>
 <polygon fill="none" stroke="#b4b2a9" points="0,-600.56 0,-619.81 107,-619.81 107,-600.56 0,-600.56"/>
 <text text-anchor="start" x="4" y="-607.31" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">endpoints[].fqdn</text>
 </a>
 </g>
-<g id="a_node6_170"><a data-target="services-endpoints-fqdn" tabindex="0" role="link"><title>services.endpoints[].fqdn</title>
+<g id="a_node6_174"><a data-target="services-endpoints-fqdn" tabindex="0" role="link"><title>services.endpoints[].fqdn</title>
 <polygon fill="none" stroke="#b4b2a9" points="107,-600.56 107,-619.81 174.25,-619.81 174.25,-600.56 107,-600.56"/>
 <text text-anchor="start" x="111" y="-606.31" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
 </a>
 </g>
-<g id="a_node6_171"><a data-target="services-endpoints-note" tabindex="0" role="link"><title>services.endpoints[].note</title>
+<g id="a_node6_175"><a data-target="services-endpoints-note" tabindex="0" role="link"><title>services.endpoints[].note</title>
 <polygon fill="none" stroke="#b4b2a9" points="0,-581.31 0,-600.56 107,-600.56 107,-581.31 0,-581.31"/>
 <text text-anchor="start" x="4" y="-587.06" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">endpoints[].note</text>
 </a>
 </g>
-<g id="a_node6_172"><a data-target="services-endpoints-note" tabindex="0" role="link"><title>services.endpoints[].note</title>
+<g id="a_node6_176"><a data-target="services-endpoints-note" tabindex="0" role="link"><title>services.endpoints[].note</title>
 <polygon fill="none" stroke="#b4b2a9" points="107,-581.31 107,-600.56 174.25,-600.56 174.25,-581.31 107,-581.31"/>
 <text text-anchor="start" x="111" y="-587.06" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
 </a>
 </g>
-<g id="a_node6_173"><a data-target="services-endpoints-port" tabindex="0" role="link"><title>services.endpoints[].port</title>
+<g id="a_node6_177"><a data-target="services-endpoints-port" tabindex="0" role="link"><title>services.endpoints[].port</title>
 <polygon fill="none" stroke="#b4b2a9" points="0,-562.06 0,-581.31 107,-581.31 107,-562.06 0,-562.06"/>
 <text text-anchor="start" x="4" y="-567.81" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">endpoints[].port</text>
 </a>
 </g>
-<g id="a_node6_174"><a data-target="services-endpoints-port" tabindex="0" role="link"><title>services.endpoints[].port</title>
+<g id="a_node6_178"><a data-target="services-endpoints-port" tabindex="0" role="link"><title>services.endpoints[].port</title>
 <polygon fill="none" stroke="#b4b2a9" points="107,-562.06 107,-581.31 174.25,-581.31 174.25,-562.06 107,-562.06"/>
 <text text-anchor="start" x="111" y="-567.81" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">integer</text>
 </a>
 </g>
-<g id="a_node6_175"><a data-target="services-endpoints-via" tabindex="0" role="link"><title>services.endpoints[].via</title>
+<g id="a_node6_179"><a data-target="services-endpoints-via" tabindex="0" role="link"><title>services.endpoints[].via</title>
 <polygon fill="none" stroke="#b4b2a9" points="0,-541.31 0,-562.06 107,-562.06 107,-541.31 0,-541.31"/>
 <text text-anchor="start" x="4" y="-547.81" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">endpoints[].via</text>
 </a>
 </g>
-<g id="a_node6_176"><a data-target="services-endpoints-via" tabindex="0" role="link"><title>services.endpoints[].via</title>
+<g id="a_node6_180"><a data-target="services-endpoints-via" tabindex="0" role="link"><title>services.endpoints[].via</title>
 <polygon fill="none" stroke="#b4b2a9" points="107,-541.31 107,-562.06 174.25,-562.06 174.25,-541.31 107,-541.31"/>
 <text text-anchor="start" x="111" y="-548.56" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">→ services</text>
 </a>
 </g>
-<g id="a_node6_177"><a data-target="services-hosts" tabindex="0" role="link"><title>services.hosts</title>
+<g id="a_node6_181"><a data-target="services-hosts" tabindex="0" role="link"><title>services.hosts</title>
 <polygon fill="none" stroke="#b4b2a9" points="0,-520.56 0,-541.31 107,-541.31 107,-520.56 0,-520.56"/>
 <text text-anchor="start" x="4" y="-527.06" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">hosts</text>
 </a>
 </g>
-<g id="a_node6_178"><a data-target="services-hosts" tabindex="0" role="link"><title>services.hosts</title>
+<g id="a_node6_182"><a data-target="services-hosts" tabindex="0" role="link"><title>services.hosts</title>
 <polygon fill="none" stroke="#b4b2a9" points="107,-520.56 107,-541.31 174.25,-541.31 174.25,-520.56 107,-520.56"/>
 <text text-anchor="start" x="111" y="-527.81" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">[→ hosts]</text>
 </a>
 </g>
-<g id="a_node6_179"><a data-target="services-name" tabindex="0" role="link"><title>services.name</title>
+<g id="a_node6_183"><a data-target="services-name" tabindex="0" role="link"><title>services.name</title>
 <polygon fill="none" stroke="#b4b2a9" points="0,-501.31 0,-520.56 107,-520.56 107,-501.31 0,-501.31"/>
 <text text-anchor="start" x="4" y="-508.06" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">name</text>
 </a>
 </g>
-<g id="a_node6_180"><a data-target="services-name" tabindex="0" role="link"><title>services.name</title>
+<g id="a_node6_184"><a data-target="services-name" tabindex="0" role="link"><title>services.name</title>
 <polygon fill="none" stroke="#b4b2a9" points="107,-501.31 107,-520.56 174.25,-520.56 174.25,-501.31 107,-501.31"/>
 <text text-anchor="start" x="111" y="-507.06" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
 </a>
 </g>
-<g id="a_node6_181"><a data-target="services-note" tabindex="0" role="link"><title>services.note</title>
+<g id="a_node6_185"><a data-target="services-note" tabindex="0" role="link"><title>services.note</title>
 <polygon fill="none" stroke="#b4b2a9" points="0,-482.06 0,-501.31 107,-501.31 107,-482.06 0,-482.06"/>
 <text text-anchor="start" x="4" y="-487.81" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">note</text>
 </a>
 </g>
-<g id="a_node6_182"><a data-target="services-note" tabindex="0" role="link"><title>services.note</title>
+<g id="a_node6_186"><a data-target="services-note" tabindex="0" role="link"><title>services.note</title>
 <polygon fill="none" stroke="#b4b2a9" points="107,-482.06 107,-501.31 174.25,-501.31 174.25,-482.06 107,-482.06"/>
 <text text-anchor="start" x="111" y="-487.81" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
 </a>
 </g>
-<g id="a_node6_183"><a data-target="services-package" tabindex="0" role="link"><title>services.package</title>
+<g id="a_node6_187"><a data-target="services-package" tabindex="0" role="link"><title>services.package</title>
 <polygon fill="none" stroke="#b4b2a9" points="0,-462.81 0,-482.06 107,-482.06 107,-462.81 0,-462.81"/>
 <text text-anchor="start" x="4" y="-468.56" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">package</text>
 </a>
 </g>
-<g id="a_node6_184"><a data-target="services-package" tabindex="0" role="link"><title>services.package</title>
+<g id="a_node6_188"><a data-target="services-package" tabindex="0" role="link"><title>services.package</title>
 <polygon fill="none" stroke="#b4b2a9" points="107,-462.81 107,-482.06 174.25,-482.06 174.25,-462.81 107,-462.81"/>
 <text text-anchor="start" x="111" y="-468.56" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
 </a>
 </g>
-<g id="a_node6_185"><a data-target="services-provider" tabindex="0" role="link"><title>services.provider</title>
+<g id="a_node6_189"><a data-target="services-provider" tabindex="0" role="link"><title>services.provider</title>
 <polygon fill="none" stroke="#b4b2a9" points="0,-442.06 0,-462.81 107,-462.81 107,-442.06 0,-442.06"/>
 <text text-anchor="start" x="4" y="-448.56" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">provider</text>
 </a>
 </g>
-<g id="a_node6_186"><a data-target="services-provider" tabindex="0" role="link"><title>services.provider</title>
+<g id="a_node6_190"><a data-target="services-provider" tabindex="0" role="link"><title>services.provider</title>
 <polygon fill="none" stroke="#b4b2a9" points="107,-442.06 107,-462.81 174.25,-462.81 174.25,-442.06 107,-442.06"/>
 <text text-anchor="start" x="111" y="-449.31" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">→ providers</text>
 </a>
 </g>
-<g id="a_node6_187"><a data-target="services-software" tabindex="0" role="link"><title>services.software</title>
+<g id="a_node6_191"><a data-target="services-software" tabindex="0" role="link"><title>services.software</title>
 <polygon fill="none" stroke="#b4b2a9" points="0,-422.81 0,-442.06 107,-442.06 107,-422.81 0,-422.81"/>
 <text text-anchor="start" x="4" y="-428.56" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">software</text>
 </a>
 </g>
-<g id="a_node6_188"><a data-target="services-software" tabindex="0" role="link"><title>services.software</title>
+<g id="a_node6_192"><a data-target="services-software" tabindex="0" role="link"><title>services.software</title>
 <polygon fill="none" stroke="#b4b2a9" points="107,-422.81 107,-442.06 174.25,-442.06 174.25,-422.81 107,-422.81"/>
 <text text-anchor="start" x="111" y="-428.56" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
 </a>
 </g>
-<g id="a_node6_189"><a data-target="services-uses" tabindex="0" role="link"><title>services.uses</title>
+<g id="a_node6_193"><a data-target="services-uses" tabindex="0" role="link"><title>services.uses</title>
 <polygon fill="none" stroke="#b4b2a9" points="0,-402.06 0,-422.81 107,-422.81 107,-402.06 0,-402.06"/>
 <text text-anchor="start" x="4" y="-408.56" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">uses</text>
 </a>
 </g>
-<g id="a_node6_190"><a data-target="services-uses" tabindex="0" role="link"><title>services.uses</title>
+<g id="a_node6_194"><a data-target="services-uses" tabindex="0" role="link"><title>services.uses</title>
 <polygon fill="none" stroke="#b4b2a9" points="107,-402.06 107,-422.81 174.25,-422.81 174.25,-402.06 107,-402.06"/>
 <text text-anchor="start" x="111" y="-409.31" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">[→ services]</text>
 </a>
 </g>
-<g id="a_node6_191"><a data-target="services-version" tabindex="0" role="link"><title>services.version</title>
+<g id="a_node6_195"><a data-target="services-version" tabindex="0" role="link"><title>services.version</title>
 <polygon fill="none" stroke="#b4b2a9" points="0,-382.81 0,-402.06 107,-402.06 107,-382.81 0,-382.81"/>
 <text text-anchor="start" x="4" y="-388.56" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">version</text>
 </a>
 </g>
-<g id="a_node6_192"><a data-target="services-version" tabindex="0" role="link"><title>services.version</title>
+<g id="a_node6_196"><a data-target="services-version" tabindex="0" role="link"><title>services.version</title>
 <polygon fill="none" stroke="#b4b2a9" points="107,-382.81 107,-402.06 174.25,-402.06 174.25,-382.81 107,-382.81"/>
 <text text-anchor="start" x="111" y="-388.56" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
 </a>
@@ -3236,145 +3477,145 @@ Jeder Abschnitt mit allen Feldern – **fett** sind Pflichtfelder, verschachtelt
 </g>
 <g id="edge11" class="edge">
 <title>sites:e&#45;&gt;providers:h</title>
-<path fill="none" stroke="#888780" stroke-width="1.1" d="M811.75,-346.68C840.64,-346.68 847.86,-346.78 876.75,-346.81 944.53,-346.87 961.78,-353.23 1029.25,-346.81 1145.19,-335.78 1172.09,-297.98 1284.71,-296.36"/>
+<path fill="none" stroke="#888780" stroke-width="1.1" d="M811.75,-328.06C841.82,-328.06 846.98,-342.6 876.75,-346.81 943.86,-356.29 961.78,-353.23 1029.25,-346.81 1145.19,-335.78 1172.09,-297.98 1284.71,-296.36"/>
 <polygon fill="#888780" stroke="#888780" stroke-width="1.1" points="1284.6,-298.46 1290.59,-296.32 1284.57,-294.26 1284.6,-298.46"/>
 </g>
 <g id="node8" class="node">
 <title>uplinks</title>
 <polygon fill="#f1efe8" stroke="none" points="1029.25,-336.06 876.75,-336.06 876.75,-63.56 1029.25,-63.56 1029.25,-336.06"/>
 <polygon fill="#f1efe8" stroke="none" points="876.75,-63.56 876.75,-336.06 1029.25,-336.06 1029.25,-63.56 876.75,-63.56"/>
-<g id="a_node8_193"><a data-target="uplinks" tabindex="0" role="link"><title>uplinks</title>
+<g id="a_node8_197"><a data-target="uplinks" tabindex="0" role="link"><title>uplinks</title>
 <polygon fill="#d3d1c7" stroke="none" points="876.75,-316.81 876.75,-336.06 1029.25,-336.06 1029.25,-316.81 876.75,-316.81"/>
 <polygon fill="none" stroke="#b4b2a9" points="876.75,-316.81 876.75,-336.06 1029.25,-336.06 1029.25,-316.81 876.75,-316.81"/>
 <text text-anchor="start" x="935.75" y="-323.56" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">uplinks</text>
 </a>
 </g>
-<g id="a_node8_194"><a data-target="uplinks-asn" tabindex="0" role="link"><title>uplinks.asn</title>
+<g id="a_node8_198"><a data-target="uplinks-asn" tabindex="0" role="link"><title>uplinks.asn</title>
 <polygon fill="none" stroke="#b4b2a9" points="876.75,-297.56 876.75,-316.81 962,-316.81 962,-297.56 876.75,-297.56"/>
 <text text-anchor="start" x="880.75" y="-303.31" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">asn</text>
 </a>
 </g>
-<g id="a_node8_195"><a data-target="uplinks-asn" tabindex="0" role="link"><title>uplinks.asn</title>
+<g id="a_node8_199"><a data-target="uplinks-asn" tabindex="0" role="link"><title>uplinks.asn</title>
 <polygon fill="none" stroke="#b4b2a9" points="962,-297.56 962,-316.81 1029.25,-316.81 1029.25,-297.56 962,-297.56"/>
 <text text-anchor="start" x="966" y="-303.31" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">integer</text>
 </a>
 </g>
-<g id="a_node8_196"><a data-target="uplinks-bandwidth" tabindex="0" role="link"><title>uplinks.bandwidth</title>
+<g id="a_node8_200"><a data-target="uplinks-bandwidth" tabindex="0" role="link"><title>uplinks.bandwidth</title>
 <polygon fill="none" stroke="#b4b2a9" points="876.75,-278.31 876.75,-297.56 962,-297.56 962,-278.31 876.75,-278.31"/>
 <text text-anchor="start" x="880.75" y="-284.06" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">bandwidth</text>
 </a>
 </g>
-<g id="a_node8_197"><a data-target="uplinks-bandwidth" tabindex="0" role="link"><title>uplinks.bandwidth</title>
+<g id="a_node8_201"><a data-target="uplinks-bandwidth" tabindex="0" role="link"><title>uplinks.bandwidth</title>
 <polygon fill="none" stroke="#b4b2a9" points="962,-278.31 962,-297.56 1029.25,-297.56 1029.25,-278.31 962,-278.31"/>
 <text text-anchor="start" x="966" y="-284.06" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">object</text>
 </a>
 </g>
-<g id="a_node8_198"><a data-target="uplinks-bandwidth-down" tabindex="0" role="link"><title>uplinks.bandwidth.down</title>
+<g id="a_node8_202"><a data-target="uplinks-bandwidth-down" tabindex="0" role="link"><title>uplinks.bandwidth.down</title>
 <polygon fill="none" stroke="#b4b2a9" points="876.75,-259.06 876.75,-278.31 962,-278.31 962,-259.06 876.75,-259.06"/>
 <text text-anchor="start" x="880.75" y="-265.81" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">bandwidth.down</text>
 </a>
 </g>
-<g id="a_node8_199"><a data-target="uplinks-bandwidth-down" tabindex="0" role="link"><title>uplinks.bandwidth.down</title>
+<g id="a_node8_203"><a data-target="uplinks-bandwidth-down" tabindex="0" role="link"><title>uplinks.bandwidth.down</title>
 <polygon fill="none" stroke="#b4b2a9" points="962,-259.06 962,-278.31 1029.25,-278.31 1029.25,-259.06 962,-259.06"/>
 <text text-anchor="start" x="966" y="-264.81" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">integer</text>
 </a>
 </g>
-<g id="a_node8_200"><a data-target="uplinks-bandwidth-up" tabindex="0" role="link"><title>uplinks.bandwidth.up</title>
+<g id="a_node8_204"><a data-target="uplinks-bandwidth-up" tabindex="0" role="link"><title>uplinks.bandwidth.up</title>
 <polygon fill="none" stroke="#b4b2a9" points="876.75,-239.81 876.75,-259.06 962,-259.06 962,-239.81 876.75,-239.81"/>
 <text text-anchor="start" x="880.75" y="-246.56" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">bandwidth.up</text>
 </a>
 </g>
-<g id="a_node8_201"><a data-target="uplinks-bandwidth-up" tabindex="0" role="link"><title>uplinks.bandwidth.up</title>
+<g id="a_node8_205"><a data-target="uplinks-bandwidth-up" tabindex="0" role="link"><title>uplinks.bandwidth.up</title>
 <polygon fill="none" stroke="#b4b2a9" points="962,-239.81 962,-259.06 1029.25,-259.06 1029.25,-239.81 962,-239.81"/>
 <text text-anchor="start" x="966" y="-245.56" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">integer</text>
 </a>
 </g>
-<g id="a_node8_202"><a data-target="uplinks-contracts" tabindex="0" role="link"><title>uplinks.contracts</title>
+<g id="a_node8_206"><a data-target="uplinks-contracts" tabindex="0" role="link"><title>uplinks.contracts</title>
 <polygon fill="none" stroke="#b4b2a9" points="876.75,-219.06 876.75,-239.81 962,-239.81 962,-219.06 876.75,-219.06"/>
 <text text-anchor="start" x="880.75" y="-225.56" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">contracts</text>
 </a>
 </g>
-<g id="a_node8_203"><a data-target="uplinks-contracts" tabindex="0" role="link"><title>uplinks.contracts</title>
+<g id="a_node8_207"><a data-target="uplinks-contracts" tabindex="0" role="link"><title>uplinks.contracts</title>
 <polygon fill="none" stroke="#b4b2a9" points="962,-219.06 962,-239.81 1029.25,-239.81 1029.25,-219.06 962,-219.06"/>
 <text text-anchor="start" x="966" y="-226.31" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">[→ contracts]</text>
 </a>
 </g>
-<g id="a_node8_204"><a data-target="uplinks-ipv4" tabindex="0" role="link"><title>uplinks.ipv4</title>
+<g id="a_node8_208"><a data-target="uplinks-ipv4" tabindex="0" role="link"><title>uplinks.ipv4</title>
 <polygon fill="none" stroke="#b4b2a9" points="876.75,-199.81 876.75,-219.06 962,-219.06 962,-199.81 876.75,-199.81"/>
 <text text-anchor="start" x="880.75" y="-205.56" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">ipv4</text>
 </a>
 </g>
-<g id="a_node8_205"><a data-target="uplinks-ipv4" tabindex="0" role="link"><title>uplinks.ipv4</title>
+<g id="a_node8_209"><a data-target="uplinks-ipv4" tabindex="0" role="link"><title>uplinks.ipv4</title>
 <polygon fill="none" stroke="#b4b2a9" points="962,-199.81 962,-219.06 1029.25,-219.06 1029.25,-199.81 962,-199.81"/>
 <text text-anchor="start" x="966" y="-205.56" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">enum</text>
 </a>
 </g>
-<g id="a_node8_206"><a data-target="uplinks-ipv4static" tabindex="0" role="link"><title>uplinks.ipv4Static</title>
+<g id="a_node8_210"><a data-target="uplinks-ipv4static" tabindex="0" role="link"><title>uplinks.ipv4Static</title>
 <polygon fill="none" stroke="#b4b2a9" points="876.75,-180.56 876.75,-199.81 962,-199.81 962,-180.56 876.75,-180.56"/>
 <text text-anchor="start" x="880.75" y="-186.31" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">ipv4Static</text>
 </a>
 </g>
-<g id="a_node8_207"><a data-target="uplinks-ipv4static" tabindex="0" role="link"><title>uplinks.ipv4Static</title>
+<g id="a_node8_211"><a data-target="uplinks-ipv4static" tabindex="0" role="link"><title>uplinks.ipv4Static</title>
 <polygon fill="none" stroke="#b4b2a9" points="962,-180.56 962,-199.81 1029.25,-199.81 1029.25,-180.56 962,-180.56"/>
 <text text-anchor="start" x="966" y="-186.31" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">boolean</text>
 </a>
 </g>
-<g id="a_node8_208"><a data-target="uplinks-ipv6" tabindex="0" role="link"><title>uplinks.ipv6</title>
+<g id="a_node8_212"><a data-target="uplinks-ipv6" tabindex="0" role="link"><title>uplinks.ipv6</title>
 <polygon fill="none" stroke="#b4b2a9" points="876.75,-161.31 876.75,-180.56 962,-180.56 962,-161.31 876.75,-161.31"/>
 <text text-anchor="start" x="880.75" y="-167.06" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">ipv6</text>
 </a>
 </g>
-<g id="a_node8_209"><a data-target="uplinks-ipv6" tabindex="0" role="link"><title>uplinks.ipv6</title>
+<g id="a_node8_213"><a data-target="uplinks-ipv6" tabindex="0" role="link"><title>uplinks.ipv6</title>
 <polygon fill="none" stroke="#b4b2a9" points="962,-161.31 962,-180.56 1029.25,-180.56 1029.25,-161.31 962,-161.31"/>
 <text text-anchor="start" x="966" y="-167.06" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">boolean</text>
 </a>
 </g>
-<g id="a_node8_210"><a data-target="uplinks-ipv6prefixlength" tabindex="0" role="link"><title>uplinks.ipv6PrefixLength</title>
+<g id="a_node8_214"><a data-target="uplinks-ipv6prefixlength" tabindex="0" role="link"><title>uplinks.ipv6PrefixLength</title>
 <polygon fill="none" stroke="#b4b2a9" points="876.75,-142.06 876.75,-161.31 962,-161.31 962,-142.06 876.75,-142.06"/>
 <text text-anchor="start" x="880.75" y="-147.81" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">ipv6PrefixLength</text>
 </a>
 </g>
-<g id="a_node8_211"><a data-target="uplinks-ipv6prefixlength" tabindex="0" role="link"><title>uplinks.ipv6PrefixLength</title>
+<g id="a_node8_215"><a data-target="uplinks-ipv6prefixlength" tabindex="0" role="link"><title>uplinks.ipv6PrefixLength</title>
 <polygon fill="none" stroke="#b4b2a9" points="962,-142.06 962,-161.31 1029.25,-161.31 1029.25,-142.06 962,-142.06"/>
 <text text-anchor="start" x="966" y="-147.81" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">integer</text>
 </a>
 </g>
-<g id="a_node8_212"><a data-target="uplinks-ipv6static" tabindex="0" role="link"><title>uplinks.ipv6Static</title>
+<g id="a_node8_216"><a data-target="uplinks-ipv6static" tabindex="0" role="link"><title>uplinks.ipv6Static</title>
 <polygon fill="none" stroke="#b4b2a9" points="876.75,-122.81 876.75,-142.06 962,-142.06 962,-122.81 876.75,-122.81"/>
 <text text-anchor="start" x="880.75" y="-128.56" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">ipv6Static</text>
 </a>
 </g>
-<g id="a_node8_213"><a data-target="uplinks-ipv6static" tabindex="0" role="link"><title>uplinks.ipv6Static</title>
+<g id="a_node8_217"><a data-target="uplinks-ipv6static" tabindex="0" role="link"><title>uplinks.ipv6Static</title>
 <polygon fill="none" stroke="#b4b2a9" points="962,-122.81 962,-142.06 1029.25,-142.06 1029.25,-122.81 962,-122.81"/>
 <text text-anchor="start" x="966" y="-128.56" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">boolean</text>
 </a>
 </g>
-<g id="a_node8_214"><a data-target="uplinks-medium" tabindex="0" role="link"><title>uplinks.medium</title>
+<g id="a_node8_218"><a data-target="uplinks-medium" tabindex="0" role="link"><title>uplinks.medium</title>
 <polygon fill="none" stroke="#b4b2a9" points="876.75,-103.56 876.75,-122.81 962,-122.81 962,-103.56 876.75,-103.56"/>
 <text text-anchor="start" x="880.75" y="-109.31" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">medium</text>
 </a>
 </g>
-<g id="a_node8_215"><a data-target="uplinks-medium" tabindex="0" role="link"><title>uplinks.medium</title>
+<g id="a_node8_219"><a data-target="uplinks-medium" tabindex="0" role="link"><title>uplinks.medium</title>
 <polygon fill="none" stroke="#b4b2a9" points="962,-103.56 962,-122.81 1029.25,-122.81 1029.25,-103.56 962,-103.56"/>
 <text text-anchor="start" x="966" y="-109.31" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">enum</text>
 </a>
 </g>
-<g id="a_node8_216"><a data-target="uplinks-note" tabindex="0" role="link"><title>uplinks.note</title>
+<g id="a_node8_220"><a data-target="uplinks-note" tabindex="0" role="link"><title>uplinks.note</title>
 <polygon fill="none" stroke="#b4b2a9" points="876.75,-84.31 876.75,-103.56 962,-103.56 962,-84.31 876.75,-84.31"/>
 <text text-anchor="start" x="880.75" y="-90.06" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">note</text>
 </a>
 </g>
-<g id="a_node8_217"><a data-target="uplinks-note" tabindex="0" role="link"><title>uplinks.note</title>
+<g id="a_node8_221"><a data-target="uplinks-note" tabindex="0" role="link"><title>uplinks.note</title>
 <polygon fill="none" stroke="#b4b2a9" points="962,-84.31 962,-103.56 1029.25,-103.56 1029.25,-84.31 962,-84.31"/>
 <text text-anchor="start" x="966" y="-90.06" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
 </a>
 </g>
-<g id="a_node8_218"><a data-target="uplinks-provider" tabindex="0" role="link"><title>uplinks.provider</title>
+<g id="a_node8_222"><a data-target="uplinks-provider" tabindex="0" role="link"><title>uplinks.provider</title>
 <polygon fill="none" stroke="#b4b2a9" points="876.75,-63.56 876.75,-84.31 962,-84.31 962,-63.56 876.75,-63.56"/>
 <text text-anchor="start" x="880.75" y="-70.06" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">provider</text>
 </a>
 </g>
-<g id="a_node8_219"><a data-target="uplinks-provider" tabindex="0" role="link"><title>uplinks.provider</title>
+<g id="a_node8_223"><a data-target="uplinks-provider" tabindex="0" role="link"><title>uplinks.provider</title>
 <polygon fill="none" stroke="#b4b2a9" points="962,-63.56 962,-84.31 1029.25,-84.31 1029.25,-63.56 962,-63.56"/>
 <text text-anchor="start" x="966" y="-70.81" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">→ providers</text>
 </a>
@@ -3382,8 +3623,8 @@ Jeder Abschnitt mit allen Feldern – **fett** sind Pflichtfelder, verschachtelt
 </g>
 <g id="edge12" class="edge">
 <title>sites:e&#45;&gt;uplinks:h</title>
-<path fill="none" stroke="#888780" stroke-width="1.1" d="M811.75,-325.93C837.93,-325.93 846.32,-326.34 869.16,-326.42"/>
-<polygon fill="#888780" stroke="#888780" stroke-width="1.1" points="869.08,-328.52 875.09,-326.43 869.09,-324.32 869.08,-328.52"/>
+<path fill="none" stroke="#888780" stroke-width="1.1" d="M811.75,-307.31C839.16,-307.31 845.57,-323.15 869.21,-326"/>
+<polygon fill="#888780" stroke="#888780" stroke-width="1.1" points="868.98,-328.09 875.09,-326.34 869.22,-323.89 868.98,-328.09"/>
 </g>
 <g id="edge13" class="edge">
 <title>uplinks:e&#45;&gt;contracts:h</title>
@@ -3403,7 +3644,7 @@ Ein Klick auf den Kopf eines Abschnitts führt zu seinem Abschnitt weiter unten,
 
 ### Konventionen
 
-**IDs.** Einträge haben eine ID als Schlüssel: Kleinbuchstaben, Ziffern und Bindestriche, am Anfang ein Buchstabe oder eine Ziffer (`grammi`, `realtox-dus`, `home-main`). Ein Verweisfeld enthält eine solche ID und muss einen vorhandenen Eintrag des richtigen Abschnitts nennen.
+**IDs.** Einträge haben eine ID als Schlüssel: Kleinbuchstaben, Ziffern und Bindestriche, am Anfang ein Buchstabe oder eine Ziffer (`grammi`, `realtox-dus`, `home-private`). Ein Verweisfeld enthält eine solche ID und muss einen vorhandenen Eintrag des richtigen Abschnitts nennen.
 
 **Pflicht und optional.** Ein Feld ist optional, wenn die Tabelle nicht *Pflicht* sagt. Fehlende optionale Felder füllt die abgeleitete Sicht auf – mit dem Standardwert aus der Tabelle, sonst `null` oder `[]` –, damit ein Nutzer der Daten nie `or` schreiben muss.
 
@@ -3418,6 +3659,7 @@ Ein Klick auf den Kopf eines Abschnitts führt zu seinem Abschnitt weiter unten,
 | IPv4-Adresse | `192.0.2.10` | `interfaces.<name>.ipv4.address`, `dhcpPool` |
 | IPv4-Präfix (ohne Host-Bits) | `192.0.2.0/24` | `networks.ipv4` |
 | IPv6-Präfix | `2001:db8:1::/64` | `networks.ipv6` |
+| ULA-/48 (in `fd00::/8`) | `fd12:3456:789a::/48` | `sites.ipv6Ula` |
 | MAC-Adresse, Kleinbuchstaben | `52:54:00:12:34:56` | `interfaces.<name>.mac` |
 | Link-Local | `eui64`, `stable-privacy`, `random` oder `fe80::1234` | `interfaces.<name>.linkLocal` |
 | SSH-Public-Key ohne Kommentar | `ssh-ed25519 AAAAC3Nz…` | `hosts.sshHostKeys` |
@@ -3631,7 +3873,8 @@ Ein Ort, an dem Geräte stehen.
 | Feld | Typ | | Bedeutung (aus dem Schema, englisch) |
 | --- | --- | --- | --- |
 | <span id="sites-city"></span>`city` | String | Pflicht | City the site is in. |
-| <span id="sites-kind"></span>`kind` | eins von `residential` `hackerspace` `datacenter` | Pflicht | Kind of place. |
+| <span id="sites-ipv6ula"></span>`ipv6Ula` | String: a ULA /48 like fd12:3456:789a::/48 |  | Unique local IPv6 prefix of the site (RFC 4193, random 40 bits). Only where the lab runs the network; its networks take their /64 by ipv6SubnetId. |
+| <span id="sites-kind"></span>`kind` | eins von `residential` `hackerspace` `club` `datacenter` | Pflicht | Kind of place. club: a club's premises the lab connects to (Remote, issue #84). |
 | <span id="sites-note"></span>`note` | String |  | Free text: anything worth knowing that has no field of its own. |
 | <span id="sites-provider"></span>`provider` | ID aus [providers](#providers-1) |  | Who runs the place (hoster, club); empty for a home. |
 | <span id="sites-uplinks"></span>`uplinks` | Liste von ID aus [uplinks](#uplinks-1), ohne Duplikate | Pflicht | Internet lines of the site, the primary one first, backups after it. |
@@ -3645,7 +3888,8 @@ Ein Ort, an dem Geräte stehen.
       "uplinks": [
         "home-fiber",
         "home-lte"
-      ]
+      ],
+      "ipv6Ula": "fd12:3456:789a::/48"
     },
     "club": {
       "city": "Exampletown",
@@ -3667,7 +3911,7 @@ Ein Ort, an dem Geräte stehen.
 }
 ```
 
-Regeln über das Schema hinaus: mindestens ein Anschluss, der primäre zuerst; an jeder Site steht etwas.
+Regeln über das Schema hinaus: mindestens ein Anschluss, der primäre zuerst; an jeder Site steht etwas. `ipv6Ula` nur, wo das Lab das Netz selbst betreibt – einmal zufällig erzeugt (RFC 4193), danach nie geändert.
 
 ### networks
 
@@ -3680,7 +3924,8 @@ Ein Layer-2-Netz mit seinem IPv4-Präfix.
 | <span id="networks-dhcppool-start"></span>`dhcpPool.start` | String: an IPv4 address | Pflicht | First address of the pool. |
 | <span id="networks-dhcpserver"></span>`dhcpServer` | ID aus [hosts](#hosts-2) |  | The host serving DHCP for IPv4 here; it needs an interface in this network. |
 | <span id="networks-ipv4"></span>`ipv4` | String: an IPv4 prefix like 192.0.2.0/24 |  | IPv4 prefix. |
-| <span id="networks-ipv6"></span>`ipv6` | String: an IPv6 prefix like 2001:db8::/64 |  | IPv6 prefix, when it is fixed (ULA or static GUA). |
+| <span id="networks-ipv6"></span>`ipv6` | String: an IPv6 prefix like 2001:db8::/64 |  | IPv6 prefix, when it is fixed (static GUA). A ULA from the site's ipv6Ula is derived, not entered. |
+| <span id="networks-ipv6subnetid"></span>`ipv6SubnetId` | Ganzzahl 0–65535 |  | Subnet id of the network, decimal (192, often the VLAN id): its /64 inside the site's ipv6Ula and inside the prefix the primary uplink delegates. The hex form is derived. |
 | <span id="networks-name"></span>`name` | String | Pflicht | Display name. |
 | <span id="networks-note"></span>`note` | String |  | Free text: anything worth knowing that has no field of its own. |
 | <span id="networks-site"></span>`site` | ID aus [sites](#sites-1) | Pflicht | Where the network is. |
@@ -3693,7 +3938,9 @@ Ein Layer-2-Netz mit seinem IPv4-Präfix.
       "name": "Home LAN",
       "site": "home",
       "ipv4": "192.0.2.0/24",
+      "vlan": 192,
       "ipv6": "2001:db8:1::/64",
+      "ipv6SubnetId": 192,
       "dhcpServer": "router",
       "dhcpPool": {
         "start": "192.0.2.100",
@@ -3710,7 +3957,7 @@ Ein Layer-2-Netz mit seinem IPv4-Präfix.
 }
 ```
 
-Regeln über das Schema hinaus: Das Präfix hat keine Host-Bits; der Pool liegt darin, Start vor Ende, und braucht `ipv4` und `dhcpServer`; der DHCP-Server steht an der Site und hat ein Interface im Netz; eine VLAN-ID nur einmal pro Site.
+Regeln über das Schema hinaus: Das Präfix hat keine Host-Bits; der Pool liegt darin, Start vor Ende, und braucht `ipv4` und `dhcpServer`; der DHCP-Server steht an der Site und hat ein Interface im Netz; eine VLAN-ID nur einmal pro Site; `ipv6SubnetId` nur einmal pro Site und klein genug für das Präfix, das der primäre Anschluss delegiert (0–255 bei einem /56). Sie ist dezimal; die abgeleitete Sicht ergänzt `ipv6SubnetHex` und das ULA-`/64` des Netzes.
 
 ### hosts
 
@@ -4180,7 +4427,8 @@ Ein gültiges Inventar mit allen Abschnitten – die Quelle der Beispiele oben, 
       "uplinks": [
         "home-fiber",
         "home-lte"
-      ]
+      ],
+      "ipv6Ula": "fd12:3456:789a::/48"
     },
     "club": {
       "city": "Exampletown",
@@ -4204,7 +4452,9 @@ Ein gültiges Inventar mit allen Abschnitten – die Quelle der Beispiele oben, 
       "name": "Home LAN",
       "site": "home",
       "ipv4": "192.0.2.0/24",
+      "vlan": 192,
       "ipv6": "2001:db8:1::/64",
+      "ipv6SubnetId": 192,
       "dhcpServer": "router",
       "dhcpPool": {
         "start": "192.0.2.100",
@@ -4493,7 +4743,7 @@ Jede Maschine und jeder Dienst aus dem [Inventar](#inventar), nach Standort: obe
 <div class="nx-lm-sites">
 <section class="site" style="flex: 1 1 200px"><div class="site-head"><div class="row"><span class="site-code">dc</span><span class="site-city">Exampleburg · Rechenzentrum · Example Hosting</span></div><div class="uplink">Example Hosting · AS64497 · RZ-Anbindung · IPv4 statisch · IPv6</div></div><div class="hosts one"><div class="host" data-hostcard="vps" tabindex="0" role="button" aria-label="Host vps"><div class="host-top"><span class="host-name">vps</span></div><div class="host-kind">VM · VPS M</div><div class="pills"><span class="pill core">core</span><span class="pill managed">Flake</span></div><div class="chips"><span class="svc stateful c-core" data-svc="login" data-host="vps"><button type="button" class="nm" title="Example IdP">Login</button><span class="x"><button type="button" class="tg" data-ep="0" title="auth.example.org · öffentlich">pub</button></span></span><span class="svc c-core" data-svc="proxy" data-host="vps"><button type="button" class="nm" title="Reverse proxy">Reverse proxy</button><span class="x"><button type="button" class="tg" data-ep="0" title="proxy.example.org · öffentlich">pub</button></span></span></div></div></div></section>
 <section class="site" style="flex: 1 1 200px"><div class="site-head"><div class="row"><span class="site-code">club</span><span class="site-city">Exampletown · Hackerspace · Example hackerspace</span></div><div class="uplink">None · Kabel · IPv4 statisch · IPv6</div><div class="nets"><span class="net" title="Hackerspace LAN">198.51.100.0/24 · VLAN 10</span></div></div><div class="hosts one"><div class="host" data-hostcard="pve" tabindex="0" role="button" aria-label="Host pve"><div class="host-top"><span class="host-name">pve</span><span class=ip>198.51.100.2</span></div><div class="host-kind">Hypervisor</div><div class="pills"><span class="pill ext">gehört Example hackerspace</span></div><div class="guest"><div class="host" data-hostcard="club-vm" tabindex="0" role="button" aria-label="Host club-vm"><div class="host-top"><span class="host-name">club-vm</span></div><div class="host-kind">VM · Proxmox VM</div><div class="pills"><span class="pill managed">Flake</span></div><div class="chips"><span class="svc stateful" data-svc="docs" data-host="club-vm"><button type="button" class="nm" title="Documents">Documents</button><span class="x"><button type="button" class="tg" data-ep="0" title="docs.example.org · über Proxy">prox</button></span></span><span class="svc" data-svc="route" data-host="club-vm"><button type="button" class="nm" title="Overlay routing peer">Route into the hackerspace</button></span></div></div></div></div></div></section>
-<section class="site" style="flex: 3 1 600px"><div class="site-head"><div class="row"><span class="site-code">home</span><span class="site-city">Exampletown · Zuhause</span></div><div class="uplink">Example ISP · AS64496 · Glasfaser · ↓600 ↑300 Mbit/s · IPv4 dynamisch · IPv6 /56 dyn.<br>None · LTE · IPv4 dynamisch</div><div class="nets"><span class="net" title="Home LAN">192.0.2.0/24 · DHCP router</span></div></div><div class="hosts"><div class="host" data-hostcard="router" tabindex="0" role="button" aria-label="Host router"><div class="host-top"><span class="host-name">router</span><span class=ip>192.0.2.1</span></div><div class="host-kind">Router · Example Networks R1</div><div class="pills"><span class="pill core">core</span></div></div><div class="host" data-hostcard="laptop" tabindex="0" role="button" aria-label="Host laptop"><div class="host-top"><span class="host-name">laptop</span></div><div class="host-kind">Laptop · Example Corp Book 14</div><div class="pills"><span class="pill lab">lab</span><span class="pill managed">Flake</span><span class="pill ext">zeitweise</span></div></div><div class="host" data-hostcard="nas" tabindex="0" role="button" aria-label="Host nas"><div class="host-top"><span class="host-name">nas</span><span class=ip>192.0.2.10</span></div><div class="host-kind">NAS · Example Corp NAS 4</div><div class="pills"><span class="pill managed">Flake</span></div><div class="chips"><span class="svc stateful" data-svc="storage" data-host="nas"><button type="button" class="nm" title="Example S3">S3 storage</button><span class="x"><button type="button" class="tg" data-ep="0" title="s3.example.org:3900 · nur LAN">lan</button><button type="button" class="tg" data-ep="1" title="s3-console.example.org · über Proxy">prox</button></span></span></div><div class="guest"><div class="host" data-hostcard="kvm" tabindex="0" role="button" aria-label="Host kvm"><div class="host-top"><span class="host-name">kvm</span></div><div class="host-kind">KVM</div><div class="pills"><span class="pill lab">lab</span></div></div></div></div></div></section>
+<section class="site" style="flex: 3 1 600px"><div class="site-head"><div class="row"><span class="site-code">home</span><span class="site-city">Exampletown · Zuhause</span></div><div class="uplink">Example ISP · AS64496 · Glasfaser · ↓600 ↑300 Mbit/s · IPv4 dynamisch · IPv6 /56 dyn.<br>None · LTE · IPv4 dynamisch</div><div class="nets"><span class="net" title="Home LAN">192.0.2.0/24 · VLAN 192 · DHCP router</span></div></div><div class="hosts"><div class="host" data-hostcard="router" tabindex="0" role="button" aria-label="Host router"><div class="host-top"><span class="host-name">router</span><span class=ip>192.0.2.1</span></div><div class="host-kind">Router · Example Networks R1</div><div class="pills"><span class="pill core">core</span></div></div><div class="host" data-hostcard="laptop" tabindex="0" role="button" aria-label="Host laptop"><div class="host-top"><span class="host-name">laptop</span></div><div class="host-kind">Laptop · Example Corp Book 14</div><div class="pills"><span class="pill lab">lab</span><span class="pill managed">Flake</span><span class="pill ext">zeitweise</span></div></div><div class="host" data-hostcard="nas" tabindex="0" role="button" aria-label="Host nas"><div class="host-top"><span class="host-name">nas</span><span class=ip>192.0.2.10</span></div><div class="host-kind">NAS · Example Corp NAS 4</div><div class="pills"><span class="pill managed">Flake</span></div><div class="chips"><span class="svc stateful" data-svc="storage" data-host="nas"><button type="button" class="nm" title="Example S3">S3 storage</button><span class="x"><button type="button" class="tg" data-ep="0" title="s3.example.org:3900 · nur LAN">lan</button><button type="button" class="tg" data-ep="1" title="s3-console.example.org · über Proxy">prox</button></span></span></div><div class="guest"><div class="host" data-hostcard="kvm" tabindex="0" role="button" aria-label="Host kvm"><div class="host-top"><span class="host-name">kvm</span></div><div class="host-kind">KVM</div><div class="pills"><span class="pill lab">lab</span></div></div></div></div></div></section>
 <section class="site" style="flex: 1 1 100%"><div class="site-head"><div class="row"><span class="site-code">Extern</span><span class="site-city">eingekaufte und gehostete Dienste</span></div></div><div class="ext-groups"><div class="prov"><div class="prov-name">Example Mail</div><div class="chips"><span class="svc stateful" data-svc="mail"><button type="button" class="nm" title="Mail">Mail</button></span></div><div class="contract">30 USD/Jahr</div></div></div></section>
 </div></div>
 <div class="nx-lm-aside"><div class="box nx-lm-detail"><div class="box-title">Auswahl</div><p class="hint">Dienst oder Host anklicken, um Abhängigkeiten und Details zu sehen.</p></div><div class="box legend-box"><div class="box-title">Legende</div><div class="legend"><div><svg width="34" height="8" aria-hidden="true"><path d="M1 4H33" class="e-dep"/></svg>hängt ab von</div><div><svg width="34" height="8" aria-hidden="true"><path d="M1 4H33" class="e-use"/></svg>nutzt (optional)</div><div><svg width="34" height="8" aria-hidden="true"><path d="M1 4H33" class="e-bak"/></svg>Backup nach</div><div><svg width="34" height="8" aria-hidden="true"><path d="M1 4H33" class="e-via"/></svg>erreichbar über</div><div><span class="svc stateful demo"><span class="nm">Dienst</span></span> mit Daten <span class="svc demo"><span class="nm">Dienst</span></span> zustandslos</div><div class="abbr"><span class="tg">pub</span> öffentlich · <span class="tg">prox</span> über Proxy · <span class="tg">mesh</span> nur Mesh · <span class="tg">lan</span> nur LAN</div><div><span class="pill core">core</span><span class="pill service">service</span><span class="pill">lab</span><span class="pill managed">Flake</span> Kritikalität, vom Flake verwaltet</div></div><label class="toggle"><input type="checkbox" class="nx-lm-all"> Alle Beziehungen einblenden</label><button type="button" class="nx-lm-zoom">Vergrößern</button></div></div>
@@ -4525,8 +4775,10 @@ Dienste sind nach Funktion benannt, nicht nach Produkt. Es gibt drei Arten der E
 | `llm` | Ollama (hinter Caddy) | zorlock | nur Mesh |
 | `health` | [HealthLog](https://github.com/MBombeck/HealthLog) ([`0497d60`](https://github.com/MBombeck/HealthLog/tree/0497d60a893784e709899cdb6fbdf155ef29e3e3) von Marc Bombeck) | ursalia | nur Mesh (auch die iOS-App braucht NetBird), Login nur über Pocket ID (Gruppe `healthlog_users`); eigene verschlüsselte Off-host-Kopien in Garage auf aldrin (Bucket `healthlog-backups`, 30 Tage) |
 | `bambuddy` | [Bambuddy](https://github.com/maziggy/bambuddy) ([`98ecaf5`](https://github.com/maziggy/bambuddy/tree/98ecaf5020e3a20a5de49859b8ad5a754d5ad85c) von MartinNYHC) | ursalia | über den Reverse Proxy mit SSO (Gruppen `bambuddy_user` / `bambuddy_admin`), danach Bambuddys eigener Login über Pocket ID; Drucker per IP im LAN-Modus; virtueller Drucker für Bambu Studio auf der LAN-Adresse von ursalia (Ports nur im Heimnetz, von außen über die NetBird-Route ins Heimnetz) |
-| `mqtt` | Mosquitto (Home-Assistant-Add-on) | Home Assistant (Heim-LAN, NetBird-Peer) | Port 8883, MQTT über TLS: zu Hause direkt zu HA (der Heimrouter (OPNsense) beantwortet den Namen lokal), von außen über den Reverse Proxy als TLS-Passthrough zum Peer, ohne SSO ([warum](#mqtt-von-außen-tls-passthrough-zu-home-assistant)) |
-| `acme` | dns01proxy (DNS-01 für Home Assistant) | grammi | nur Mesh, Port 8446; HA löst ihn über den Heimrouter (OPNsense) auf ([warum](#mqtt-von-außen-tls-passthrough-zu-home-assistant)) |
+| `dns` | [AdGuard Home](https://github.com/AdguardTeam/AdGuardHome) | ursalia | DNS für Heim-LAN (53, DoT/DoQ 853, DoH) und Personengeräte im Mesh (NetBird-Nameserver-Gruppe) ([warum](#dns-mit-adguard-home)) |
+| `adguard` | AdGuard Home, Admin-UI | ursalia | über den Reverse Proxy mit SSO (`homelab_admins`), danach AdGuards eigener Login ([warum](#dns-mit-adguard-home)) |
+| `mqtt` | Mosquitto (Home-Assistant-Add-on) | Home Assistant (Heim-LAN, NetBird-Peer) | Port 8883, MQTT über TLS: zu Hause direkt zu HA (der Heimrouter (Flint 4) beantwortet den Namen lokal), von außen über den Reverse Proxy als TLS-Passthrough zum Peer, ohne SSO ([warum](#mqtt-von-außen-tls-passthrough-zu-home-assistant)) |
+| `acme` | dns01proxy (DNS-01 für Home Assistant) | grammi | nur Mesh, Port 8446; HA löst ihn über den Heimrouter (Flint 4) auf ([warum](#mqtt-von-außen-tls-passthrough-zu-home-assistant)) |
 | `doku` | Diese Dokumentation (private Fassung) | aldrin + ursalia | im Mesh nur Admin-Geräte ([warum](#private-doku-admin-geräte-heimnetz-login)), ein A-Record je Host; im Heimnetz über einen eigenen Eintrag des Routers ursalia, außer einer Deny-Liste; von außen über den Reverse Proxy eine Weiterleitung auf die öffentliche Doku, `/login` auf `doku-login` |
 | `doku-login` | Diese Dokumentation (private Fassung) aus dem Internet | aldrin | über den Reverse Proxy mit SSO (Gruppe `docs-readers`), nur mit dem geheimen Header des Proxys |
 
@@ -4545,7 +4797,9 @@ Die 20 Module unter `modules/` tragen die gemeinsame Konfiguration aller Hosts; 
 | [auto-upgrade-git.nix](modules/auto-upgrade-git.nix) | Nächtliches `nixos-rebuild switch`, committet und pusht die neue `flake.lock` zurück ins Repo | `services.autoUpgradeGit`: `enable`, `flakeDir`, `flakeAttr`, `updateInputs`, `dates`, `allowReboot`, `rebootWindow`, `deployKeySecret`, `gitAuthorEmail`, `holdFile`, `holdCheck`, `pull` |
 | [log-shipping.nix](modules/log-shipping.nix) | journald- und nginx-Logs per Vector an VictoriaLogs | `services.logShipping`: `enable`, `victoriaLogsUrl` |
 | [metrics-shipping.nix](modules/metrics-shipping.nix) | vmagent scrapt die lokalen Exporter und schreibt per remote_write an VictoriaMetrics | `services.metricsShipping`: `enable`, `remoteWriteUrl`, `exporterPorts` |
-| [disk-health.nix](modules/disk-health.nix) | SMART physischer Disks: smartd-Selbsttests (kurz wöchentlich, lang monatlich, je Disk versetzt), smartctl_exporter, Textfile-Metriken `smart_selftest_*`, Dashboard Disk Health | `services.diskHealth.devices` (by-id-Pfade; die Reihenfolge bestimmt den Testtermin); auf ursalia |
+| [disk-health.nix](modules/disk-health.nix) | SMART physischer Disks: smartd-Selbsttests (kurz wöchentlich, lang monatlich, je Disk versetzt), smartctl_exporter, Textfile-Metriken `smart_selftest_*`, Dashboard Disk Health | `services.diskHealth.devices` (by-id-Pfade; die Reihenfolge bestimmt den Testtermin); auf ursalia und tummi |
+| [home-wifi.nix](modules/home-wifi.nix) | WLAN im Heimnetz „homelab“: 5 GHz bevorzugt, alle Bänder als Fallback, Passphrase aus sops, optional ein Kabel-Port mit höherer Metrik als Fallback, WLAN-Metriken (`wifi_link_*`) | `services.homeWifi`: `enable`, `interface`, `wiredFallback`; auf tummi |
+| [samba-mesh.nix](modules/samba-mesh.nix) | Samba nur fürs Mesh: SMB3, macOS-tauglich, keine Gäste, kein NetBIOS; Passwörter der Samba-Konten aus sops | `services.sambaMesh`: `enable`, `users`; Freigaben, Konten und ACLs bleiben beim Host; auf ursalia und tummi |
 | [deploy-hold.nix](modules/deploy-hold.nix) | Halt für `just try`: `nixos-hold`, Metrik `nixlab_deploy_hold_since_seconds`, Warnung in der Login-Shell | auch auf cuckoosegg – [Branch vor dem Merge testen](#branch-vor-dem-merge-auf-einem-host-testen) |
 | [deploy.nix](modules/deploy.nix) | Die Lab-Policy für auto-upgrade-git: GitHub-Deploy-Key, gepinnter Hostkey, Reboot-Fenster 04:00–06:00 | getrennt vom Mechanismus, damit der wiederverwendbar bleibt |
 | [nix-cache.nix](modules/nix-cache.nix) | Eigener Binary-Cache in Garage (`s3://nix-cache`): Substituter und Read-Key auf jedem Host; auf ursalia der nächtliche Lock-Update, Build aller Hosts und Upload | `services.nixCache.prebuild`: `enable`, `updateInputs`, `dates`; Secrets aus `just nix-cache-secrets` |
@@ -4572,6 +4826,7 @@ Die 20 Module unter `modules/` tragen die gemeinsame Konfiguration aller Hosts; 
 | `just try <host>` | Aktuellen Themen-Branch auf einen Host deployen und ihn dort halten, bis der Branch gemergt ist ([Branch vor dem Merge testen](#branch-vor-dem-merge-auf-einem-host-testen)) |
 | `just try-confirm <host> [minutes] [via]` | Wie `try`, rollt aber von selbst zurück, wenn der Host nicht innerhalb der Frist erreicht und bestätigt wird ([mit automatischem Zurückrollen](#mit-automatischem-zurückrollen-just-try-confirm)) |
 | `just release <host>` / `holds` | Halt ohne Merge aufheben / alle Halte anzeigen |
+| `just restore-test <host> [isolation]` | grammi oder zummi aus restic in eine Wegwerf-VM ohne Netz auf ursalia zurückholen und die RTO messen ([Restore testen](#restore-testen)) |
 | `just check <host>` | `git pull` + `nixos-rebuild dry-activate` |
 | `just secrets <host>` / `pull-secrets <host>` | Host-Secrets auf dem Host editieren und zurückholen |
 | `just topology` | Topologie-Dashboard neu erzeugen (sonst schlägt `nix flake check` fehl) |
@@ -4582,6 +4837,7 @@ Die 20 Module unter `modules/` tragen die gemeinsame Konfiguration aller Hosts; 
 | `just inventory-collect [--force] [host …]` | SSH-Host-Keys, Interfaces (MAC, Medium, Link-Local) und Hardware (Hersteller, Modell, Produkt-ID, Seriennummer) von den Geräten in `inventory.json` holen – füllt Lücken und meldet Abweichungen; `--force` übernimmt die Werte des Geräts |
 | `just services [--json]` | Was die Dienste des Inventars betreiben, aus den Host-Konfigurationen: Version, Lizenz, Sprache ([Software-Sicht](#software-sicht)) |
 | `just sbom [host …]` | SBOM (CycloneDX, SPDX, CSV) des laufenden Systems jedes Hosts nach `sbom/` ([Software-Sicht](#software-sicht)) |
+| `just wifi-qr [ssid]` | Ein WLAN von gruffi: SSID, PSK, Verschlüsselung und ein QR-Code zum Verbinden, aus `openwrt/gruffi/uci.nix` und dessen `secrets.yaml` (gibt den PSK aus); ohne SSID die Liste der WLANs |
 | `just known-hosts` | `~/.ssh/known_hosts.nixlab` aus dem Inventar schreiben – für eine Workstation außerhalb dieses Repos; gusto bekommt die Schlüssel systemweit |
 | `just netbird-plan` / `netbird-apply` | NetBird-Account ändern; apply schreibt auch `expected-peers.json` (committen, grammi deployen) und `admin-peers.json` (committen, aldrin und ursalia deployen) neu |
 | `just netbird-proxy-certs` | Proxy-Diensten ohne Zertifikat eins holen und das Dashboard nachziehen (NetBird #7118); läuft am Ende von `netbird-apply` |
@@ -4615,7 +4871,7 @@ eval $(op signin) && export SOPS_AGE_KEY_CMD='op read "op://<vault>/<item>/passw
 - Nach einem `nixos-rebuild` sagt `systemctl --failed` nichts über die Vergangenheit – der Switch räumt Failed-States ab. Stattdessen `journalctl -u <unit>`.
 - NetBird down, Tailscale noch da: `NIXLAB_DOMAIN=example-tailnet.ts.net` vor das Rezept setzen.
 - Tofu-Rezepte verweigern den Lauf gegen leeren State, damit keine zweite `servers`-Gruppe oder Token-Garnitur entsteht.
-- WLAN auf ursalia: `iw dev wlo1 link` zeigt Band, Signal und PHY-Modus. Das 5-GHz-Netz des Routers liegt auf einem DFS-Kanal mit 300 TU Beacon-Intervall, ein einzelner Scan kann es verpassen; Band, Signal, Raten und PHY-Modus gehen auch an VictoriaMetrics (node_exporter-Collector `wifi` plus `wifi_link_*`), Grafana-Dashboard „Homelab / WLAN“.
+- WLAN auf tummi: `iw dev wlo1 link` zeigt Band, Signal und PHY-Modus. Das 5-GHz-Netz des Routers liegt auf einem DFS-Kanal mit 300 TU Beacon-Intervall, ein einzelner Scan kann es verpassen; Band, Signal, Raten und PHY-Modus gehen auch an VictoriaMetrics (node_exporter-Collector `wifi` plus `wifi_link_*`), Grafana-Dashboard „Homelab / WLAN“.
 - Nach einem Netzwechsel kann NetBird minutenlang an einem toten P2P-Weg festhalten und trotzdem `Connected` zeigen (gesehen auf ursalia, 2026-10-19). Abhilfe: `systemctl restart netbird-mesh` auf dem Host, notfalls über Tailscale.
 - Ein Proxy-Dienst hängt im NetBird-Dashboard bei „Issuing certificate…“ oder liefert von außen einen TLS-Fehler („internal error“): `just netbird-proxy-certs` – fragt die Namen ohne Zertifikat von außen ab und startet `netbird-proxy` auf grammi neu (NetBird-Diskussion #7118). Läuft auch am Ende von `just netbird-apply`.
 

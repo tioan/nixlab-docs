@@ -13,6 +13,12 @@ let
   cfg = config.services.metricsShipping;
 
   scrapeConfig = (pkgs.formats.yaml { }).generate "vmagent-scrape.yaml" {
+    # Every series carries the host it comes from as `host`. Until
+    # 2026-11-02 alert rules took it from the job name, everything up to the
+    # first dash ("grammi-restic" -> grammi) - which a host named gw-remote
+    # breaks. Same label on zorlock (hosts/zorlock/monitoring.nix) and
+    # grammi (hosts/grammi/configuration.nix).
+    global.external_labels.host = config.networking.hostName;
     scrape_configs = [
       {
         job_name = config.networking.hostName;
