@@ -118,7 +118,8 @@ Alle Felder mit Typ, Standardwert und Bedeutung: [Inventar-Schema → services](
 
 ```json
 "interfaces": {
-  "eno1":    { "mac": "52:54:00:12:34:56", "medium": "ethernet", "linkLocal": "eui64",
+  "eno1":    { "mac": "52:54:00:12:34:56", "medium": "ethernet", "speed": 10000,
+               "connector": "sfp-plus", "module": { "kind": "mm", "standard": "10gbase-sr" }, "linkLocal": "eui64",
                "network": "lan", "ipv4": { "mode": "reserved", "address": "192.0.2.10" } },
   "eno1.20": { "network": "iot", "linkLocal": "fe80::1234", "ipv4": { "mode": "dhcp" } }
 }
@@ -127,6 +128,8 @@ Alle Felder mit Typ, Standardwert und Bedeutung: [Inventar-Schema → services](
 Alle Felder mit Typ, Standardwert und Bedeutung: [Inventar-Schema → hosts](inventory-schema.md#hosts).
 
 **Link-Local.** Nur bei EUI-64 folgt die Adresse aus der MAC (`fe80::` + MAC mit umgedrehtem U/L-Bit und `ff:fe` in der Mitte); das abgeleitete `ipv6LinkLocal` wird dann berechnet. Viele Systeme nutzen stattdessen `stable-privacy` (RFC 7217: stabil, aber nicht berechenbar), auch macOS und tvOS leiten sie nicht aus der MAC ab. Ist die Adresse stabil und bekannt, trägt man sie direkt ein (`"fe80::…"`); genau das macht `just inventory-collect`, wenn sie nicht zu EUI-64 passt. `eui64` braucht eine `mac`; mit einer *lokal verwalteten* WLAN-MAC (private WLAN-Adresse) ist es ein Fehler, weil diese MAC – und damit die Adresse – meist zufällig ist. Eine lokal verwaltete Ethernet-MAC ist in Ordnung (QEMUs `52:54:00:…` ist eine).
+
+**Link.** Was ein Interface höchstens kann, nicht was es aushandelt – das kommt aus den Metriken (`node_network_speed_bytes`), siehe [Monitoring → Alerting](../explanation/monitoring.md#alerting). Ethernet: `speed` in Mbit/s (`1000`, `2500`, `10000` …, nur die üblichen Stufen), `connector` (`rj45`, `sfp`, `sfp-plus`, `sfp28`, `qsfp-plus`, `qsfp28`) und bei einem Käfig `module`: `kind` (`dac`/`aoc` ein fest konfektioniertes Kabel, `sm`/`mm` ein Transceiver für Singlemode-/Multimode-Faser, `copper` ein RJ45-Transceiver) und optional der aufgedruckte `standard` (`10gbase-sr`, `1000base-lx` …). `speed` ist das, was mit dem Gesteckten geht: höchstens, was Anschluss und Standard tragen. Der Standard legt die Art fest (SR/SX/LRM Multimode, LR/ER/BX Singlemode, `-t` Kupfer; 1000BASE-LX beides, über Multimode mit Mode-Conditioning-Kabel); ein DAC/AOC hat keinen. WLAN: `wifiStandard` (`wifi4` … `wifi7`, `wifi6e` eigens). Alles optional – gepflegt für die eigenen Server und Router, nicht für VMs und Appliances.
 
 **IPv4 – `ipv4.mode`:**
 
@@ -239,7 +242,7 @@ uplinks.fiber-home.asn: expected a whole number, got "AS64496"
 - `managed` stimmt mit `flake.nix` überein: Jeder Eintrag aus `nixosConfigurations`/`darwinConfigurations` steht hier als managed, und jeder managed-Eintrag hat eine Konfiguration
 - Hardware: `vendor`/`productId`/`serial` nicht bei `vm`/`container`; keine Seriennummer doppelt
 - SSH-Keys: Key-Daten passen zum Typ, kein Key bei zwei Geräten
-- Interfaces: Netz an der Site des Hosts; `ipv4` braucht ein Netz, `address` je nach Modus, im Präfix, nicht Netz-/Broadcast-Adresse, statisch außerhalb des Pools, je Netz eindeutig; `reserved` braucht `mac` und einen `dhcpServer`; MAC eindeutig und kein Multicast; `eui64` braucht eine MAC und keine private WLAN-MAC
+- Interfaces: Netz an der Site des Hosts; `ipv4` braucht ein Netz, `address` je nach Modus, im Präfix, nicht Netz-/Broadcast-Adresse, statisch außerhalb des Pools, je Netz eindeutig; `reserved` braucht `mac` und einen `dhcpServer`; MAC eindeutig und kein Multicast; `eui64` braucht eine MAC und keine private WLAN-MAC; `speed`/`connector`/`module` nur bei Ethernet, `wifiStandard` nur bei WLAN; `speed` innerhalb von Anschluss und Standard; `module` nur in einem Käfig, `kind` passend zum Standard, kein Standard bei DAC/AOC
 - Netze: Präfix ohne Host-Bits; Pool im Präfix, Start ≤ Ende, nur mit `ipv4` und `dhcpServer`; `dhcpServer` an der Site und mit Interface im Netz; VLAN-ID je Site eindeutig; `ipv6SubnetId` je Site eindeutig und im delegierten Präfix des primären Anschlusses
 - Dienste: genau eins von `hosts`/`provider`; `package` nur auf verwalteten Hosts und nicht zusammen mit `version`; kein `core`/`service`-Dienst auf einem `intermittent`-Host; kein Verweis auf sich selbst, nichts zugleich in `dependsOn` und `uses`, keine harte Abhängigkeit von einem weniger kritischen Dienst; `dependsOn`/`via` zyklenfrei; `via` bei `proxy`, nicht bei `loopback`; jeder `fqdn` nur einmal je Port; `backup` nur bei `stateful`, `to` Pflicht bei `restic`/`arq`, optional bei `ha-backup`, sonst nicht, und auf ein `stateful`-Ziel; `contracts` nur mit `provider`
 - Verträge: `dueMonth` genau bei `year`; `renews` nicht vor `since`; ein Vertrag, den ein Host, Anschluss oder Dienst nennt, ist mit dessen Anbieter geschlossen (bei einem Host: dem Anbieter seiner Site); kein Anbieter, auf den nichts verweist

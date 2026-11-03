@@ -58,7 +58,11 @@ The dashboards are JSON in `hosts/grammi/dashboards/`, provisioned from the repo
 | SyncCredentialExpiring | `nixlab_netbird_group_sync_credential_expiry_seconds` | the group sync's token or key expires in less than 30 days |
 | PersonNotManaged | `nixlab_netbird_group_sync_unmanaged_person` | Pocket ID user in `homelab`/`homelab_admins` who is not in `people.tf`, for 1 h |
 | RemoteUplinkDown, RemoteSiteUnreachable | `nixlab_remote_uplink_connected` | one uplink of the remote site disconnected for 30 min; none for 10 min |
+| LinkSpeedDropped | `node_network_speed_bytes` | an Ethernet link negotiates less than within the last 7 days, for 30 min |
+| VersionCheckCriticalUpdate | journal: the "critical update" lines of the version check on zorlock (`hosts/zorlock/version-check.nix`) | a core service (`criticality: core` in `inventory.json`) has an upstream release no report has covered yet; held back until 07:00, stays up for 12 h; the assessment is in that night's `claude.md` (`just version-check-fetch`) |
 | Watchdog | `vector(1)` | always, as heartbeat |
+
+**Link speed:** LinkSpeedDropped compares a link with its own past, not with `speed` in `inventory.json`: that is what one end can do, a link gets the slower of both ends (tummi's 2.5G port behind the Beryl's 1G). After a deliberate move to a slower port, silence it; it resolves once the faster week has passed. Wi-Fi and unplugged ports report no speed. Only ports with a `speed` in the inventory count: veths, taps and bridges report made-up speeds, and a bridge follows its ports. Negotiated and inventory capability side by side: table "Links: negotiated vs. capability" in the Hosts Overview, fed by `nixlab_inventory_link_speed_bytes` (vmalert group `nixlab-inventory`, one constant series per interface with a `speed`).
 
 **Why the journal:** the next switch clears a unit's failed state. `systemctl --failed` and any single query show nothing afterwards. The crash loops of paperless-secret-key (October 2026, ~33 000 failed starts) and grist-core (~22 000 a day) never showed up as "failed", but every start left systemd's message in the journal.
 

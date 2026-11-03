@@ -318,7 +318,7 @@ echo, never an argument. Commit it and deploy zorlock.
 
 ## `just version-check-run`
 
-Start tonight's run now (collect, Ollama, Claude); log in /var/log/version-check.log
+Start the weekly full run now (collect, Claude); log in /var/log/version-check.log
 
 ## `just version-check-fetch`
 

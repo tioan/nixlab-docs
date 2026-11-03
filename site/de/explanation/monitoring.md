@@ -58,7 +58,11 @@ Die Dashboards liegen als JSON in `hosts/grammi/dashboards/` und werden aus dem 
 | SyncCredentialExpiring | `nixlab_netbird_group_sync_credential_expiry_seconds` | Token oder Key des Gruppensyncs laufen in weniger als 30 Tagen ab |
 | PersonNotManaged | `nixlab_netbird_group_sync_unmanaged_person` | Pocket-ID-Nutzer in `homelab`/`homelab_admins`, der nicht in `people.tf` steht, seit 1 h |
 | RemoteUplinkDown, RemoteSiteUnreachable | `nixlab_remote_uplink_connected` | ein Uplink des Remote-Standorts seit 30 min getrennt; keiner seit 10 min |
+| LinkSpeedDropped | `node_network_speed_bytes` | ein Ethernet-Link handelt weniger aus als in den letzten 7 Tagen, seit 30 min |
+| VersionCheckCriticalUpdate | Journal: die „critical update“-Zeilen des Versionschecks auf zorlock (`hosts/zorlock/version-check.nix`) | ein Kerndienst (`criticality: core` in `inventory.json`) hat ein Upstream-Release, das noch kein Bericht abgedeckt hat; wartet bis 07:00, bleibt 12 h stehen; die Bewertung steht in `claude.md` dieser Nacht (`just version-check-fetch`) |
 | Watchdog | `vector(1)` | immer, als Heartbeat |
+
+**Linkgeschwindigkeit:** LinkSpeedDropped vergleicht einen Link mit seiner eigenen Vergangenheit, nicht mit `speed` in `inventory.json`: Das ist, was ein Ende kann, ein Link bekommt das langsamere beider Enden (tummis 2.5G-Port hinter dem 1G der Beryl). Nach einem bewussten Umstecken auf einen langsameren Port: stummschalten, es löst sich, sobald die schnellere Woche vorbei ist. WLAN und ausgesteckte Ports melden keine Geschwindigkeit. Es zählen nur Ports mit `speed` im Inventory: veths, taps und Bridges melden erfundene Geschwindigkeiten, und eine Bridge folgt ihren Ports. Ausgehandelt und Inventory-Fähigkeit nebeneinander: Tabelle „Links: negotiated vs. capability“ im Hosts Overview, gespeist aus `nixlab_inventory_link_speed_bytes` (vmalert-Gruppe `nixlab-inventory`, eine konstante Reihe je Interface mit `speed`).
 
 **Warum das Journal:** Den Failed-State einer Unit löscht der nächste Switch. `systemctl --failed` und eine einzelne Abfrage zeigen danach nichts mehr. Die Crash-Loops von paperless-secret-key (Oktober 2026, ~33 000 Fehlstarts) und grist-core (~22 000 am Tag) tauchten nie als „failed“ auf, jeder Start hinterließ aber die systemd-Meldung im Journal.
 

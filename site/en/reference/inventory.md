@@ -118,7 +118,8 @@ All fields with type, default and meaning: [Inventory schema → services](inven
 
 ```json
 "interfaces": {
-  "eno1":    { "mac": "52:54:00:12:34:56", "medium": "ethernet", "linkLocal": "eui64",
+  "eno1":    { "mac": "52:54:00:12:34:56", "medium": "ethernet", "speed": 10000,
+               "connector": "sfp-plus", "module": { "kind": "mm", "standard": "10gbase-sr" }, "linkLocal": "eui64",
                "network": "lan", "ipv4": { "mode": "reserved", "address": "192.0.2.10" } },
   "eno1.20": { "network": "iot", "linkLocal": "fe80::1234", "ipv4": { "mode": "dhcp" } }
 }
@@ -127,6 +128,8 @@ All fields with type, default and meaning: [Inventory schema → services](inven
 All fields with type, default and meaning: [Inventory schema → hosts](inventory-schema.md#hosts).
 
 **Link-local.** Only with EUI-64 does the address follow from the MAC (`fe80::` + MAC with the U/L bit flipped and `ff:fe` in the middle); the derived `ipv6LinkLocal` is computed then. Many systems use `stable-privacy` instead (RFC 7217: stable, but not computable), macOS and tvOS do not derive it from the MAC either. When the address is stable and known, enter it directly (`"fe80::…"`); `just inventory-collect` does exactly that when it does not match EUI-64. `eui64` needs a `mac`; with a *locally administered* Wi-Fi MAC (private Wi-Fi address) it is an error, because that MAC – and with it the address – is usually random. A locally administered Ethernet MAC is fine (QEMU's `52:54:00:…` is one).
+
+**Link.** What an interface can do at most, not what it negotiates – that comes from the metrics (`node_network_speed_bytes`), see [Monitoring → Alerting](../explanation/monitoring.md#alerting). Ethernet: `speed` in Mbit/s (`1000`, `2500`, `10000` …, only the usual steps), `connector` (`rj45`, `sfp`, `sfp-plus`, `sfp28`, `qsfp-plus`, `qsfp28`), and for a cage `module`: `kind` (`dac`/`aoc` a fixed cable, `sm`/`mm` a transceiver for singlemode/multimode fibre, `copper` an RJ45 transceiver) and optionally the `standard` printed on it (`10gbase-sr`, `1000base-lx` …). `speed` is what works with what is plugged in: at most what the connector and the standard carry. The standard fixes the kind (SR/SX/LRM multimode, LR/ER/BX singlemode, `-t` copper; 1000BASE-LX both, with a mode-conditioning cord over multimode); a DAC/AOC has none. Wi-Fi: `wifiStandard` (`wifi4` … `wifi7`, `wifi6e` on its own). All optional – filled in for our own servers and routers, not for VMs and appliances.
 
 **IPv4 – `ipv4.mode`:**
 
@@ -239,7 +242,7 @@ uplinks.fiber-home.asn: expected a whole number, got "AS64496"
 - `managed` agrees with `flake.nix`: every `nixosConfigurations`/`darwinConfigurations` entry is in here as managed, and every managed entry has a configuration
 - hardware: `vendor`/`productId`/`serial` not on `vm`/`container`; no serial twice
 - SSH keys: key data matches the type, no key on two devices
-- interfaces: network at the host's site; `ipv4` needs a network, `address` according to the mode, inside the prefix, not network/broadcast, static outside the pool, unique per network; `reserved` needs `mac` and a `dhcpServer`; MAC unique and not multicast; `eui64` needs a MAC and no private Wi-Fi MAC
+- interfaces: network at the host's site; `ipv4` needs a network, `address` according to the mode, inside the prefix, not network/broadcast, static outside the pool, unique per network; `reserved` needs `mac` and a `dhcpServer`; MAC unique and not multicast; `eui64` needs a MAC and no private Wi-Fi MAC; `speed`/`connector`/`module` only on ethernet, `wifiStandard` only on wifi; `speed` within connector and standard; `module` only in a cage, `kind` matching the standard, no standard on a DAC/AOC
 - networks: prefix without host bits; pool inside the prefix, start ≤ end, only with `ipv4` and `dhcpServer`; `dhcpServer` at the site and with an interface in the network; VLAN id unique per site; `ipv6SubnetId` unique per site and inside the primary uplink's delegated prefix
 - services: exactly one of `hosts`/`provider`; `package` only on managed hosts and not with `version`; no `core`/`service` service on an `intermittent` host; no reference to itself, nothing in both `dependsOn` and `uses`, no hard dependency on a less critical service; `dependsOn`/`via` without cycles; `via` with `proxy`, not with `loopback`; every `fqdn` once per port; `backup` only for `stateful`, `to` required with `restic`/`arq`, optional with `ha-backup`, not with the others, and at a `stateful` target; `contracts` only with `provider`
 - contracts: `dueMonth` exactly with `year`; `renews` not before `since`; a contract named by a host, line or service is with that one's provider (a host: the provider of its site); no provider nothing refers to

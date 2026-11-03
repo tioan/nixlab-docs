@@ -55,6 +55,7 @@ nav = [
     "reference/inputs.md",
     "reference/hosts.md",
     "reference/gusto.md",
+    "reference/gruffi.md",
     "reference/inventory.md",
     "reference/inventory-schema.md",
     "reference/lab-map.md",
