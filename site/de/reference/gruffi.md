@@ -13,7 +13,7 @@ gruffi ist der Router des Heimnetzes: ein GL.iNet Flint 4 (GL-BE14000), seit dem
 | Gebaut | auf ursalia im Container `openwrt-gruffi` (`openwrt/gruffi/build.sh`), geprüft mit `openwrt/gruffi/dryrun.sh` |
 | Eingespielt | `sysupgrade -n` mit dem sysupgrade-Image (frisch, ohne alte Konfiguration) |
 | Zugang | OpenSSH, nur mit gustos Schlüssel (`hosts/gusto/ssh/gruffi.homelab.example.pub`), aus dem mgmt-Netz, von gusto im privaten Netz und über das Mesh |
-| WLAN | im Moment vom Omada EAP660 HD an lan8 – die eigenen Radios starten nicht (siehe [Bekannte Probleme](#bekannte-probleme)) |
+| WLAN | im Moment von ap-og (EAP660 HD) – an sw-og-flur (lan6), bis zum Umbau (`docs/install-sw-og-flur.md`) direkt an lan8 – die eigenen Radios starten nicht (siehe [Bekannte Probleme](#bekannte-probleme)) |
 | Display | bleibt dunkel: mit dem Stock-U-Boot übernimmt der Panel-Treiber kein vom Bootloader eingeschaltetes Panel |
 
 ## Dateien
@@ -39,9 +39,9 @@ Drei Wege führen in den SoC: der eingebaute 1G-Switch (MT7988, gmac0), der 2,5G
 | `lan3` | YT9224/YT8824 | server ungetaggt (ursalia) |
 | `lan4` | YT9224/YT8824 | server ungetaggt (zorlock, nach dem Umzug auf den Mac mini M6) |
 | `lan5` | YT9224/YT8824 | Trunk: privat ungetaggt, die übrigen getaggt (Flint 2) |
-| `lan6` | MT7988 | server ungetaggt (SLZB-MR3U) |
+| `lan6` | MT7988 | Trunk: mgmt ungetaggt, die übrigen getaggt (sw-og-flur, PoE-Switch: ap-og, SLZB-MR3U) |
 | `lan7` | MT7988 | server ungetaggt (Home Assistant) |
-| `lan8` | MT7988 | Trunk: privat ungetaggt, mgmt/IoT/Gast getaggt (Omada EAP660 HD) |
+| `lan8` | MT7988 | Trunk: mgmt ungetaggt, privat/IoT/Gast getaggt: Ersatzanschluss für ap-og (EAP660 HD), das an sw-og-flur hängt |
 | `lan9` | MT7988 | IoT ungetaggt (Hue Bridge) |
 | `sfp` (SFP+) | YT9224 | Trunk: alle getaggt |
 
@@ -82,7 +82,7 @@ Die Ports sind damit bis zur Grenze der Partner sauber; die Details stehen in ni
 
 ## Bekannte Probleme
 
-- **WLAN-Radios fehlen** (nixlab#93): beide PCIe-Controller bekommen beim Boot keinen Link (`PCIe link down, current LTSSM state: detect.quiet`, Probe -110), also keine Radios. Die ersten drei Boots nach dem Flash hatten WLAN, seitdem keiner mehr – kalt, warm und nach `sysupgrade -n`. Ob Modul oder Image schuld sind, klärt eine Gegenprobe mit der GL-Firmware. Bis dahin macht der Omada an lan8 das WLAN.
+- **WLAN-Radios fehlen** (nixlab#93): beide PCIe-Controller bekommen beim Boot keinen Link (`PCIe link down, current LTSSM state: detect.quiet`, Probe -110), also keine Radios. Die ersten drei Boots nach dem Flash hatten WLAN, seitdem keiner mehr – kalt, warm und nach `sysupgrade -n`. Ob Modul oder Image schuld sind, klärt eine Gegenprobe mit der GL-Firmware. Bis dahin macht ap-og an lan8 das WLAN.
 - **Kein `network reload`** (nixlab#94, siehe [Änderungen](#anderungen)).
 - **lan4/lan5** empfingen auf älteren Images nichts – behoben im PR durch den MDI-Swap-Patch (`967-54`); ab Head `e3d333fa67` zeigt `ethtool -S lanN` auch die Hardware-Zähler des YT9224 (`967-55`).
 - **Erster Boot nach Stromausfall:** PPPoE braucht oft ein bis zwei PADO-Timeouts (je 35 s), weil die alte Sitzung bei der Telekom noch hängt; nach einem Warmstart steht PPPoE sofort.

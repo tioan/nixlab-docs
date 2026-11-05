@@ -279,9 +279,11 @@ Update the Homebrew pins (Homebrew itself and every tap: flake input
 nix-homebrew plus every input from a github:<owner>/homebrew-<name>
 repository - homebrew-core, homebrew-cask, netbirdio-tap and whatever
 `apps` pinned since; read from flake.lock), switch, then
-`brew upgrade` what is installed - and print the NetBird client version
-here next to the mesh's (nixpkgs-netbird; bump that one deliberately,
-server first, see flake.nix). Only on the workstation: the result is a
+`brew upgrade` what is installed, list the formulae and casks new in the
+taps since the last pins (what `brew update` would have printed) - and
+print the NetBird client version here next to the mesh's
+(nixpkgs-netbird; bump that one deliberately, server first, see
+flake.nix). Only on the workstation: the result is a
 flake.lock change to commit like any other update; zorlock has no
 Homebrew. Nothing else in flake.lock moves.
 
@@ -660,6 +662,30 @@ new password on deploy, the running container would keep the old one.
 Bambuddy's OIDC client secret (terraform/pocket-id/bambuddy.tf) from Tofu
 state into hosts/ursalia/bambuddy-oidc.yaml. Run after pocketid-apply has
 created (or replaced) the client.
+
+## `just openinvento-secrets`
+
+OpenInvento's secrets on ursalia (hosts/ursalia/openinvento.nix): Django's
+SECRET_KEY and the metrics API key, format <8 chars>.<32 chars> like the keys
+OpenInvento generates itself. Once; rotating a value: `sops set`, deploy.
+
+## `just openinvento-oidc-secret`
+
+OpenInvento's OIDC client secret (terraform/pocket-id/openinvento.tf) from
+Tofu state into hosts/ursalia/openinvento-oidc.yaml. Run after pocketid-apply
+has created (or replaced) the client.
+
+## `just openinvento-image`
+
+Build the OpenInvento test image on ursalia and switch to it, no deploy
+needed. Merges upstream main with the refs listed one per line in
+~/Projects/upstream/openinvento-testbuild.refs (outside every repo; origin/pr/N
+means the current head of that upstream PR) in the local throwaway branch
+test/ursalia, never pushed. Runs the backend tests, copies the database,
+restarts, checks /api/health. Conflicts stop it; resolved ones are replayed by
+rerere. Keeps the last 3 images and database copies.
+OPENINVENTO_NO_RESTART=1 only builds and tags, for the first build before the
+container exists.
 
 ## `just healthlog-offhost`
 

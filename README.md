@@ -1879,7 +1879,7 @@ gruffi is the home network's router: a GL.iNet Flint 4 (GL-BE14000), running Ope
 | Built | on ursalia in the container `openwrt-gruffi` (`openwrt/gruffi/build.sh`), checked with `openwrt/gruffi/dryrun.sh` |
 | Installed | `sysupgrade -n` with the sysupgrade image (fresh, without the old configuration) |
 | Access | OpenSSH, gusto's key only (`hosts/gusto/ssh/gruffi.homelab.example.pub`), from the mgmt network, from gusto in the private network and over the mesh |
-| WLAN | currently from the Omada EAP660 HD on lan8 – the built-in radios do not come up (see [Known issues](#known-issues)) |
+| WLAN | currently from ap-og (EAP660 HD) – on sw-og-flur (lan6), directly on lan8 until the move (`docs/install-sw-og-flur.md`) – the built-in radios do not come up (see [Known issues](#known-issues)) |
 | Display | stays dark: with the stock U-Boot the panel driver has no panel the bootloader switched on to take over |
 
 ### Files
@@ -1905,9 +1905,9 @@ Three paths lead into the SoC: the built-in 1G switch (MT7988, gmac0), the 2.5G 
 | `lan3` | YT9224/YT8824 | server untagged (ursalia) |
 | `lan4` | YT9224/YT8824 | server untagged (zorlock, after its move to the Mac mini M6) |
 | `lan5` | YT9224/YT8824 | trunk: private untagged, the others tagged (Flint 2) |
-| `lan6` | MT7988 | server untagged (SLZB-MR3U) |
+| `lan6` | MT7988 | trunk: mgmt untagged, the others tagged (sw-og-flur, PoE switch: ap-og, SLZB-MR3U) |
 | `lan7` | MT7988 | server untagged (Home Assistant) |
-| `lan8` | MT7988 | trunk: private untagged, mgmt/IoT/guest tagged (Omada EAP660 HD) |
+| `lan8` | MT7988 | trunk: mgmt untagged, private/IoT/guest tagged: spare for ap-og (EAP660 HD), which hangs off sw-og-flur |
 | `lan9` | MT7988 | IoT untagged (Hue Bridge) |
 | `sfp` (SFP+) | YT9224 | trunk: all tagged |
 
@@ -1948,7 +1948,7 @@ So the ports are clean up to what the peers can do; details in nixlab#94 and in 
 
 ### Known issues
 
-- **Wi-Fi radios missing** (nixlab#93): both PCIe controllers get no link at boot (`PCIe link down, current LTSSM state: detect.quiet`, probe -110), so there are no radios. The first three boots after the flash had Wi-Fi, none since – cold, warm and after `sysupgrade -n`. Whether the module or the image is to blame is settled by a check with the GL firmware. Until then the Omada on lan8 provides the WLAN.
+- **Wi-Fi radios missing** (nixlab#93): both PCIe controllers get no link at boot (`PCIe link down, current LTSSM state: detect.quiet`, probe -110), so there are no radios. The first three boots after the flash had Wi-Fi, none since – cold, warm and after `sysupgrade -n`. Whether the module or the image is to blame is settled by a check with the GL firmware. Until then ap-og on lan8 provides the WLAN.
 - **No `network reload`** (nixlab#94, see [Changes](#changes)).
 - **lan4/lan5** received nothing on older images – fixed in the PR by the MDI swap patch (`967-54`); from head `e3d333fa67` on, `ethtool -S lanN` also shows the YT9224 hardware counters (`967-55`).
 - **First boot after a power cut:** PPPoE often needs one or two PADO timeouts (35 s each) because the old session still hangs at the ISP; after a warm reboot PPPoE is up at once.
@@ -4960,6 +4960,7 @@ Services are named by function, not by product. There are three kinds of reachab
 | `llm` | Ollama (behind Caddy) | zorlock | mesh only |
 | `health` | [HealthLog](https://github.com/MBombeck/HealthLog) ([`0497d60`](https://github.com/MBombeck/HealthLog/tree/0497d60a893784e709899cdb6fbdf155ef29e3e3) by Marc Bombeck) | ursalia | mesh only (the iOS app needs NetBird too), login via Pocket ID only (group `healthlog_users`); its own encrypted off-host copies in Garage on aldrin (bucket `healthlog-backups`, 30 days) |
 | `bambuddy` | [Bambuddy](https://github.com/maziggy/bambuddy) ([`98ecaf5`](https://github.com/maziggy/bambuddy/tree/98ecaf5020e3a20a5de49859b8ad5a754d5ad85c) by MartinNYHC) | ursalia | through the reverse proxy with SSO (groups `bambuddy_user` / `bambuddy_admin`), then Bambuddy's own login via Pocket ID; printers by IP in LAN mode; virtual printer for Bambu Studio on ursalia's LAN address (ports in the home LAN only, from outside via the NetBird route into the home LAN) |
+| `inv` | [OpenInvento](https://github.com/openinvento/openinvento) (mrtncode), test system from upstream `main` and unreleased branches | ursalia | through the reverse proxy with SSO (groups `inventar_users` / `inventar_admins`), then login via Pocket ID without another prompt; image built locally with `just openinvento-image` |
 | `dns` | [AdGuard Home](https://github.com/AdguardTeam/AdGuardHome) | ursalia | DNS for the home LAN (53, DoT/DoQ 853, DoH) and people's devices in the mesh (NetBird nameserver group) ([why](#dns-with-adguard-home)) |
 | `adguard` | AdGuard Home, admin UI | ursalia | through the reverse proxy with SSO (`homelab_admins`), then AdGuard's own login ([why](#dns-with-adguard-home)) |
 | `mqtt` | Mosquitto (Home Assistant add-on) | Home Assistant (home LAN, NetBird peer) | port 8883, MQTT over TLS: at home straight to HA (home router (Flint 4) answers the name locally), from outside through the reverse proxy as TLS passthrough to the peer, no SSO ([why](#mqtt-from-outside-tls-passthrough-to-home-assistant)) |
@@ -4998,6 +4999,7 @@ The 20 modules under `modules/` carry the configuration shared by all hosts; eve
 | [metrics.nix](modules/metrics.nix) | Prometheus exporters per host | protected by the firewall instead of bind addresses |
 | [logging.nix](modules/logging.nix) | Bounds journald, which otherwise grows up to 4 GB | |
 | [qemu-guest.nix](modules/qemu-guest.nix) | QEMU guest agent with an RPC deny list: snapshots yes, shell and file access over the channel no | |
+| [watchdog.nix](modules/watchdog.nix) | Hardware watchdog held by systemd: PID 1 opens the device and pings it every half timeout; if PID 1 or the kernel hangs, the hardware resets the host. Holding it also keeps any other process (procd in a container, #117) from arming it. Marker metric `nixlab_hardware_watchdog_enabled`, alert `HardwareWatchdogInactive` | `services.hardwareWatchdog`: `enable`, `device` (default `/dev/watchdog0`), `softdog`, `blacklistedModules` (other watchdog drivers, so there is exactly one); timeout = the device's own (`RuntimeWatchdogSec=default`); on ursalia and tummi (`iTCO_wdt` blacklisted), aldrin and grammi (QEMU iTCO), cuckoosegg (i6300esb from Proxmox); `softdog` (kernel software watchdog, plus `kernel.panic=10` and `softlockup_panic`) on zummi |
 | [nix.nix](modules/nix.nix) | Nix daemon, garbage collection, store optimisation | |
 | [docs-site.nix](modules/docs-site.nix) | The private docs site (flake package `docs-site`) under `doku` on the mesh | `services.docsSite`: `enable`, `package`, `fqdn`, `allow` (default: the whole mesh; in the lab only the admin devices from `admin-peers.json`); on aldrin and ursalia |
 | [maintenance.nix](modules/maintenance.nix) | Maintenance mode for nginx and Traefik: a flag file switches a name to a 503 page, the same page on 502/504 | `services.maintenance`, see [Maintenance mode](#maintenance-mode) |
@@ -5059,6 +5061,7 @@ eval $(op signin) && export SOPS_AGE_KEY_CMD='op read "op://<vault>/<item>/passw
 - WLAN on tummi: `iw dev wlo1 link` shows band, signal and PHY mode. The router's 5 GHz radio is on channel 36-48 (no DFS) with a 100 TU beacon interval; band, signal, rates and PHY mode also go to VictoriaMetrics (node_exporter `wifi` collector plus `wifi_link_*`), Grafana dashboard "Homelab / WLAN".
 - After a network change NetBird can keep a dead P2P path for minutes while still showing `Connected` (seen on ursalia, 2026-10-19). Fix: `systemctl restart netbird-mesh` on the host, via Tailscale if the mesh is down.
 - A proxy service hangs at "Issuing certificate…" in the NetBird dashboard or fails the TLS handshake from outside ("internal error"): `just netbird-proxy-certs` – requests the names without a certificate from outside and restarts `netbird-proxy` on grammi (NetBird discussion #7118). Also runs at the end of `just netbird-apply`.
+- A host restarted with no shutdown in the journal: look for the hardware watchdog in the previous boot, `journalctl -b -1 -k | grep -i watchdog` ("watchdog did not stop!" means some process armed it and let go without the magic close). Where `services.hardwareWatchdog` is on, systemd holds the device and any other process gets EBUSY; `fuser -v /dev/watchdog0` shows who holds it, `wdctl` the timeout. Test: `kill -SEGV 1` must reset the host within one timeout (#117).
 
 ## Conventions
 

@@ -681,3 +681,48 @@ Docs: docs/site/*/explanation/waf.md.
 | `allowedMethods` | HTTP methods a Host accepts; any other one (TRACE, PROPFIND, CONNECT, made-up verbs) is treated like a rule match. Leave a name out for services that need WebDAV (OpenCloud). |
 
 [Source](https://github.com/tioan/nixlab-docs/blob/main/modules/waf.nix)
+
+## watchdog.nix
+
+The hardware watchdog, held by systemd (issue #117).
+
+With RuntimeWatchdogSec set, PID 1 opens the watchdog device at boot and
+pings it every half timeout. If PID 1 hangs (a crash freezes it, see
+CrashAction= in systemd-system.conf(5)) or the kernel locks up, the pings
+stop and the hardware resets the host. RebootWatchdogSec (systemd's 10 min
+default) already covered a hanging shutdown; this adds the running system.
+
+Holding the device is also a guard: a watchdog device can only be open
+once, so nothing else gets it (EBUSY). That is how ursalia was reset four
+times on 2026-11-02/03: procd, PID 1 of gruffi's OpenWrt dry-run container
+(openwrt/gruffi/dryrun.sh), opened /dev/watchdog, armed intel_oc_wdt and
+let go without the magic close when the container was removed - the
+hardware reset the host a minute later.
+
+The timeout stays the device's own ("default" - 60 s for intel_oc_wdt on
+the NUCs, 30 s for the ICH9 iTCO that QEMU emulates on the VMs). TCO v2
+cannot go much beyond that anyway.
+
+A host with more than one watchdog lists the others in blacklistedModules:
+the kernel numbers watchdogs in probe order, so with two drivers loading
+in parallel watchdog0 is not fixed, and the one systemd does not hold
+would be free for a container to arm.
+
+Hosts without any watchdog device (zummi on IONOS) get softdog, the
+kernel's software watchdog - see the softdog option.
+
+Test: `kill -SEGV 1` freezes systemd; the host has to reset within one
+timeout. `kill -STOP 1` does nothing (the kernel ignores SIGSTOP for
+init), and `echo c > /proc/sysrq-trigger` tests the panic path, not the
+watchdog.
+
+**Options** (`services.hardwareWatchdog`):
+
+| Option | Description |
+| --- | --- |
+| `enable` | Enable: the hardware watchdog, held and pinged by systemd |
+| `device` | The watchdog device systemd opens (WatchdogDevice=). |
+| `softdog` | Load the kernel's software watchdog, for hosts without a hardware one. It catches a hung PID 1, but not a kernel that stops running timers. |
+| `blacklistedModules` | Other watchdog drivers to keep from loading, so the host has exactly one watchdog. |
+
+[Source](https://github.com/tioan/nixlab-docs/blob/main/modules/watchdog.nix)
