@@ -4,7 +4,7 @@ Services are named by function (`rezepte`, not `mealie`); new web services on gr
 
 | Reachability | For | Examples |
 | --- | --- | --- |
-| Mesh only | admin UIs, services for your own devices | `s3-admin`, `llm` |
+| Mesh only | admin UIs, services for your own devices | `s3-admin`, `ollama` |
 | Public behind the reverse proxy with SSO | web apps that should work on the road without the NetBird app | `rezepte`, `grist`, `metrics`, `dokumente` |
 | Directly public | services with their own login, for machines or everyone | `auth`, `s3.aldrin` |
 

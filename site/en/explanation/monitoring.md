@@ -11,6 +11,7 @@ Everything ends up on grammi: **vmagent** on every host sends metrics to Victori
 | `node_wifi_*`, `wifi_link_*` | zorlock | `system_profiler SPAirPortDataType -json` every 60 s, same names as on tummi (no receive rate, retries or separate receive PHY mode on macOS; macOS redacts SSID/BSSID without Location Services even for root, shown as "n/a" in the dashboard), plus `wifi_link_noise_dbm` |
 | `unit_cgroup_*` | all Linux hosts | CPU time and memory per systemd service from its cgroup, every 15 s (`unit-metrics` in `modules/metrics.nix`); counts every process of the unit, containers with `--cgroups=split` included |
 | `esphome_builder_data_bytes` | ursalia | Size of `/var/lib/esphome-builder` (toolchain cache), hourly |
+| `gruffi_power_watchdog_*` | ursalia | Whether gruffi answers, the strip's Wi-Fi over BLE, the decision and its brakes, every 30 s ([gruffi](../reference/gruffi.md#power-watchdog)); dashboard "Homelab / gruffi power watchdog" |
 | `grafana_public_dashboard_info` | grammi | public dashboards from Grafana's API with their `dash` link and the template variables they use, every 10 s |
 | `netbird_expected_peers` | grammi | `terraform/netbird/expected-peers.json`, baked into the system at build time; label `netbird_host` (the host it is about), since `host` is the sending host on every series as of 2026-11-02 |
 | `nixlab_remote_uplink_*` | gw-remote | OpenVPN's status file per uplink: connected, since when, bytes of the current session, every 30 s ([site gateway](site-gateway.md#monitoring)) |
@@ -26,6 +27,7 @@ The dashboards are JSON in `hosts/grammi/dashboards/`, provisioned from the repo
 | NetBird | Control plane reachable per host; peers per host as expected (Tofu) / known (network map) / connected P2P / connected relay, plus deviations; connection history, P2P latency, sync and setup times; netbird-server (signal, relay, gRPC, API); throughput and volume of the exit nodes aldrin/zummi per IP family ([exit nodes](secrets-network-access.md#exit-nodes-monitoring)) |
 | WLAN | ursalia's and zorlock's band (2.4 / 5 / 6 GHz) over time, channel, signal, PHY mode, link rate, traffic, MCS, retries, time associated |
 | Disk Health | SMART of ursalia's NVMe and SATA SSD: status, critical warnings, wear, spare, temperature, data written, ATA error counters, outcome and age of the last self-tests |
+| Fibre modem | Modem on gruffi's `lan2`: optical Rx/Tx power with the class B+ limits, BIP/CRC errors, hardware status, LAN traffic; plus gruffi's load, memory, conntrack and `lan2` |
 | Paperless | Health (Celery, Redis, DB, index, classifier), documents, inbox, failed tasks, storage, log warnings |
 | paperless-gpt | OCR and suggestion backlog, OCR time per page, LLM requests, durations, tokens, errors; zorlock's GPU and memory |
 | ESPHome builds | The build server on ursalia: health, ESPHome version, builds and success rate, duration per build and device, CPU and memory next to Paperless, toolchain cache size, warnings. Builds and durations come from the log lines "Starting job …" / "Job … completed/failed" via LogsQL; device-builder has no metrics endpoint |
@@ -48,6 +50,7 @@ The dashboards are JSON in `hosts/grammi/dashboards/`, provisioned from the repo
 | Alert | Based on | Fires when |
 | --- | --- | --- |
 | UnitFailed | journal: systemd's "unit failed" (`MESSAGE_ID d9b373ed…`) per host and unit in 30 min (failures in the mute window: 3 h), plus `node_systemd_unit_state{state="failed"}` for 10 min | one failure is enough, the message gives the count |
+| MacosUpdatePending, MacosUpdateCheckStale | `macos_updates_pending`, `macos_updates_last_check_timestamp_seconds` | macOS update pending for over a week, daily check without success for 3 days (zorlock); installed by hand |
 | NixosUpgradeStale | `nixlab_nixos_upgrade_last_success_seconds` | no success for 26 h, except under a deploy hold |
 | ResticBackupStale, ResticCheckFailed | `restic_backup_timestamp`, `restic_check_success` | newest snapshot older than 26 h, check failed |
 | BtrbkSnapshotStale | `btrbk_last_snapshot_timestamp_seconds` | older than 26 h |
@@ -58,11 +61,17 @@ The dashboards are JSON in `hosts/grammi/dashboards/`, provisioned from the repo
 | SyncCredentialExpiring | `nixlab_netbird_group_sync_credential_expiry_seconds` | the group sync's token or key expires in less than 30 days |
 | PersonNotManaged | `nixlab_netbird_group_sync_unmanaged_person` | Pocket ID user in `homelab`/`homelab_admins` who is not in `people.tf`, for 1 h |
 | RemoteUplinkDown, RemoteSiteUnreachable | `nixlab_remote_uplink_connected` | one uplink of the remote site disconnected for 30 min; none for 10 min |
+| ModemRxPowerOutOfSpec, ModemTxPowerOutOfSpec | `modem_pon_rx_power_dbm`, `modem_pon_tx_power_dbm` | Rx outside -27 to -8 dBm, Tx outside +0.5 to +5 dBm, 5 min each (ITU-T G.984.2, table A.1, class B+; whether the Telekom line is B+ is not confirmed) |
+| ModemRxPowerDropped, ModemBipErrors, ModemUnreachable | `modem_pon_rx_power_dbm`, `modem_pon_rx_bip_crc_total`, `modem_scrape_success` | Rx 3 dB below the 7-day average for 1 h; BIP/CRC rising for 15 min; modem not answering for 10 min (all three thresholds our own choice) |
+| ModemHardwareFault | `modem_hardware_ok` | the modem reports a hardware fault for 5 min |
 | LinkSpeedDropped | `node_network_speed_bytes` | an Ethernet link negotiates less than within the last 7 days, for 30 min |
+| AddressNotInInventory, MacNotInInventory | `node_network_address_info`, `node_network_info` | an interface with an address or MAC in the inventory reports a different one, for 30 min |
 | VersionCheckCriticalUpdate | journal: the "critical update" lines of the version check on zorlock (`hosts/zorlock/version-check.nix`) | a core service (`criticality: core` in `inventory.json`) has an upstream release no report has covered yet; held back until 07:00, stays up for 12 h; the assessment is in that night's `claude.md` (`just version-check-fetch`) |
 | Watchdog | `vector(1)` | always, as heartbeat |
 
 **Link speed:** LinkSpeedDropped compares a link with its own past, not with `speed` in `inventory.json`: that is what one end can do, a link gets the slower of both ends (tummi's 2.5G port behind the Beryl's 1G). After a deliberate move to a slower port, silence it; it resolves once the faster week has passed. Wi-Fi and unplugged ports report no speed. Only ports with a `speed` in the inventory count: veths, taps and bridges report made-up speeds, and a bridge follows its ports. Negotiated and inventory capability side by side: table "Links: negotiated vs. capability" in the Hosts Overview, fed by `nixlab_inventory_link_speed_bytes` (vmalert group `nixlab-inventory`, one constant series per interface with a `speed`).
+
+**Addresses:** node_exporter reports the IPs per interface (`--collector.netdev.address-info`) and, on Linux, the MAC. On zorlock `mac-metrics` writes the MAC to a text file under the same name `node_network_info`, because the netclass collector is missing there. The alerts compare only what a host reports, and only interfaces with an address or MAC in the inventory: an unplugged port with a reservation stays quiet, as do DHCP interfaces and podman bridges. The reference values are `nixlab_inventory_address` and `nixlab_inventory_mac` (vmalert group `nixlab-inventory`). The fix is either the network or `inventory.json`. MacNotInInventory adds to its message when the MAC is locally administered and the interface has no `macLocal`, which most likely means a private address. The bit alone does not say that: provider VMs like zummi have it for good.
 
 **Why the journal:** the next switch clears a unit's failed state. `systemctl --failed` and any single query show nothing afterwards. The crash loops of paperless-secret-key (October 2026, ~33 000 failed starts) and grist-core (~22 000 a day) never showed up as "failed", but every start left systemd's message in the journal.
 

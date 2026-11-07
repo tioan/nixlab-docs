@@ -4,7 +4,7 @@ Dienste heißen nach ihrer Funktion (`rezepte`, nicht `mealie`); neue Webdienste
 
 | Erreichbarkeit | Für | Beispiele |
 | --- | --- | --- |
-| Nur im Mesh | Admin-Oberflächen, Dienste für die eigenen Geräte | `s3-admin`, `llm` |
+| Nur im Mesh | Admin-Oberflächen, Dienste für die eigenen Geräte | `s3-admin`, `ollama` |
 | Öffentlich hinter dem Reverse Proxy mit SSO | Web-Apps, die auch von unterwegs ohne NetBird-App erreichbar sein sollen | `rezepte`, `grist`, `metrics`, `dokumente` |
 | Direkt öffentlich | Dienste mit eigenem Login für Maschinen oder alle | `auth`, `s3.aldrin` |
 

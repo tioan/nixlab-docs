@@ -55,6 +55,8 @@ gusto wurde am 2026-10-21 bewusst „nackt“ aufgesetzt: keine App-Liste aus de
 | `shottr` | Screenshots |
 | `telegram`, `whatsapp` | Messenger |
 | `spotify` | Musik |
+| `alfred` | KI-Chat gegen Ollama auf zorlock, nur im Mesh: offizieller ChatGPT-Workflow mit eigener Adresse und Patch für Ollamas letzten Stream-Chunk (`apps.json`); Powerpack und Workflow liegen in der App |
+| Continue | KI-Assistent in VS Code gegen Ollama auf zorlock, nur im Mesh | Erweiterung aus nixpkgs und `~/.continue/config.yaml` in `hosts/gusto/continue.nix`; Telemetrie aus, die Konfiguration ist schreibgeschützt |
 | `visual-studio-code` | Editor (Microsofts Build wegen Remote-SSH und Pylance); Telemetrie aus, `settings.json` kommt aus home-manager und ist schreibgeschützt |
 
 Aus dem Mac App Store (`homebrew.masApps`, über `mas`; braucht die App-Store-Anmeldung): **1Blocker**, **1Password for Safari**, **Ivory**, **TestFlight**. `zap` entfernt auch App-Store-Apps, die nicht deklariert sind; `just mac-switch` hält vorher an und fragt (siehe [macOS-Hosts](../explanation/macos-hosts.md)).

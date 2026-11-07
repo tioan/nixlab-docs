@@ -11,6 +11,7 @@ Alles landet auf grammi: **vmagent** auf jedem Host schickt Metriken an Victoria
 | `node_wifi_*`, `wifi_link_*` | zorlock | `system_profiler SPAirPortDataType -json` alle 60 s, dieselben Namen wie auf tummi (unter macOS ohne Empfangsrate, Retries und eigenen PHY-Modus für den Empfang; SSID/BSSID schwärzt macOS ohne Ortungsdienste auch für root, im Dashboard „n/a“), dazu `wifi_link_noise_dbm` |
 | `unit_cgroup_*` | alle Linux-Hosts | CPU-Zeit und Speicher je systemd-Dienst aus seiner cgroup, alle 15 s (`unit-metrics` in `modules/metrics.nix`); zählt alle Prozesse der Unit, Container mit `--cgroups=split` eingeschlossen |
 | `esphome_builder_data_bytes` | ursalia | Größe von `/var/lib/esphome-builder` (Toolchain-Cache), stündlich |
+| `gruffi_power_watchdog_*` | ursalia | Ob gruffi antwortet, das WLAN der Leiste über BLE, die Entscheidung und ihre Bremsen, alle 30 s ([gruffi](../reference/gruffi.md#power-watchdog)); Dashboard „Homelab / gruffi power watchdog“ |
 | `grafana_public_dashboard_info` | grammi | öffentliche Dashboards aus der Grafana-API mit ihrem `dash`-Link und den genutzten Template-Variablen, alle 10 s |
 | `netbird_expected_peers` | grammi | `terraform/netbird/expected-peers.json`, beim Bauen ins System übernommen; Label `netbird_host` (der Host, um den es geht), denn `host` ist seit 2026-11-02 auf jeder Serie der sendende Host |
 | `nixlab_remote_uplink_*` | gw-remote | Status-Datei von OpenVPN je Uplink: verbunden, seit wann, Bytes der laufenden Sitzung, alle 30 s ([Standort-Gateway](site-gateway.md#monitoring)) |
@@ -26,6 +27,7 @@ Die Dashboards liegen als JSON in `hosts/grammi/dashboards/` und werden aus dem 
 | NetBird | Erreichbarkeit der Control Plane je Host; Peers je Host als Soll (Tofu) / known (Network Map) / connected P2P / connected Relay, dazu Abweichungen; Verlauf der Verbindungen, P2P-Latenz, Sync- und Aufbauzeiten; netbird-server (Signal, Relay, gRPC, API); Durchsatz und Volumen der Exit-Nodes aldrin/zummi je IP-Familie ([Exit-Nodes](secrets-network-access.md#exit-nodes-monitoring)) |
 | WLAN | Band von ursalia und zorlock (2,4 / 5 / 6 GHz) über die Zeit, Kanal, Signal, PHY-Modus, Linkrate, Verkehr, MCS, Retries, Verbindungsdauer |
 | Disk Health | SMART von NVMe und SATA-SSD auf ursalia: Status, kritische Warnungen, Verschleiß, Reserve, Temperatur, geschriebene Daten, ATA-Fehlerzähler, Ergebnis und Alter der letzten Selbsttests |
+| Glasfaser-Modem | Modem auf gruffis `lan2`: optische Rx-/Tx-Leistung mit den Grenzen der Klasse B+, BiP/CRC-Fehler, Hardware-Status, LAN-Verkehr; dazu gruffis Last, Speicher, Conntrack und `lan2` |
 | Paperless | Zustand (Celery, Redis, DB, Index, Classifier), Dokumente, Inbox, fehlgeschlagene Tasks, Speicher, Log-Warnungen |
 | paperless-gpt | OCR- und Vorschlags-Rückstau, OCR-Zeit je Seite, LLM-Anfragen, -Dauern, -Tokens, -Fehler; GPU und Speicher von zorlock |
 | ESPHome builds | Build-Server auf ursalia: Zustand, ESPHome-Version, Builds und Erfolgsquote, Dauer je Build und Gerät, CPU und Speicher neben Paperless, Größe des Toolchain-Caches, Warnungen. Builds und Dauern kommen per LogsQL aus den Log-Zeilen „Starting job …“ / „Job … completed/failed“, device-builder hat keinen Metrik-Endpunkt |
@@ -48,6 +50,7 @@ Die Dashboards liegen als JSON in `hosts/grammi/dashboards/` und werden aus dem 
 | Alarm | Grundlage | Auslöser |
 | --- | --- | --- |
 | UnitFailed | Journal: systemds „unit failed“ (`MESSAGE_ID d9b373ed…`) je Host und Unit in 30 min (Fehlschläge im Ruhefenster: 3 h), dazu `node_systemd_unit_state{state="failed"}` seit 10 min | ein Fehlschlag reicht, die Meldung nennt die Anzahl |
+| MacosUpdatePending, MacosUpdateCheckStale | `macos_updates_pending`, `macos_updates_last_check_timestamp_seconds` | macOS-Update seit über einer Woche offen, täglicher Check seit 3 Tagen ohne Erfolg (zorlock); installiert wird von Hand |
 | NixosUpgradeStale | `nixlab_nixos_upgrade_last_success_seconds` | kein Erfolg seit 26 h, außer bei Deploy-Hold |
 | ResticBackupStale, ResticCheckFailed | `restic_backup_timestamp`, `restic_check_success` | neuester Snapshot älter als 26 h, Check fehlgeschlagen |
 | BtrbkSnapshotStale | `btrbk_last_snapshot_timestamp_seconds` | älter als 26 h |
@@ -58,11 +61,17 @@ Die Dashboards liegen als JSON in `hosts/grammi/dashboards/` und werden aus dem 
 | SyncCredentialExpiring | `nixlab_netbird_group_sync_credential_expiry_seconds` | Token oder Key des Gruppensyncs laufen in weniger als 30 Tagen ab |
 | PersonNotManaged | `nixlab_netbird_group_sync_unmanaged_person` | Pocket-ID-Nutzer in `homelab`/`homelab_admins`, der nicht in `people.tf` steht, seit 1 h |
 | RemoteUplinkDown, RemoteSiteUnreachable | `nixlab_remote_uplink_connected` | ein Uplink des Remote-Standorts seit 30 min getrennt; keiner seit 10 min |
+| ModemRxPowerOutOfSpec, ModemTxPowerOutOfSpec | `modem_pon_rx_power_dbm`, `modem_pon_tx_power_dbm` | Rx außerhalb von -27 bis -8 dBm, Tx außerhalb von +0,5 bis +5 dBm, je 5 min (ITU-T G.984.2, Tabelle A.1, Klasse B+; ob die Telekom-Leitung B+ hat, ist nicht bestätigt) |
+| ModemRxPowerDropped, ModemBipErrors, ModemUnreachable | `modem_pon_rx_power_dbm`, `modem_pon_rx_bip_crc_total`, `modem_scrape_success` | Rx 3 dB unter dem 7-Tage-Schnitt für 1 h; BiP/CRC steigt 15 min; Modem antwortet 10 min nicht (alle drei Schwellen selbst gewählt) |
+| ModemHardwareFault | `modem_hardware_ok` | das Modem meldet 5 min lang einen Hardware-Fehler |
 | LinkSpeedDropped | `node_network_speed_bytes` | ein Ethernet-Link handelt weniger aus als in den letzten 7 Tagen, seit 30 min |
+| AddressNotInInventory, MacNotInInventory | `node_network_address_info`, `node_network_info` | ein Interface mit Adresse bzw. MAC im Inventory meldet eine andere, seit 30 min |
 | VersionCheckCriticalUpdate | Journal: die „critical update“-Zeilen des Versionschecks auf zorlock (`hosts/zorlock/version-check.nix`) | ein Kerndienst (`criticality: core` in `inventory.json`) hat ein Upstream-Release, das noch kein Bericht abgedeckt hat; wartet bis 07:00, bleibt 12 h stehen; die Bewertung steht in `claude.md` dieser Nacht (`just version-check-fetch`) |
 | Watchdog | `vector(1)` | immer, als Heartbeat |
 
 **Linkgeschwindigkeit:** LinkSpeedDropped vergleicht einen Link mit seiner eigenen Vergangenheit, nicht mit `speed` in `inventory.json`: Das ist, was ein Ende kann, ein Link bekommt das langsamere beider Enden (tummis 2.5G-Port hinter dem 1G der Beryl). Nach einem bewussten Umstecken auf einen langsameren Port: stummschalten, es löst sich, sobald die schnellere Woche vorbei ist. WLAN und ausgesteckte Ports melden keine Geschwindigkeit. Es zählen nur Ports mit `speed` im Inventory: veths, taps und Bridges melden erfundene Geschwindigkeiten, und eine Bridge folgt ihren Ports. Ausgehandelt und Inventory-Fähigkeit nebeneinander: Tabelle „Links: negotiated vs. capability“ im Hosts Overview, gespeist aus `nixlab_inventory_link_speed_bytes` (vmalert-Gruppe `nixlab-inventory`, eine konstante Reihe je Interface mit `speed`).
+
+**Adressen:** node_exporter meldet die IPs je Interface (`--collector.netdev.address-info`) und unter Linux die MAC. Auf zorlock schreibt `mac-metrics` die MAC unter demselben Namen `node_network_info` in eine Textdatei, weil dort der netclass-Collector fehlt. Die Alerts vergleichen nur, was ein Host meldet, und nur Interfaces mit Adresse bzw. MAC im Inventory: Ein ausgesteckter Port mit Reservierung bleibt still, ebenso DHCP-Interfaces und Podman-Bridges. Vergleichswerte sind `nixlab_inventory_address` und `nixlab_inventory_mac` (vmalert-Gruppe `nixlab-inventory`). Korrigiert wird das Netz oder `inventory.json`. MacNotInInventory ergänzt seine Meldung, wenn die MAC lokal vergeben ist und das Interface kein `macLocal` hat, dann ist es vermutlich eine private Adresse. Das Bit allein reicht dafür nicht: Provider-VMs wie zummi haben es dauerhaft.
 
 **Warum das Journal:** Den Failed-State einer Unit löscht der nächste Switch. `systemctl --failed` und eine einzelne Abfrage zeigen danach nichts mehr. Die Crash-Loops von paperless-secret-key (Oktober 2026, ~33 000 Fehlstarts) und grist-core (~22 000 am Tag) tauchten nie als „failed“ auf, jeder Start hinterließ aber die systemd-Meldung im Journal.
 

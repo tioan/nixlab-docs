@@ -85,7 +85,7 @@ Warum NAT66 und keine öffentlichen Adressen für die Clients: Die Overlay-Adres
 
 #### Dualstack im Mesh { #mesh-ipv6 }
 
-Seit 2026-10-25 ist das ganze Mesh Dualstack. Jeder Peer bekommt neben seiner Adresse aus `192.0.2.0/24` eine aus der ULA `2001:db8:203:0::/64` (`ipv6_enabled_groups` = All, `terraform/netbird/main.tf`). Peer-Namen unter `peer.homelab.example` und die Dienstnamen (`s3-admin`, `dokumente`, `doku`, `llm`, `acme`, `terraform/netbird/mesh-services.tf`) haben AAAA neben A; NetBird liefert AAAA nur an Peers, die selbst v6 haben. Die Apple TVs (Client 0.66) bleiben bei v4.
+Seit 2026-10-25 ist das ganze Mesh Dualstack. Jeder Peer bekommt neben seiner Adresse aus `192.0.2.0/24` eine aus der ULA `2001:db8:203:0::/64` (`ipv6_enabled_groups` = All, `terraform/netbird/main.tf`). Peer-Namen unter `peer.homelab.example` und die Dienstnamen (`s3-admin`, `dokumente`, `doku`, `ollama`, `acme`, `terraform/netbird/mesh-services.tf`) haben AAAA neben A; NetBird liefert AAAA nur an Peers, die selbst v6 haben. Die Apple TVs (Client 0.66) bleiben bei v4.
 
 Die Range steht überall neben `192.0.2.0/24`: root-SSH (`modules/ssh.nix`), CrowdSec-Whitelist, Doku-Site, garage-ui auf aldrin, Paperless und Samba auf ursalia, Traefiks `trustedIPs` auf grammi, Caddy auf zorlock. `admin-peers.json` führt pro Gerät v4 und v6. Wer eine neue Allowlist für das Mesh anlegt, trägt beide Ranges ein.
 

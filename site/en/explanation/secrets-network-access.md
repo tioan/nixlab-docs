@@ -85,7 +85,7 @@ Why NAT66 rather than public addresses for the clients: a client's overlay addre
 
 #### Dual stack in the mesh { #mesh-ipv6 }
 
-Since 2026-10-25 the whole mesh is dual stack. Next to its address out of `192.0.2.0/24`, every peer gets one out of the ULA `2001:db8:203:0::/64` (`ipv6_enabled_groups` = All, `terraform/netbird/main.tf`). Peer names under `peer.homelab.example` and the service names (`s3-admin`, `dokumente`, `doku`, `llm`, `acme`, `terraform/netbird/mesh-services.tf`) have AAAA next to A; NetBird serves AAAA only to peers that have v6 themselves. The Apple TVs (client 0.66) stay on v4.
+Since 2026-10-25 the whole mesh is dual stack. Next to its address out of `192.0.2.0/24`, every peer gets one out of the ULA `2001:db8:203:0::/64` (`ipv6_enabled_groups` = All, `terraform/netbird/main.tf`). Peer names under `peer.homelab.example` and the service names (`s3-admin`, `dokumente`, `doku`, `ollama`, `acme`, `terraform/netbird/mesh-services.tf`) have AAAA next to A; NetBird serves AAAA only to peers that have v6 themselves. The Apple TVs (client 0.66) stay on v4.
 
 The range sits next to `192.0.2.0/24` everywhere: root SSH (`modules/ssh.nix`), CrowdSec's whitelist, the docs site, garage-ui on aldrin, Paperless and Samba on ursalia, Traefik's `trustedIPs` on grammi, Caddy on zorlock. `admin-peers.json` lists v4 and v6 per device. A new allow list for the mesh gets both ranges.
 

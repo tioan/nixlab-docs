@@ -31,7 +31,13 @@ in
         "processes"
         "textfile"
       ];
-      extraFlags = [ "--collector.textfile.directory=${textfileDir}" ];
+      extraFlags = [
+        "--collector.textfile.directory=${textfileDir}"
+        # node_network_address_info: the IPs per device. The MAC is already
+        # in node_network_info. Compared with inventory.json by the
+        # AddressNotInInventory rule (hosts/grammi/alerting.nix).
+        "--collector.netdev.address-info"
+      ];
     };
 
     # Certificate expiry read off disk. ACME renews on its own until the day it

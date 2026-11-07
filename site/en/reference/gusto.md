@@ -55,6 +55,8 @@ gusto was set up deliberately bare on 2026-10-21: no app list taken over from th
 | `shottr` | Screenshots |
 | `telegram`, `whatsapp` | Messengers |
 | `spotify` | Music |
+| `alfred` | AI chat against Ollama on zorlock, mesh only: the official ChatGPT workflow with its own address and a patch for Ollama's last stream chunk (`apps.json`); Powerpack and workflow stay in the app |
+| Continue | AI assistant in VS Code against Ollama on zorlock, mesh only | Extension from nixpkgs and `~/.continue/config.yaml` in `hosts/gusto/continue.nix`; telemetry off, the configuration is read-only |
 | `visual-studio-code` | Editor (Microsoft's build, for Remote-SSH and Pylance); telemetry off, `settings.json` comes from home-manager and is read-only |
 
 From the Mac App Store (`homebrew.masApps`, through `mas`; needs the App Store sign-in): **1Blocker**, **1Password for Safari**, **Ivory**, **TestFlight**. `zap` also removes App Store apps that are not declared; `just mac-switch` stops and asks first (see [macOS hosts](../explanation/macos-hosts.md)).
