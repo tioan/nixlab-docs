@@ -36,16 +36,16 @@ Drei Wege führen in den SoC: der eingebaute 1G-Switch (MT7988, gmac0), der 2,5G
 | Port | Switch | Rolle (`uci.nix`) |
 | --- | --- | --- |
 | `wan` (WAN/LAN1, 10GBASE-T) | RTL8261D | mgmt ungetaggt – das Admin-Kabel |
-| `lan2` | YT9224/YT8824 | Uplink: PPPoE auf VLAN 7 (`lan2.7`); ungetaggt das Webinterface des Glasfasermodems 2 (gruffi `203.0.113.202`, Modem `203.0.113.201`, Zone `modem`, nur aus mgmt) |
+| `lan2` | YT9224/YT8824 | Gehäuse: WAN/LAN2, an der Link-Buchse des Modems. Uplink: PPPoE auf VLAN 7 (`lan2.7`); ungetaggt das Webinterface des Glasfasermodems 2 (gruffi `203.0.113.202`, Modem `203.0.113.201`, Zone `modem`, nur aus mgmt) |
 | `lan3` | YT9224/YT8824 | server ungetaggt (ursalia) |
 | `lan4` | YT9224/YT8824 | server ungetaggt (zorlock, nach dem Umzug auf den Mac mini M6) |
 | `lan5` | YT9224/YT8824 | Trunk: privat ungetaggt, die übrigen getaggt (Flint 2) |
 | `lan6` | MT7988 | server ungetaggt (SLZB-MR3U); mit dem PoE-Switch (#121) Trunk: mgmt ungetaggt, die übrigen getaggt, dahinter SLZB-MR3U, Home Assistant, Hue Bridge |
 | `lan7` | MT7988 | server ungetaggt (Home Assistant); mit dem PoE-Switch (#121) frei, nicht in der Bridge |
-| `lan8` | MT7988 | Trunk: privat ungetaggt, mgmt/IoT/Gast getaggt (Omada EAP660 HD auf Stock als Cold Standby, #96). Mit OpenWrt: mgmt ungetaggt, privat getaggt (`docs/install-ap-og.md`). `sw-og-flur` `lan7` steht für ihn bereit |
+| `lan8` | MT7988 | Trunk: privat ungetaggt, mgmt/IoT/Gast/Backhaul getaggt (Omada EAP660 HD auf Stock als Cold Standby, #96). Mit OpenWrt: mgmt ungetaggt, privat getaggt (`docs/install-ap-og.md`). `sw-og-flur` `lan7` steht für ihn bereit |
 | `lan9` | MT7988 | IoT ungetaggt (Hue Bridge); mit dem PoE-Switch (#121) frei, nicht in der Bridge |
 | `sfp` (SFP+) | YT9224 | Trunk: alle getaggt |
-| `vxcudy`, `vxflint` | – | VXLAN-Trunks zu den WLAN-Bridges über `homelab-bh`: mgmt/IoT bzw. mgmt/privat/IoT/Gast getaggt (`openwrt/bridges.nix`, `docs/install-bridges.md`) |
+| `vxcudy` | – | VXLAN-Trunk zur WLAN-Bridge über `homelab-bh` im eigenen Backhaul-Netz (nie im VXLAN-Trunk): mgmt/IoT getaggt. `vxflint` (mgmt/privat/IoT/Gast) entsteht erst mit `enabled = true` (`openwrt/bridges.nix`, `docs/install-bridges.md`) |
 
 Alle LAN-Ports hängen in einer Bridge `br-lan` mit VLAN-Filter; jedes Netz ist ein VLAN darauf (`br-lan.<VLAN>`), die VLAN-IDs und Präfixe kommen aus dem Inventory. STP ist an, gruffi ist Root-Bridge (Priorität 4096, Forward Delay 4 s): ein neu gesteckter Port leitet erst nach etwa 8 s weiter.
 
@@ -59,7 +59,7 @@ Alle LAN-Ports hängen in einer Bridge `br-lan` mit VLAN-Filter; jedes Netz ist 
 
 ## Metriken
 
-`prometheus-node-exporter-ucode` lauscht auf `198.51.100.1:9100`, nur ursalia kommt per Firewall-Regel `r_node_exporter` dorthin; vmagent auf ursalia fragt ihn als Job `gruffi` ab (Dashboard „Homelab / Glasfaser-Modem“). Seit 2026-11-07, nixlab#178.
+`prometheus-node-exporter-ucode` lauscht auf `198.51.100.1:9100`, nur ursalia kommt per Firewall-Regel `r_node_exporter` dorthin; vmagent auf ursalia fragt ihn als Job `gruffi` ab (Dashboard „Homelab / Fiber modem“). Seit 2026-11-07, nixlab#178.
 
 - **Eigener Dienst:** `/etc/init.d/node-exporter`, angepasst aus dem [Startskript des Pakets von Andre Heider](https://github.com/openwrt/packages/blob/d4a4de8309c2462d29a48597c711116360a0e8fa/utils/prometheus-node-exporter-ucode/files/init). Der Dienst des Pakets bleibt deaktiviert, so überschreibt ein `apk upgrade` nichts.
 - **Enger Jail:** eigener Benutzer `node-exporter` (UID 9100) statt root, kein `ubus`, von `/etc/config` nur die eigene Datei. `/etc/config/wireless` ist für alle lesbar und enthält die WLAN-Schlüssel, und `network.wireless status` liefert sie ebenfalls.
@@ -94,7 +94,7 @@ Die Ports sind damit bis zur Grenze der Partner sauber; die Details stehen in ni
 
 ## Bekannte Probleme
 
-- **WLAN-Modul kann fehlen** (nixlab#93): Vom 2026-11-02 bis 2026-11-06 bekamen beide PCIe-Controller beim Boot keinen Link (`PCIe link down, current LTSSM state: detect.quiet`, Probe -110), auch nach Neustarts. Die erste Stromtrennung von 30 s löste das, danach kam das Modul bei jedem Boot hoch, auch warm und nach 2 s ohne Strom. Der Auslöser ist unbekannt. Falls es wiederkommt: `dmesg` sichern, 30 s stromlos. Ohne Modul ist die Steckdosenleiste nicht erreichbar, dann vor Ort den Taster drücken und ap-og einstecken.
+- **WLAN-Modul kann fehlen** (nixlab#93): Vom 2026-11-02 bis 2026-11-06 bekamen beide PCIe-Controller beim Boot keinen Link (`PCIe link down, current LTSSM state: detect.quiet`, Probe -110), auch nach Neustarts. Die erste Stromtrennung von 30 s löste das, danach kam das Modul bei jedem Boot hoch, auch warm und nach 2 s ohne Strom. Der Auslöser ist unbekannt. Falls es wiederkommt: `dmesg` sichern, 30 s stromlos. Ohne Modul ist die Steckdosenleiste nicht erreichbar, dann vor Ort den Taster drücken und ap-og einstecken. Seit 2026-11-07 meldet das der Alarm GruffiWifiMissing, ein Push aus Home Assistant kommt zusätzlich, wenn die Leiste nicht mehr erreichbar ist (nixlab#191).
 - **`network reload` mit Nachprüfung** (nixlab#94, siehe [Änderungen](#anderungen)).
 - **lan4/lan5** empfingen auf älteren Images nichts – behoben im PR durch den MDI-Swap-Patch (`967-54`); ab Head `e3d333fa67` zeigt `ethtool -S lanN` auch die Hardware-Zähler des YT9224 (`967-55`).
 - **Erster Boot nach Stromausfall:** PPPoE braucht oft ein bis zwei PADO-Timeouts (je 35 s), weil die alte Sitzung bei der Telekom noch hängt; nach einem Warmstart steht PPPoE sofort.

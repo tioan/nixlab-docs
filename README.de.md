@@ -612,7 +612,7 @@ Die Dashboards liegen als JSON in `hosts/grammi/dashboards/` und werden aus dem 
 | NetBird | Erreichbarkeit der Control Plane je Host; Peers je Host als Soll (Tofu) / known (Network Map) / connected P2P / connected Relay, dazu Abweichungen; Verlauf der Verbindungen, P2P-Latenz, Sync- und Aufbauzeiten; netbird-server (Signal, Relay, gRPC, API); Durchsatz und Volumen der Exit-Nodes aldrin/zummi je IP-Familie ([Exit-Nodes](#monitoring)) |
 | WLAN | Band von ursalia und zorlock (2,4 / 5 / 6 GHz) über die Zeit, Kanal, Signal, PHY-Modus, Linkrate, Verkehr, MCS, Retries, Verbindungsdauer |
 | Disk Health | SMART von NVMe und SATA-SSD auf ursalia: Status, kritische Warnungen, Verschleiß, Reserve, Temperatur, geschriebene Daten, ATA-Fehlerzähler, Ergebnis und Alter der letzten Selbsttests |
-| Glasfaser-Modem | Modem auf gruffis `lan2`: optische Rx-/Tx-Leistung mit den Grenzen der Klasse B+, BiP/CRC-Fehler, Hardware-Status, LAN-Verkehr; dazu gruffis Last, Speicher, Conntrack und `lan2` |
+| Fiber modem | Modem auf gruffis `lan2`: optische Rx-/Tx-Leistung mit den Grenzen der Klasse B+, BiP/CRC-Fehler, Hardware-Status, Verkehr an der Link-Buchse; dazu gruffis Last, Speicher, Conntrack und `lan2` |
 | Paperless | Zustand (Celery, Redis, DB, Index, Classifier), Dokumente, Inbox, fehlgeschlagene Tasks, Speicher, Log-Warnungen |
 | paperless-gpt | OCR- und Vorschlags-Rückstau, OCR-Zeit je Seite, LLM-Anfragen, -Dauern, -Tokens, -Fehler; GPU und Speicher von zorlock |
 | ESPHome builds | Build-Server auf ursalia: Zustand, ESPHome-Version, Builds und Erfolgsquote, Dauer je Build und Gerät, CPU und Speicher neben Paperless, Größe des Toolchain-Caches, Warnungen. Builds und Dauern kommen per LogsQL aus den Log-Zeilen „Starting job …“ / „Job … completed/failed“, device-builder hat keinen Metrik-Endpunkt |
@@ -649,6 +649,7 @@ Die Dashboards liegen als JSON in `hosts/grammi/dashboards/` und werden aus dem 
 | ModemRxPowerOutOfSpec, ModemTxPowerOutOfSpec | `modem_pon_rx_power_dbm`, `modem_pon_tx_power_dbm` | Rx außerhalb von -27 bis -8 dBm, Tx außerhalb von +0,5 bis +5 dBm, je 5 min (ITU-T G.984.2, Tabelle A.1, Klasse B+; ob die Telekom-Leitung B+ hat, ist nicht bestätigt) |
 | ModemRxPowerDropped, ModemBipErrors, ModemUnreachable | `modem_pon_rx_power_dbm`, `modem_pon_rx_bip_crc_total`, `modem_scrape_success` | Rx 3 dB unter dem 7-Tage-Schnitt für 1 h; BiP/CRC steigt 15 min; Modem antwortet 10 min nicht (alle drei Schwellen selbst gewählt) |
 | ModemHardwareFault | `modem_hardware_ok` | das Modem meldet 5 min lang einen Hardware-Fehler |
+| GruffiWifiMissing | `up`, `node_network_info` | gruffi antwortet, aber 5 min lang ist kein AP-Interface `up`: das WLAN-Modul fehlt vielleicht (nixlab#93). Ein absichtliches `wifi down` löst das auch aus |
 | LinkSpeedDropped | `node_network_speed_bytes` | ein Ethernet-Link handelt weniger aus als in den letzten 7 Tagen, seit 30 min |
 | AddressNotInInventory, MacNotInInventory | `node_network_address_info`, `node_network_info` | ein Interface mit Adresse bzw. MAC im Inventory meldet eine andere, seit 30 min |
 | VersionCheckCriticalUpdate | Journal: die „critical update“-Zeilen des Versionschecks auf zorlock (`hosts/zorlock/version-check.nix`) | ein Kerndienst (`criticality: core` in `inventory.json`) hat ein Upstream-Release, das noch kein Bericht abgedeckt hat; wartet bis 07:00, bleibt 12 h stehen; die Bewertung steht in `claude.md` dieser Nacht (`just version-check-fetch`) |
@@ -664,7 +665,7 @@ Die Dashboards liegen als JSON in `hosts/grammi/dashboards/` und werden aus dem 
 
 **Totmann-Schaltung:** Der Watchdog erreicht HA alle 5 min und startet dort den Timer `timer.nixlab_alerting_heartbeat` (20 min) neu. Läuft er ab, meldet die HA-Automation „nixlab Alerting stumm“: grammi, vmalert, Alertmanager oder der Weg zu HA ist ausgefallen. Ohne Internet zu Hause kommt nichts an. Alertmanager versucht es weiter, ein Alarm, der dann noch feuert, kommt danach an.
 
-**In HA:** Automation „nixlab Alertmanager“ (Webhook, ein Ablauf je Gruppe; Tag `nixlab-<Alarm>-<Host>`, damit die Entwarnung Push und Weboberflächen-Benachrichtigung wieder entfernt), „nixlab Alerting stumm“ und der Timer. Die Push-Meldung geht über den alten Dienst `notify.mobile_app_…`, weil `notify.send_message` kein `data.tag` annimmt. Die Webhook-ID ist das einzige Geheimnis: `just alerting-webhook-key` legt eine neue in die Zwischenablage (für den Trigger der Automation) und die URL in `hosts/grammi/alerting.yaml`. Danach grammi deployen.
+**In HA:** Automation „nixlab Alertmanager“ (Webhook, ein Ablauf je Gruppe; Tag `nixlab-<Alarm>-<Host>`, damit die Entwarnung Push und Weboberflächen-Benachrichtigung wieder entfernt), „nixlab Alerting stumm“ und der Timer. Die Push-Meldung geht über den alten Dienst `notify.mobile_app_…`, weil `notify.send_message` kein `data.tag` annimmt. Die Webhook-ID ist das einzige Geheimnis: `just alerting-webhook-key` legt eine neue in die Zwischenablage (für den Trigger der Automation) und die URL in `hosts/grammi/alerting.yaml`. Danach grammi deployen. „gruffi: Shelly-Leiste nicht erreichbar“ schickt einen Push, wenn der Schalter der Leiste 5 min `unavailable` ist, und eine Entwarnung; das braucht grammi nicht, aber den Internetweg über gruffi (nixlab#191).
 
 **Testen:** Einen künstlichen Alarm direkt an Alertmanager schicken: `ssh root@grammi.peer.homelab.example amtool --alertmanager.url=http://127.0.0.1:9093 alert add alertname=Test host=test --annotation=summary=Test`. Er verschwindet nach 5 min von selbst. Ende-zu-Ende: auf einem Host `systemd-run --unit=alerting-selftest false`, nach höchstens etwa 5 min kommt UnitFailed; die Entwarnung kommt, wenn der Fehlschlag aus dem 30-min-Fenster fällt.
 
@@ -1913,16 +1914,16 @@ Drei Wege führen in den SoC: der eingebaute 1G-Switch (MT7988, gmac0), der 2,5G
 | Port | Switch | Rolle (`uci.nix`) |
 | --- | --- | --- |
 | `wan` (WAN/LAN1, 10GBASE-T) | RTL8261D | mgmt ungetaggt – das Admin-Kabel |
-| `lan2` | YT9224/YT8824 | Uplink: PPPoE auf VLAN 7 (`lan2.7`); ungetaggt das Webinterface des Glasfasermodems 2 (gruffi `203.0.113.202`, Modem `203.0.113.201`, Zone `modem`, nur aus mgmt) |
+| `lan2` | YT9224/YT8824 | Gehäuse: WAN/LAN2, an der Link-Buchse des Modems. Uplink: PPPoE auf VLAN 7 (`lan2.7`); ungetaggt das Webinterface des Glasfasermodems 2 (gruffi `203.0.113.202`, Modem `203.0.113.201`, Zone `modem`, nur aus mgmt) |
 | `lan3` | YT9224/YT8824 | server ungetaggt (ursalia) |
 | `lan4` | YT9224/YT8824 | server ungetaggt (zorlock, nach dem Umzug auf den Mac mini M6) |
 | `lan5` | YT9224/YT8824 | Trunk: privat ungetaggt, die übrigen getaggt (Flint 2) |
 | `lan6` | MT7988 | server ungetaggt (SLZB-MR3U); mit dem PoE-Switch (#121) Trunk: mgmt ungetaggt, die übrigen getaggt, dahinter SLZB-MR3U, Home Assistant, Hue Bridge |
 | `lan7` | MT7988 | server ungetaggt (Home Assistant); mit dem PoE-Switch (#121) frei, nicht in der Bridge |
-| `lan8` | MT7988 | Trunk: privat ungetaggt, mgmt/IoT/Gast getaggt (Omada EAP660 HD auf Stock als Cold Standby, #96). Mit OpenWrt: mgmt ungetaggt, privat getaggt (`docs/install-ap-og.md`). `sw-og-flur` `lan7` steht für ihn bereit |
+| `lan8` | MT7988 | Trunk: privat ungetaggt, mgmt/IoT/Gast/Backhaul getaggt (Omada EAP660 HD auf Stock als Cold Standby, #96). Mit OpenWrt: mgmt ungetaggt, privat getaggt (`docs/install-ap-og.md`). `sw-og-flur` `lan7` steht für ihn bereit |
 | `lan9` | MT7988 | IoT ungetaggt (Hue Bridge); mit dem PoE-Switch (#121) frei, nicht in der Bridge |
 | `sfp` (SFP+) | YT9224 | Trunk: alle getaggt |
-| `vxcudy`, `vxflint` | – | VXLAN-Trunks zu den WLAN-Bridges über `homelab-bh`: mgmt/IoT bzw. mgmt/privat/IoT/Gast getaggt (`openwrt/bridges.nix`, `docs/install-bridges.md`) |
+| `vxcudy` | – | VXLAN-Trunk zur WLAN-Bridge über `homelab-bh` im eigenen Backhaul-Netz (nie im VXLAN-Trunk): mgmt/IoT getaggt. `vxflint` (mgmt/privat/IoT/Gast) entsteht erst mit `enabled = true` (`openwrt/bridges.nix`, `docs/install-bridges.md`) |
 
 Alle LAN-Ports hängen in einer Bridge `br-lan` mit VLAN-Filter; jedes Netz ist ein VLAN darauf (`br-lan.<VLAN>`), die VLAN-IDs und Präfixe kommen aus dem Inventory. STP ist an, gruffi ist Root-Bridge (Priorität 4096, Forward Delay 4 s): ein neu gesteckter Port leitet erst nach etwa 8 s weiter.
 
@@ -1936,7 +1937,7 @@ Alle LAN-Ports hängen in einer Bridge `br-lan` mit VLAN-Filter; jedes Netz ist 
 
 ### Metriken
 
-`prometheus-node-exporter-ucode` lauscht auf `198.51.100.1:9100`, nur ursalia kommt per Firewall-Regel `r_node_exporter` dorthin; vmagent auf ursalia fragt ihn als Job `gruffi` ab (Dashboard „Homelab / Glasfaser-Modem“). Seit 2026-11-07, nixlab#178.
+`prometheus-node-exporter-ucode` lauscht auf `198.51.100.1:9100`, nur ursalia kommt per Firewall-Regel `r_node_exporter` dorthin; vmagent auf ursalia fragt ihn als Job `gruffi` ab (Dashboard „Homelab / Fiber modem“). Seit 2026-11-07, nixlab#178.
 
 - **Eigener Dienst:** `/etc/init.d/node-exporter`, angepasst aus dem [Startskript des Pakets von Andre Heider](https://github.com/openwrt/packages/blob/d4a4de8309c2462d29a48597c711116360a0e8fa/utils/prometheus-node-exporter-ucode/files/init). Der Dienst des Pakets bleibt deaktiviert, so überschreibt ein `apk upgrade` nichts.
 - **Enger Jail:** eigener Benutzer `node-exporter` (UID 9100) statt root, kein `ubus`, von `/etc/config` nur die eigene Datei. `/etc/config/wireless` ist für alle lesbar und enthält die WLAN-Schlüssel, und `network.wireless status` liefert sie ebenfalls.
@@ -1971,7 +1972,7 @@ Die Ports sind damit bis zur Grenze der Partner sauber; die Details stehen in ni
 
 ### Bekannte Probleme
 
-- **WLAN-Modul kann fehlen** (nixlab#93): Vom 2026-11-02 bis 2026-11-06 bekamen beide PCIe-Controller beim Boot keinen Link (`PCIe link down, current LTSSM state: detect.quiet`, Probe -110), auch nach Neustarts. Die erste Stromtrennung von 30 s löste das, danach kam das Modul bei jedem Boot hoch, auch warm und nach 2 s ohne Strom. Der Auslöser ist unbekannt. Falls es wiederkommt: `dmesg` sichern, 30 s stromlos. Ohne Modul ist die Steckdosenleiste nicht erreichbar, dann vor Ort den Taster drücken und ap-og einstecken.
+- **WLAN-Modul kann fehlen** (nixlab#93): Vom 2026-11-02 bis 2026-11-06 bekamen beide PCIe-Controller beim Boot keinen Link (`PCIe link down, current LTSSM state: detect.quiet`, Probe -110), auch nach Neustarts. Die erste Stromtrennung von 30 s löste das, danach kam das Modul bei jedem Boot hoch, auch warm und nach 2 s ohne Strom. Der Auslöser ist unbekannt. Falls es wiederkommt: `dmesg` sichern, 30 s stromlos. Ohne Modul ist die Steckdosenleiste nicht erreichbar, dann vor Ort den Taster drücken und ap-og einstecken. Seit 2026-11-07 meldet das der Alarm GruffiWifiMissing, ein Push aus Home Assistant kommt zusätzlich, wenn die Leiste nicht mehr erreichbar ist (nixlab#191).
 - **`network reload` mit Nachprüfung** (nixlab#94, siehe [Änderungen](#änderungen)).
 - **lan4/lan5** empfingen auf älteren Images nichts – behoben im PR durch den MDI-Swap-Patch (`967-54`); ab Head `e3d333fa67` zeigt `ethtool -S lanN` auch die Hardware-Zähler des YT9224 (`967-55`).
 - **Erster Boot nach Stromausfall:** PPPoE braucht oft ein bis zwei PADO-Timeouts (je 35 s), weil die alte Sitzung bei der Telekom noch hängt; nach einem Warmstart steht PPPoE sofort.

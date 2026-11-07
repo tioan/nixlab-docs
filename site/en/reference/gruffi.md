@@ -36,16 +36,16 @@ Three paths lead into the SoC: the built-in 1G switch (MT7988, gmac0), the 2.5G 
 | Port | Switch | Role (`uci.nix`) |
 | --- | --- | --- |
 | `wan` (WAN/LAN1, 10GBASE-T) | RTL8261D | mgmt untagged – the admin cable |
-| `lan2` | YT9224/YT8824 | uplink: PPPoE on VLAN 7 (`lan2.7`); untagged the web interface of fiber modem 2 (gruffi `203.0.113.202`, modem `203.0.113.201`, zone `modem`, from mgmt only) |
+| `lan2` | YT9224/YT8824 | labelled WAN/LAN2, to the modem's Link port. Uplink: PPPoE on VLAN 7 (`lan2.7`); untagged the web interface of fiber modem 2 (gruffi `203.0.113.202`, modem `203.0.113.201`, zone `modem`, from mgmt only) |
 | `lan3` | YT9224/YT8824 | server untagged (ursalia) |
 | `lan4` | YT9224/YT8824 | server untagged (zorlock, after its move to the Mac mini M6) |
 | `lan5` | YT9224/YT8824 | trunk: private untagged, the others tagged (Flint 2) |
 | `lan6` | MT7988 | server untagged (SLZB-MR3U); with the PoE switch (#121) a trunk: mgmt untagged, the others tagged, behind it SLZB-MR3U, Home Assistant, Hue Bridge |
 | `lan7` | MT7988 | server untagged (Home Assistant); with the PoE switch (#121) free, not in the bridge |
-| `lan8` | MT7988 | trunk: private untagged, mgmt/IoT/guest tagged (Omada EAP660 HD on stock as cold standby, #96). With OpenWrt: mgmt untagged, private tagged (`docs/install-ap-og.md`). `sw-og-flur` `lan7` is ready for it |
+| `lan8` | MT7988 | trunk: private untagged, mgmt/IoT/guest/backhaul tagged (Omada EAP660 HD on stock as cold standby, #96). With OpenWrt: mgmt untagged, private tagged (`docs/install-ap-og.md`). `sw-og-flur` `lan7` is ready for it |
 | `lan9` | MT7988 | IoT untagged (Hue Bridge); with the PoE switch (#121) free, not in the bridge |
 | `sfp` (SFP+) | YT9224 | trunk: all tagged |
-| `vxcudy`, `vxflint` | – | VXLAN trunks to the WLAN bridges over `homelab-bh`: mgmt/IoT and mgmt/private/IoT/guest tagged (`openwrt/bridges.nix`, `docs/install-bridges.md`) |
+| `vxcudy` | – | VXLAN trunk to the WLAN bridge over `homelab-bh` in its own backhaul network (never inside a VXLAN trunk): mgmt/IoT tagged. `vxflint` (mgmt/private/IoT/guest) only exists with `enabled = true` (`openwrt/bridges.nix`, `docs/install-bridges.md`) |
 
 All LAN ports are in one VLAN-filtering bridge `br-lan`; every network is a VLAN on it (`br-lan.<VLAN>`), VLAN IDs and prefixes come from the inventory. STP is on with gruffi as root bridge (priority 4096, forward delay 4 s): a freshly plugged port forwards after about 8 s.
 
@@ -59,7 +59,7 @@ All LAN ports are in one VLAN-filtering bridge `br-lan`; every network is a VLAN
 
 ## Metrics
 
-`prometheus-node-exporter-ucode` listens on `198.51.100.1:9100`, only ursalia gets there through the firewall rule `r_node_exporter`; vmagent on ursalia scrapes it as job `gruffi` (dashboard "Homelab / Glasfaser-Modem"). Since 2026-11-07, nixlab#178.
+`prometheus-node-exporter-ucode` listens on `198.51.100.1:9100`, only ursalia gets there through the firewall rule `r_node_exporter`; vmagent on ursalia scrapes it as job `gruffi` (dashboard "Homelab / Fiber modem"). Since 2026-11-07, nixlab#178.
 
 - **Own service:** `/etc/init.d/node-exporter`, adapted from the [package's init script by Andre Heider](https://github.com/openwrt/packages/blob/d4a4de8309c2462d29a48597c711116360a0e8fa/utils/prometheus-node-exporter-ucode/files/init). The package's service stays disabled, so an `apk upgrade` overwrites nothing.
 - **Narrow jail:** own user `node-exporter` (UID 9100) instead of root, no `ubus`, only its own file from `/etc/config`. `/etc/config/wireless` is world-readable and holds the WLAN keys, and `network.wireless status` returns them too.
@@ -94,7 +94,7 @@ So the ports are clean up to what the peers can do; details in nixlab#94 and in 
 
 ## Known issues
 
-- **Wi-Fi module can go missing** (nixlab#93): from 2026-11-02 to 2026-11-06 both PCIe controllers got no link at boot (`PCIe link down, current LTSSM state: detect.quiet`, probe -110), reboots included. The first 30 s power cut cleared it; since then the module has come up on every boot, warm and after 2 s without power too. The trigger is unknown. If it returns: save `dmesg`, then 30 s without power. Without the module the power strip is unreachable, so press its button on site and plug in ap-og.
+- **Wi-Fi module can go missing** (nixlab#93): from 2026-11-02 to 2026-11-06 both PCIe controllers got no link at boot (`PCIe link down, current LTSSM state: detect.quiet`, probe -110), reboots included. The first 30 s power cut cleared it; since then the module has come up on every boot, warm and after 2 s without power too. The trigger is unknown. If it returns: save `dmesg`, then 30 s without power. Without the module the power strip is unreachable, so press its button on site and plug in ap-og. Since 2026-11-07 the alert GruffiWifiMissing reports it, and Home Assistant also sends a push when the strip is out of reach (nixlab#191).
 - **`network reload` with a check afterwards** (nixlab#94, see [Changes](#changes)).
 - **lan4/lan5** received nothing on older images – fixed in the PR by the MDI swap patch (`967-54`); from head `e3d333fa67` on, `ethtool -S lanN` also shows the YT9224 hardware counters (`967-55`).
 - **First boot after a power cut:** PPPoE often needs one or two PADO timeouts (35 s each) because the old session still hangs at the ISP; after a warm reboot PPPoE is up at once.
