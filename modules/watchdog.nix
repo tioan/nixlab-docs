@@ -9,7 +9,7 @@
 # Holding the device is also a guard: a watchdog device can only be open
 # once, so nothing else gets it (EBUSY). That is how ursalia was reset four
 # times on 2026-11-02/03: procd, PID 1 of gruffi's OpenWrt dry-run container
-# (openwrt/gruffi/dryrun.sh), opened /dev/watchdog, armed intel_oc_wdt and
+# (openwrt/gruffi/dryrun.sh, a VM since #181), opened /dev/watchdog, armed intel_oc_wdt and
 # let go without the magic close when the container was removed - the
 # hardware reset the host a minute later.
 #

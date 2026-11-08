@@ -217,6 +217,11 @@ Drop a host's `just try` hold without merging
 
 Every `just try` hold on every NixOS host.
 
+## `just test-restic-verified`
+
+Forced failures for modules/restic-verified.nix in a throwaway VM on ursalia:
+each must end unverified, only a good run verified. No secrets, about 3 min.
+
 ## `just pve-image host pve`
 
 Build a host's Proxmox image (vzdump .vma.zst) on ursalia and copy it
@@ -596,6 +601,12 @@ home-assistant.tf): creates group and key only - the rest of the module
 needs the registered peer - and puts the key on the Mac's clipboard.
 One-off, valid for 24 h; run again if HA ever has to re-register.
 
+## `just netbird-key-gruffi`
+
+Setup key for gruffi (terraform/netbird/gruffi.tf), on the Mac's clipboard:
+never printed, never on disk. The join command is in that file. One-off,
+valid for 24 h; run again after every `sysupgrade -n`.
+
 ## `just netbird-key-mudi7`
 
 Setup key for the Mudi 7 travel router (terraform/netbird/
@@ -644,6 +655,14 @@ HealthLog's OIDC client secret (terraform/pocket-id/healthlog.tf) from Tofu
 state into hosts/ursalia/healthlog-oidc.yaml. Run after pocketid-apply has
 created (or replaced) the client.
 
+## `just adguard-metrics-password`
+
+Password of AdGuard Home's "metrics" user on ursalia (exporter in
+hosts/ursalia/adguardhome.nix): random, known to the host only, so nothing
+goes to 1Password. Writes the password and its bcrypt hash to
+hosts/ursalia/adguard-metrics.yaml. Also the rotation: run again, commit,
+deploy ursalia.
+
 ## `just adguardhome-password`
 
 AdGuard Home's admin password on ursalia (hosts/ursalia/adguardhome.nix):
@@ -674,6 +693,18 @@ OpenInvento generates itself. Once; rotating a value: `sops set`, deploy.
 OpenInvento's OIDC client secret (terraform/pocket-id/openinvento.tf) from
 Tofu state into hosts/ursalia/openinvento-oidc.yaml. Run after pocketid-apply
 has created (or replaced) the client.
+
+## `just go2x-secrets`
+
+go2x.de's secrets on aldrin (hosts/aldrin/go2x.nix): Chhoto's API key and the
+master key that keeps login sessions across restarts. Once; rotating a value:
+`sops set`, deploy.
+
+## `just go2x-oidc-secret`
+
+go2x.de's OIDC client secret (terraform/pocket-id/go2x.tf) from Tofu state into
+hosts/aldrin/go2x-oidc.yaml. Run after pocketid-apply has created (or replaced)
+the client.
 
 ## `just openinvento-image`
 
@@ -732,6 +763,19 @@ terraform/secrets.yaml. Refuses if the shared file already exists.
 ## `just garage-apply`
 
 (ohne Kommentar)
+
+## `just aldrin-backup-secrets`
+
+The key of bucket aldrin-backups from Tofu state plus a new repository password
+into hosts/aldrin/backup.yaml, straight into sops, never printed. Refuses to
+overwrite: a new password would lock out the existing repository.
+
+## `just data-backup-secrets host`
+
+The key of bucket <host>-data-backups from Tofu state plus a new repository
+password into hosts/<host>/backup-data.yaml (modules/restic-data.nix), straight
+into sops, never printed. Refuses to overwrite: a new password would lock out
+the existing repository.
 
 ## `just garage-admin-token`
 

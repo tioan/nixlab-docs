@@ -22,13 +22,15 @@ Ist CrowdSec nicht erreichbar, lässt nginx die Requests ungeprüft durch (`APPS
 | `homelab/no-server-side-scripts` – `.php`, `.asp(x)`, `.jsp`, `.cgi`, `/cgi-bin/` | in-band | 403 |
 | `homelab/foreign-stack-probing` – `/wp-admin`, `/phpmyadmin`, `/actuator`, `/owa`, `.aws`, `.ssh`, … | in-band | 403 |
 | Methoden-Allowlist pro Name (`services.waf.allowedMethods`) – auf `auth.homelab.example` nur GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS | in-band | 403 |
-| `crowdsecurity/appsec-crs` – OWASP Core Rule Set | out-of-band | kein Block; mehr als 5 Treffer in 30 s bannen die IP |
+| `crowdsecurity/appsec-crs` – OWASP Core Rule Set | out-of-band | kein Block; Ban, wenn der Bucket überläuft (Kapazität 5, alle 30 s leert sich ein Token) |
 
 Jeder In-band-Treffer bekommt 403. Gebannt wird die IP, sobald zwei *verschiedene* In-band-Regeln innerhalb von 60 s treffen (`crowdsecurity/appsec-vpatch`: capacity 1 mit `distinct: rule_name`) – dieselbe Regel wiederholt füllt den Bucket nicht. Wer Scanner sucht, trifft in der Regel schnell mehrere.
 
 Die beiden eigenen Regeln sind das grobe Netz unter den CVE-Regeln: Kein öffentlicher Dienst hier führt PHP, ASP, JSP oder CGI aus, also ist jede Anfrage danach ein Scan oder ein Exploit – auch für eine Lücke, für die es noch keine eigene Regel gibt. Die CRS läuft nur out-of-band, weil sie breit ist und einzelne Fehlalarme kein Grund sein sollen, einen legitimen Nutzer auszusperren.
 
 Ausnahmen pro Name: `services.waf.ruleExclusions."<fqdn>" = [ "<regel>" ];`. OpenCloud (aldrin) braucht das für `homelab/no-server-side-scripts`, weil es ownClouds `/remote.php`, `/status.php` und `/ocs/v*.php` für die Desktop-Clients beibehält.
+
+Auch CRS-Regeln lassen sich ausnehmen, per ID und optional pro Pfad: `services.waf.outOfBandExclusions."<fqdn>" = [ { ruleId = <id>; paths = [ "<pfad>" ]; } ];`. Auf `auth.homelab.example` betrifft das CRS 931100 auf `/authorize` und `/api/oidc/token`: Die Regel hält `redirect_uri=http://127.0.0.1:<port>` nativer OIDC-Clients wie OpenCloud Desktop für Remote File Inclusion.
 
 ## Modi
 
@@ -41,9 +43,14 @@ Die log-basierten HTTP-Szenarien aus `modules/crowdsec.nix` hängen nicht am Mod
 
 | Host | vhosts | Modus |
 | --- | --- | --- |
-| zummi | `auth.homelab.example` (Pocket ID) | detect (Pilot seit 2026-10-25) |
+| zummi | `auth.homelab.example` (Pocket ID) | block (seit 2026-11-08, davor detect ab 2026-10-25) |
+| aldrin | `go2x.de` | detect (seit 2026-11-08) |
 
-Geplant: grammi (Traefik-Plugin, nur Dashboard, `/oauth2/` und die öffentlichen Grafana-Pfade), aldrin (garage-ui, OpenCloud). Nie durch die WAF: Garages S3-API und NetBirds gRPC/Relay/API – signierte oder binäre Bodies, nichts für die Regeln zu finden, viel falsch zu lesen.
+Geplant: aldrin (Detect auf `tabs` und `cloud`; `cloud` braucht Ausnahmen für `homelab/no-server-side-scripts` und CRS 911100, sonst bannen die WebDAV-Methoden die Sync-Clients), grammi (Traefik-Plugin, zuerst auf den öffentlichen Grafana-Pfaden, später NetBird-Dashboard und `/oauth2/`). Nie durch die WAF: Garages S3-API und NetBirds gRPC/Relay/API – signierte oder binäre Bodies, nichts für die Regeln zu finden, viel falsch zu lesen.
+
+Ein Traefik-Plugin auf grammi schützt die Dienste anderer Hosts nicht: Traefik reicht diese Namen als TCP an den NetBird-Proxy durch, und der erreicht seine Ziele direkt.
+
+aldrin läuft seit dem Wechsel mit OpenResty und der Engine im Detect-Modus. `go2x.de` fragt dort als erster vhost AppSec; die Weiterleitungen unter `/I/` und `/i/` antworten schon vor diesem Schritt.
 
 ## Einen Host anschließen
 

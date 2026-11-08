@@ -9,6 +9,7 @@ Dienste sind nach Funktion benannt, nicht nach Produkt. Es gibt drei Arten der E
 | `s3.aldrin` | Garage S3-API | aldrin | öffentlich (nginx) |
 | `cloud` | OpenCloud | aldrin | öffentlich (nginx), Login über Pocket ID; nicht hinter dem Reverse Proxy, dessen SSO würde die Sync-Clients aufhalten |
 | `tabs` | WebDAV für floccus (rclone) | aldrin | öffentlich (nginx), ein Account mit Basic Auth ([warum](../explanation/secrets-network-access.md#tabs)) |
+| `go2x.de` | Kurz-URL-Dienst (Chhoto URL) | aldrin | öffentlich (nginx), Codes ohne Login, Verwaltung unter `/admin/manage/` über Pocket ID |
 | `rezepte` | Mealie | grammi | Reverse Proxy + SSO |
 | `grist` | Grist | grammi | Reverse Proxy + SSO |
 | `logs` | logchef | grammi | Reverse Proxy + SSO |

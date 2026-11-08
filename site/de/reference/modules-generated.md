@@ -576,6 +576,107 @@ below is incidental.
 
 [Quelltext](https://github.com/tioan/nixlab-docs/blob/main/modules/qemu-guest.nix)
 
+## restic-data.nix
+
+Backs up a home host's whole data disk to Garage on aldrin, via restic. The
+same job on tummi and ursalia, next to whatever else the host backs up.
+
+Its own bucket and key instead of a path in the host's existing repository:
+data disks are measured in terabytes, and a nightly job for Paperless should
+not wait for their prune and check, or share their retention.
+
+Consistency: restic reads a read-only btrfs snapshot. It has to live on the
+data disk itself (a snapshot cannot cross filesystems), and restic does not
+descend from it into itself because a snapshot leaves nested subvolumes out.
+If the disk is not mounted, /data is a plain directory on the root volume,
+`btrfs subvolume snapshot` refuses it and the run fails - it cannot store an
+empty disk as a backup.
+
+Bandwidth: no --limit-upload, SQM cake on gruffi shapes uploads per host and
+measured all of them passing through it (nixlab#180).
+
+Verification (modules/restic-verified.nix), different from the other jobs:
+
+- minPercent 1: on a box for sorting files, moving a disk image away is
+  normal. With the default every later run would fail, because the verified
+  size it compares against only moves on a verified run.
+- checkSubset 1%: 5% of 3 TB would be 150 GB through the home line each Sunday.
+
+No restic exporter: the NixOS module runs one per host, and ursalia's watches
+its Paperless repository. The verified metrics and the receiving side
+(hosts/aldrin/s3-upload-metrics.nix) cover these jobs, see the alerts in
+hosts/grammi/alerting.nix.
+
+Setting up a host:
+
+```
+add the bucket to terraform/garage/buckets.tf, modules/crowdsec.nix and
+hosts/aldrin/s3-upload-metrics.nix, and deploy aldrin first
+just garage-apply
+just data-backup-secrets <host>
+deploy the host, then once: restic-data init
+```
+
+
+Restoring: paths carry the snapshot's prefix. Use the snapshot ID from
+nixlab_backup_verified_snapshot_info rather than `latest`, and --sparse so that
+the holes of a sparse disk image stay holes:
+
+```
+restic-data restore <id> --sparse --target /root/restore --include /data/.restic-snapshot/<path>
+```
+
+**Optionen** (`services.resticData`):
+
+| Option | Beschreibung |
+| --- | --- |
+| `enable` | Enable: the restic backup of the data disk to Garage on aldrin |
+| `secretsFile` | sops file from `just data-backup-secrets <host>`. |
+| `snapshotName` | Name of the snapshot below the data disk's mount point, for a host's Samba share to hide. |
+
+[Quelltext](https://github.com/tioan/nixlab-docs/blob/main/modules/restic-data.nix)
+
+## restic-verified.nix
+
+A backup only counts as successful once that has been verified (#238).
+
+On 2026-11-08 ursalia's job to aldrin failed, and `systemctl show` still said
+Result=success: the nightly switch resets failed units, and success is what
+a reset unit reports. Apart from that, a unit's result says little anyway.
+restic exits 0 when --files-from names a missing path (tested with 0.18.1)
+or an empty directory, and it happily stores yesterday's dump when today's
+failed. So for each job listed here this module replaces the ExecStart of
+services.restic.backups.<name> with modules/restic-verified.sh:
+
+
+```
+before  every required path holds something, declared inputs (dumps, the
+paperless export) finished successfully within maxAgeHours
+backup  always attempted; if the checks above failed the snapshot is tagged
+`unverified`, because one bad part must not cost the night's other
+new data
+after   the snapshot is read back from the repository: it exists, it is
+from this run, its size is plausible against the last verified one,
+the required paths are in it, `restic check` passes (Sundays with
+a sample of the data, checkSubset)
+only then
+nixlab_backup_verified_timestamp_seconds moves and forget/prune
+runs. Anything else sets nixlab_backup_last_run_failed, which only
+a verified run clears and which, being a file, survives switches.
+```
+
+
+Failed jobs are started again by a timer after the upgrade window, for
+whatever the reason was. Alerts: hosts/grammi/alerting.nix. Restoring: use the
+snapshot ID in nixlab_backup_verified_snapshot_info rather than `latest`,
+which may be an `unverified` one.
+
+Requires `initialize = false`: the module's `restic cat config || restic init`
+would answer an emptied bucket with a new repository that then counts as a
+backup, and costs another five minutes when the target is unreachable.
+
+[Quelltext](https://github.com/tioan/nixlab-docs/blob/main/modules/restic-verified.nix)
+
 ## samba-mesh.nix
 
 Samba for the NetBird mesh: the lab's SMB policy (SMB3 only, macOS
@@ -640,9 +741,11 @@ The pieces:
   lab's own below (homelab/*: script types and stacks nothing here runs).
 - Rules, out of band (only evaluated, never block a request by
   themselves): crowdsecurity/appsec-crs, the OWASP CRS. Its hits are
-  events; crowdsecurity/crowdsec-appsec-outofband bans an IP after more
-  than 5 within 30 s. That keeps the broad, false-positive-prone CRS
-  useful without one stray match locking out a legitimate user.
+  events; crowdsecurity/crowdsec-appsec-outofband bans an IP when its
+  bucket overflows: capacity 5, one token leaking every 30 s, so a sixth
+  hit in quick succession is enough, and a slow steady trickle adds up
+  too. That keeps the broad, false-positive-prone CRS useful without one
+  stray match locking out a legitimate user.
 - Bans: every in-band match gets a 403; the IP is banned once two
   *different* in-band rules hit within 60 s (crowdsecurity/appsec-vpatch:
   capacity 1 with distinct rule_name, so one rule repeated never fills
@@ -666,8 +769,12 @@ affected by the mode; they ban as before.
 
 Bootstrap per host: `just waf-key <host>` registers the bouncer with the
 host's LAPI and writes its key to hosts/<host>/waf.yaml (sops). Without
-that file the nginx side stays off and evaluation warns - the AppSec
-engine itself runs regardless.
+that file the nginx side stays off, and evaluation warns if vhosts are
+listed - the AppSec engine itself runs regardless.
+
+OpenResty applies to the whole host, and the nixpkgs module lifts
+MemoryDenyWriteExecute from nginx.service for it, since LuaJIT's JIT needs
+that. Only nginx loses this hardening, not the services behind it.
 
 Docs: docs/site/*/explanation/waf.md.
 
@@ -678,6 +785,7 @@ Docs: docs/site/*/explanation/waf.md.
 | `enable` | Enable: the CrowdSec AppSec WAF for this host's public nginx vhosts |
 | `mode` | `detect`: matches are alerted, nothing is blocked or banned by the WAF. `block`: in-band matches get a 403 and the IP banned. |
 | `ruleExclusions` | In-band rules (by name) not applied to requests for that Host. |
+| `outOfBandExclusions` | Out-of-band rules not applied to requests for that Host. A CRS match cannot block a request, but enough of them ban the address. |
 | `allowedMethods` | HTTP methods a Host accepts; any other one (TRACE, PROPFIND, CONNECT, made-up verbs) is treated like a rule match. Leave a name out for services that need WebDAV (OpenCloud). |
 
 [Quelltext](https://github.com/tioan/nixlab-docs/blob/main/modules/waf.nix)
@@ -695,7 +803,7 @@ default) already covered a hanging shutdown; this adds the running system.
 Holding the device is also a guard: a watchdog device can only be open
 once, so nothing else gets it (EBUSY). That is how ursalia was reset four
 times on 2026-11-02/03: procd, PID 1 of gruffi's OpenWrt dry-run container
-(openwrt/gruffi/dryrun.sh), opened /dev/watchdog, armed intel_oc_wdt and
+(openwrt/gruffi/dryrun.sh, a VM since #181), opened /dev/watchdog, armed intel_oc_wdt and
 let go without the magic close when the container was removed - the
 hardware reset the host a minute later.
 

@@ -331,7 +331,7 @@ Die private Fassung dieser Doku (`doku.homelab.example`, auf aldrin und ursalia)
 
 #### Pocket ID: Admin-Bereich nur von Admin-Geräten
 
-Seit 2026-10-25 beantwortet nginx auf zummi die Admin-Pfade von Pocket ID mit 403, außer die Anfrage kommt von einer Adresse aus `admin-peers.json` – derselben Liste wie bei der privaten Doku. Gesperrt ist alles, was eine Admin-Sitzung oder ein Admin-API-Key kann: `/settings/admin`, Nutzer, Gruppen, OIDC-Clients, APIs, API-Keys, Einstellungen, Audit-Log, Signup-Tokens, SCIM (Liste: `$pocketid_admin_path` in `hosts/zummi/configuration.nix`, nach den Berechtigungen der Routen in Pocket ID 2.19.1 – bei jedem Minor-Update prüfen). Login, Konto-Seiten (`/api/users/me…`), OIDC-Endpunkte und Logos bleiben öffentlich. Einzige weitere Ausnahme: lesende Zugriffe des [Gruppensyncs](#pocket-id--netbird-gruppensync) von grammi.
+Seit 2026-10-25 beantwortet nginx auf zummi die Admin-Pfade von Pocket ID mit 403, außer die Anfrage kommt von einer Adresse aus `admin-peers.json` – derselben Liste wie bei der privaten Doku. Gesperrt ist alles, was eine Admin-Sitzung oder ein Admin-API-Key kann: `/settings/admin`, Nutzer, Gruppen, OIDC-Clients, APIs, API-Keys, Einstellungen, Audit-Log, Signup-Tokens, SCIM (Liste: `$pocketid_admin_path` in `hosts/zummi/configuration.nix`, nach den Berechtigungen der Routen in Pocket ID 2.19.2 – bei jedem Minor-Update prüfen). Login, Konto-Seiten (`/api/users/me…`), OIDC-Endpunkte und Logos bleiben öffentlich. Einzige weitere Ausnahme: lesende Zugriffe des [Gruppensyncs](#pocket-id--netbird-gruppensync) von grammi.
 
 Damit die Admin-Geräte mit ihrer Mesh-Adresse ankommen, zeigt eine NetBird-DNS-Zone `auth.homelab.example` nur für `admin-workstations` auf zummis Mesh-Adressen (`terraform/netbird/pocket-id-admin.tf`); der vhost lauscht dafür auf der Wildcard. Alle anderen Peers, auch NetBirds Server auf grammi, behalten den öffentlichen Eintrag.
 
@@ -348,7 +348,7 @@ Entschieden 2026-11-01 (1b) gegen ein unbeaufsichtigtes `tofu apply` (wendet all
 **Zugangsdaten**, je eine eigene sops-Datei, damit sich jede einzeln erneuern lässt:
 
 - **NetBird:** Token des Service-Users `group-sync` (`terraform/netbird/group-sync.tf`), Rolle admin – weniger erlaubt NetBird 0.81 für das Ändern von Nutzern nicht (`network_admin` darf Nutzer nur lesen). Wer grammi übernimmt, hat NetBirds Datenbank ohnehin. Ablegen: `just netbird-group-sync-token`, jährlich erneuern: `just netbird-group-sync-token renew`.
-- **Pocket ID:** API-Key des eigenen Admin-Users `netbird-group-sync` (ohne Passkey, nur für diesen Key; im Audit-Log getrennt sichtbar, Deaktivieren des Users sperrt den Key sofort). Pocket ID 2.19.1 kann API-Keys nicht einschränken: Der Key kann alles, was ein Admin kann. Eingehegt wird er auf zummi: Von grammis Mesh-Adressen lässt nginx nur `GET` auf die Nutzerliste, einzelne Nutzer und die eigene Key-Liste durch (`$pocketid_sync_allowed`), aus dem Internet ist jeder Admin-Pfad 403. Voll nutzbar wäre der Key also nur von den Admin-Geräten. Deshalb spricht der Sync Pocket ID über zummis Mesh-Namen an (TLS weiter für `auth.homelab.example`). Key anlegen: als `netbird-group-sync` per Login-Code aus der Admin-Oberfläche anmelden, API-Key „netbird-group-sync“ mit einem Jahr Laufzeit erzeugen, alte Keys dieses Users löschen, dann `just netbird-group-sync-pocketid-key`.
+- **Pocket ID:** API-Key des eigenen Admin-Users `netbird-group-sync` (ohne Passkey, nur für diesen Key; im Audit-Log getrennt sichtbar, Deaktivieren des Users sperrt den Key sofort). Pocket ID 2.19.2 kann API-Keys nicht einschränken: Der Key kann alles, was ein Admin kann. Eingehegt wird er auf zummi: Von grammis Mesh-Adressen lässt nginx nur `GET` auf die Nutzerliste, einzelne Nutzer und die eigene Key-Liste durch (`$pocketid_sync_allowed`), aus dem Internet ist jeder Admin-Pfad 403. Voll nutzbar wäre der Key also nur von den Admin-Geräten. Deshalb spricht der Sync Pocket ID über zummis Mesh-Namen an (TLS weiter für `auth.homelab.example`). Key anlegen: als `netbird-group-sync` per Login-Code aus der Admin-Oberfläche anmelden, API-Key „netbird-group-sync“ mit einem Jahr Laufzeit erzeugen, alte Keys dieses Users löschen, dann `just netbird-group-sync-pocketid-key`.
 
 Danach jeweils Commit und Deploy von grammi. **Alarme** (`hosts/grammi/alerting.nix`): NetbirdGroupSyncStale (eine Stunde ohne fehlerfreien Lauf), SyncCredentialExpiring (Token oder Key laufen in weniger als 30 Tagen ab), PersonNotManaged (jemand ist in Pocket ID in `homelab`/`homelab_admins`, steht aber nicht in `people.tf`); jeder Fehlschlag löst außerdem UnitFailed aus.
 
@@ -397,12 +397,12 @@ Seit 2026-10-23 lassen sich Dashboards nach außen teilen („Share externally�
 | Jeder mit Link | Reverse Proxy → Traefik `apps` (Host `dash`) → Grafana | nur das freigegebene Dashboard, lesend |
 | SSO | `metrics.homelab.example` | volle App |
 
-**Link weitergeben:** Grafana baut den Link aus `root_url`, er lautet also `https://metrics.homelab.example/public-dashboards/<token>` – unter `metrics` landet ein Gast beim SSO-Login. Den Link für Gäste zeigt das Dashboard „Homelab / Shared dashboards“: ein Timer auf grammi fragt alle 10 Sekunden die Grafana-API ab und schreibt jede Freigabe mit ihrer `dash`-Adresse und den genutzten Template-Variablen als Metrik `grafana_public_dashboard_info` (`hosts/grammi/grafana-shares.nix`). Jedes Dashboard verlinkt oben rechts dorthin („Nach außen teilen“). Die Spalte „Verwalten“ öffnet den Freigabe-Dialog des jeweiligen Dashboards zum Pausieren und Widerrufen – ein Schalter direkt in der Tabelle geht nicht, weil Grafana Panel-Actions seine eigene API nur per POST/PUT aufrufen lässt und das Pausieren PATCH braucht. Die Tokens liegen damit in VictoriaMetrics, sichtbar für alle, die Grafana öffnen können.
+**Link weitergeben:** Grafana baut den Link aus `root_url`, er lautet also `https://metrics.homelab.example/public-dashboards/<token>` – unter `metrics` landet ein Gast beim SSO-Login. Den Link für Gäste zeigt das Dashboard „Homelab / Shared dashboards“: ein Timer auf grammi fragt alle 10 Sekunden die Grafana-API ab und schreibt jede Freigabe mit ihrer `dash`-Adresse und den genutzten Template-Variablen als Metrik `grafana_public_dashboard_info` (`hosts/grammi/grafana-shares.nix`). Jedes Dashboard verlinkt oben rechts dorthin („Share externally“). Die Spalte „Manage“ öffnet den Freigabe-Dialog des jeweiligen Dashboards zum Pausieren und Widerrufen – ein Schalter direkt in der Tabelle geht nicht, weil Grafana Panel-Actions seine eigene API nur per POST/PUT aufrufen lässt und das Pausieren PATCH braucht. Die Tokens liegen damit in VictoriaMetrics, sichtbar für alle, die Grafana öffnen können.
 
 **Was das bewusst in Kauf nimmt:**
 
 - Der Token im Link ist das einzige Geheimnis, keine PIN davor. Ein öffentliches Dashboard ist nur lesbar, und in Grafana lässt es sich jederzeit pausieren oder löschen.
-- Dashboards mit Template-Variablen teilt Grafana zwar, aber Panels, die eine Variable nutzen (etwa `$job` in Hosts Overview), bleiben für Gäste leer; dafür braucht es eine Kopie ohne Variablen. Die Spalte „Variablen“ in „Homelab / Shared dashboards“ zeigt, welche Freigabe das betrifft. Außerdem braucht jedes Panel die UID seiner Datenquelle; die UIDs sind deshalb in der Provisionierung festgelegt und in allen Dashboards eingetragen (`hosts/grammi/configuration.nix`).
+- Dashboards mit Template-Variablen teilt Grafana zwar, aber Panels, die eine Variable nutzen (etwa `$job` in Hosts Overview), bleiben für Gäste leer; dafür braucht es eine Kopie ohne Variablen. Die Spalte „Variables“ in „Homelab / Shared dashboards“ zeigt, welche Freigabe das betrifft. Außerdem braucht jedes Panel die UID seiner Datenquelle; die UIDs sind deshalb in der Provisionierung festgelegt und in allen Dashboards eingetragen (`hosts/grammi/configuration.nix`).
 - Wie bei allen Proxy-Namen sieht CrowdSec auf grammi nur, was Traefik im Entrypoint `apps` loggt, nicht den TLS-Teil davor.
 
 #### MQTT von außen: TLS-Passthrough zu Home Assistant
@@ -610,9 +610,13 @@ Die Dashboards liegen als JSON in `hosts/grammi/dashboards/` und werden aus dem 
 | Hosts Overview | Scrape-Ziele, CPU/RAM/Platte/Netz je Host, fehlgeschlagene Units, Zertifikate, Backups (btrbk, restic), ausstehende Firmware, WLAN-Band/-Signal |
 | Topology | Hosts, Exporter und Datenflüsse als Graphviz-Diagramm |
 | NetBird | Erreichbarkeit der Control Plane je Host; Peers je Host als Soll (Tofu) / known (Network Map) / connected P2P / connected Relay, dazu Abweichungen; Verlauf der Verbindungen, P2P-Latenz, Sync- und Aufbauzeiten; netbird-server (Signal, Relay, gRPC, API); Durchsatz und Volumen der Exit-Nodes aldrin/zummi je IP-Familie ([Exit-Nodes](#monitoring)) |
-| WLAN | Band von ursalia und zorlock (2,4 / 5 / 6 GHz) über die Zeit, Kanal, Signal, PHY-Modus, Linkrate, Verkehr, MCS, Retries, Verbindungsdauer |
+| Wi-Fi | Band von ursalia und zorlock (2,4 / 5 / 6 GHz) über die Zeit, Kanal, Signal, PHY-Modus, Linkrate, Verkehr, MCS, Retries, Verbindungsdauer |
 | Disk Health | SMART von NVMe und SATA-SSD auf ursalia: Status, kritische Warnungen, Verschleiß, Reserve, Temperatur, geschriebene Daten, ATA-Fehlerzähler, Ergebnis und Alter der letzten Selbsttests |
 | Fiber modem | Modem auf gruffis `lan2`: optische Rx-/Tx-Leistung mit den Grenzen der Klasse B+, BiP/CRC-Fehler, Hardware-Status, Verkehr an der Link-Buchse; dazu gruffis Last, Speicher, Conntrack und `lan2` |
+| gruffi Wi-Fi | gruffis APs: Stationen pro SSID und Band, Signal pro Client (mit MAC, nicht zum Teilen), Verkehr und Wiederholungen, PCI-Geräte |
+| gruffi cooling | gruffis Temperaturen (CPU, WLAN-Sensoren), Drehzahl und PWM des Lüfters |
+| gruffi DHCP | gruffis aktuelle DHCPv4-Leases mit ihrem Inventarnamen, die nicht im Inventar stehen, Leases und Pool-Auslastung je Netz (mit MAC und Hostname des Clients, nicht zum Teilen) |
+| Home network flows | Wer in den Heimnetzen mit wem redet: Verkehr je Gerät, Top-Geräte und -Ziele nach AS, Zustand von goflow2. Jeder Gerätename öffnet „Flow device“ mit Zielen, Ports und den letzten Datensätzen. Nicht zum Teilen |
 | Paperless | Zustand (Celery, Redis, DB, Index, Classifier), Dokumente, Inbox, fehlgeschlagene Tasks, Speicher, Log-Warnungen |
 | paperless-gpt | OCR- und Vorschlags-Rückstau, OCR-Zeit je Seite, LLM-Anfragen, -Dauern, -Tokens, -Fehler; GPU und Speicher von zorlock |
 | ESPHome builds | Build-Server auf ursalia: Zustand, ESPHome-Version, Builds und Erfolgsquote, Dauer je Build und Gerät, CPU und Speicher neben Paperless, Größe des Toolchain-Caches, Warnungen. Builds und Dauern kommen per LogsQL aus den Log-Zeilen „Starting job …“ / „Job … completed/failed“, device-builder hat keinen Metrik-Endpunkt |
@@ -637,11 +641,14 @@ Die Dashboards liegen als JSON in `hosts/grammi/dashboards/` und werden aus dem 
 | UnitFailed | Journal: systemds „unit failed“ (`MESSAGE_ID d9b373ed…`) je Host und Unit in 30 min (Fehlschläge im Ruhefenster: 3 h), dazu `node_systemd_unit_state{state="failed"}` seit 10 min | ein Fehlschlag reicht, die Meldung nennt die Anzahl |
 | MacosUpdatePending, MacosUpdateCheckStale | `macos_updates_pending`, `macos_updates_last_check_timestamp_seconds` | macOS-Update seit über einer Woche offen, täglicher Check seit 3 Tagen ohne Erfolg (zorlock); installiert wird von Hand |
 | NixosUpgradeStale | `nixlab_nixos_upgrade_last_success_seconds` | kein Erfolg seit 26 h, außer bei Deploy-Hold |
+| BackupRunFailed, BackupNotVerified, BackupMetricMissing | `nixlab_backup_last_run_failed`, `nixlab_backup_verified_timestamp_seconds` | letzter Lauf nicht bestätigt, letzter bestätigter Lauf älter als 26 h (0 = noch nie), Metrik verschwunden |
+| BackupBucketNoNewObject, HealthlogOffhostIncomplete | `nixlab_s3_last_new_object_timestamp_seconds`, `nixlab_s3_new_objects_24h` | Sicht von aldrin: seit 26 h nichts Neues im Bucket; HealthLog weniger als 4 Objekte in 24 h |
 | ResticBackupStale, ResticCheckFailed | `restic_backup_timestamp`, `restic_check_success` | neuester Snapshot älter als 26 h, Check fehlgeschlagen |
 | BtrbkSnapshotStale | `btrbk_last_snapshot_timestamp_seconds` | älter als 26 h |
 | CertExpiring | `ssl_certificate_expiry_seconds`, nur `/var/lib/acme/<domain>/cert.pem` | weniger als 21 Tage |
 | DiskFull | `node_filesystem_*` | über 85 % seit 15 min |
 | HostGone, TargetDown | `up` | Host hat in den letzten 24 h geliefert, jetzt nicht mehr; Exporter seit 15 min down |
+| PublicServiceDown, PublicProbeStale, PublicProbeMissing | `nixlab_http_probe_success`, `nixlab_http_probe_timestamp_seconds` | Sicht von zummi auf go2x.de: antwortet 5 min nicht; rund 15 min kein neues Prüfergebnis; 15 min keine solche Metrik |
 | NetbirdGroupSyncStale | `nixlab_netbird_group_sync_last_success_seconds` | kein fehlerfreier Lauf seit 1 h |
 | SyncCredentialExpiring | `nixlab_netbird_group_sync_credential_expiry_seconds` | Token oder Key des Gruppensyncs laufen in weniger als 30 Tagen ab |
 | PersonNotManaged | `nixlab_netbird_group_sync_unmanaged_person` | Pocket-ID-Nutzer in `homelab`/`homelab_admins`, der nicht in `people.tf` steht, seit 1 h |
@@ -649,10 +656,12 @@ Die Dashboards liegen als JSON in `hosts/grammi/dashboards/` und werden aus dem 
 | ModemRxPowerOutOfSpec, ModemTxPowerOutOfSpec | `modem_pon_rx_power_dbm`, `modem_pon_tx_power_dbm` | Rx außerhalb von -27 bis -8 dBm, Tx außerhalb von +0,5 bis +5 dBm, je 5 min (ITU-T G.984.2, Tabelle A.1, Klasse B+; ob die Telekom-Leitung B+ hat, ist nicht bestätigt) |
 | ModemRxPowerDropped, ModemBipErrors, ModemUnreachable | `modem_pon_rx_power_dbm`, `modem_pon_rx_bip_crc_total`, `modem_scrape_success` | Rx 3 dB unter dem 7-Tage-Schnitt für 1 h; BiP/CRC steigt 15 min; Modem antwortet 10 min nicht (alle drei Schwellen selbst gewählt) |
 | ModemHardwareFault | `modem_hardware_ok` | das Modem meldet 5 min lang einen Hardware-Fehler |
+| GruffiFanNotTurning, GruffiTooHot | `node_hwmon_temp_celsius`, `node_hwmon_fan_rpm` | CPU über 65 °C und Lüfter 5 min lang bei 0 RPM; CPU 10 min lang über 90 °C |
 | GruffiWifiMissing | `up`, `node_network_info` | gruffi antwortet, aber 5 min lang ist kein AP-Interface `up`: das WLAN-Modul fehlt vielleicht (nixlab#93). Ein absichtliches `wifi down` löst das auch aus |
 | LinkSpeedDropped | `node_network_speed_bytes` | ein Ethernet-Link handelt weniger aus als in den letzten 7 Tagen, seit 30 min |
 | AddressNotInInventory, MacNotInInventory | `node_network_address_info`, `node_network_info` | ein Interface mit Adresse bzw. MAC im Inventory meldet eine andere, seit 30 min |
 | VersionCheckCriticalUpdate | Journal: die „critical update“-Zeilen des Versionschecks auf zorlock (`hosts/zorlock/version-check.nix`) | ein Kerndienst (`criticality: core` in `inventory.json`) hat ein Upstream-Release, das noch kein Bericht abgedeckt hat; wartet bis 07:00, bleibt 12 h stehen; die Bewertung steht in `claude.md` dieser Nacht (`just version-check-fetch`) |
+| CrowdsecCacheFull | Journal: die „crowdsec cache) is full“-Zeilen des Lua-Bouncers (`modules/waf.nix`) | eine neue Entscheidung hat eine gültige aus `lua_shared_dict crowdsec_cache` verdrängt, Sperren können also fehlen; bleibt 6 h stehen |
 | Watchdog | `vector(1)` | immer, als Heartbeat |
 
 **Linkgeschwindigkeit:** LinkSpeedDropped vergleicht einen Link mit seiner eigenen Vergangenheit, nicht mit `speed` in `inventory.json`: Das ist, was ein Ende kann, ein Link bekommt das langsamere beider Enden (tummis 2.5G-Port hinter dem 1G der Beryl). Nach einem bewussten Umstecken auf einen langsameren Port: stummschalten, es löst sich, sobald die schnellere Woche vorbei ist. WLAN und ausgesteckte Ports melden keine Geschwindigkeit. Es zählen nur Ports mit `speed` im Inventory: veths, taps und Bridges melden erfundene Geschwindigkeiten, und eine Bridge folgt ihren Ports. Ausgehandelt und Inventory-Fähigkeit nebeneinander: Tabelle „Links: negotiated vs. capability“ im Hosts Overview, gespeist aus `nixlab_inventory_link_speed_bytes` (vmalert-Gruppe `nixlab-inventory`, eine konstante Reihe je Interface mit `speed`).
@@ -668,6 +677,18 @@ Die Dashboards liegen als JSON in `hosts/grammi/dashboards/` und werden aus dem 
 **In HA:** Automation „nixlab Alertmanager“ (Webhook, ein Ablauf je Gruppe; Tag `nixlab-<Alarm>-<Host>`, damit die Entwarnung Push und Weboberflächen-Benachrichtigung wieder entfernt), „nixlab Alerting stumm“ und der Timer. Die Push-Meldung geht über den alten Dienst `notify.mobile_app_…`, weil `notify.send_message` kein `data.tag` annimmt. Die Webhook-ID ist das einzige Geheimnis: `just alerting-webhook-key` legt eine neue in die Zwischenablage (für den Trigger der Automation) und die URL in `hosts/grammi/alerting.yaml`. Danach grammi deployen. „gruffi: Shelly-Leiste nicht erreichbar“ schickt einen Push, wenn der Schalter der Leiste 5 min `unavailable` ist, und eine Entwarnung; das braucht grammi nicht, aber den Internetweg über gruffi (nixlab#191).
 
 **Testen:** Einen künstlichen Alarm direkt an Alertmanager schicken: `ssh root@grammi.peer.homelab.example amtool --alertmanager.url=http://127.0.0.1:9093 alert add alertname=Test host=test --annotation=summary=Test`. Er verschwindet nach 5 min von selbst. Ende-zu-Ende: auf einem Host `systemd-run --unit=alerting-selftest false`, nach höchstens etwa 5 min kommt UnitFailed; die Entwarnung kommt, wenn der Fehlschlag aus dem 30-min-Fenster fällt.
+
+### Wann ein Backup als erfolgreich gilt
+
+Nicht, wenn die Unit `success` meldet: Der nächtliche Switch setzt gescheiterte Units zurück, und restic endet auch bei einem fehlenden Pfad mit Exit 0. Bei restic-Jobs auf ursalia, tummi, grammi und zummi zählt deshalb nur, was [`modules/restic-verified.nix`](modules/restic-verified.nix) bestätigt:
+
+- **Vorher:** Jeder Pfad hält Daten, und die Eingaben (Dumps, Paperless-Export) sind innerhalb von 26 h erfolgreich gelaufen. Scheitert das, wird trotzdem gespeichert, der Snapshot bekommt aber das Tag `unverified`.
+- **Nachher:** Der Snapshot wird aus dem Repository zurückgelesen: vorhanden, aus diesem Lauf, Größe plausibel, Pflichtpfade drin, `restic check` besteht (sonntags mit 5 % der Daten, bei den `data`-Jobs 1 %).
+- **Nur dann** bewegt sich `nixlab_backup_verified_timestamp_seconds`, und `forget --prune` läuft. Sonst bleibt `nixlab_backup_last_run_failed` auf 1, auch über Switches, bis ein Lauf bestätigt ist.
+
+Nicht bestätigte Jobs starten um 05:15 und 07:15 erneut. Beim Restore die ID aus `nixlab_backup_verified_snapshot_info` statt `latest` nehmen, denn der neueste Snapshot kann `unverified` sein. `just test-restic-verified` prüft das Verhalten mit erzwungenen Fehlern.
+
+Die `data`-Jobs auf tummi und ursalia ([`modules/restic-data.nix`](modules/restic-data.nix)) sichern die ganze `/data`-Platte und haben keinen restic-Exporter, im Hosts Overview stehen sie deshalb nur im Panel der bestätigten Backup-Alter. Ihre Größenprüfung ist minimal: Auf einer Kiste zum Sortieren sind große Löschungen normal. Ein erster Lauf dauert über die Heimleitung Tage; bis er endet, feuern `BackupNotVerified` und `BackupBucketNoNewObject` für diesen Job.
 
 ## Web Application Firewall
 
@@ -693,13 +714,15 @@ Ist CrowdSec nicht erreichbar, lässt nginx die Requests ungeprüft durch (`APPS
 | `homelab/no-server-side-scripts` – `.php`, `.asp(x)`, `.jsp`, `.cgi`, `/cgi-bin/` | in-band | 403 |
 | `homelab/foreign-stack-probing` – `/wp-admin`, `/phpmyadmin`, `/actuator`, `/owa`, `.aws`, `.ssh`, … | in-band | 403 |
 | Methoden-Allowlist pro Name (`services.waf.allowedMethods`) – auf `auth.homelab.example` nur GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS | in-band | 403 |
-| `crowdsecurity/appsec-crs` – OWASP Core Rule Set | out-of-band | kein Block; mehr als 5 Treffer in 30 s bannen die IP |
+| `crowdsecurity/appsec-crs` – OWASP Core Rule Set | out-of-band | kein Block; Ban, wenn der Bucket überläuft (Kapazität 5, alle 30 s leert sich ein Token) |
 
 Jeder In-band-Treffer bekommt 403. Gebannt wird die IP, sobald zwei *verschiedene* In-band-Regeln innerhalb von 60 s treffen (`crowdsecurity/appsec-vpatch`: capacity 1 mit `distinct: rule_name`) – dieselbe Regel wiederholt füllt den Bucket nicht. Wer Scanner sucht, trifft in der Regel schnell mehrere.
 
 Die beiden eigenen Regeln sind das grobe Netz unter den CVE-Regeln: Kein öffentlicher Dienst hier führt PHP, ASP, JSP oder CGI aus, also ist jede Anfrage danach ein Scan oder ein Exploit – auch für eine Lücke, für die es noch keine eigene Regel gibt. Die CRS läuft nur out-of-band, weil sie breit ist und einzelne Fehlalarme kein Grund sein sollen, einen legitimen Nutzer auszusperren.
 
 Ausnahmen pro Name: `services.waf.ruleExclusions."<fqdn>" = [ "<regel>" ];`. OpenCloud (aldrin) braucht das für `homelab/no-server-side-scripts`, weil es ownClouds `/remote.php`, `/status.php` und `/ocs/v*.php` für die Desktop-Clients beibehält.
+
+Auch CRS-Regeln lassen sich ausnehmen, per ID und optional pro Pfad: `services.waf.outOfBandExclusions."<fqdn>" = [ { ruleId = <id>; paths = [ "<pfad>" ]; } ];`. Auf `auth.homelab.example` betrifft das CRS 931100 auf `/authorize` und `/api/oidc/token`: Die Regel hält `redirect_uri=http://127.0.0.1:<port>` nativer OIDC-Clients wie OpenCloud Desktop für Remote File Inclusion.
 
 ### Modi
 
@@ -712,9 +735,14 @@ Die log-basierten HTTP-Szenarien aus `modules/crowdsec.nix` hängen nicht am Mod
 
 | Host | vhosts | Modus |
 | --- | --- | --- |
-| zummi | `auth.homelab.example` (Pocket ID) | detect (Pilot seit 2026-10-25) |
+| zummi | `auth.homelab.example` (Pocket ID) | block (seit 2026-11-08, davor detect ab 2026-10-25) |
+| aldrin | `go2x.de` | detect (seit 2026-11-08) |
 
-Geplant: grammi (Traefik-Plugin, nur Dashboard, `/oauth2/` und die öffentlichen Grafana-Pfade), aldrin (garage-ui, OpenCloud). Nie durch die WAF: Garages S3-API und NetBirds gRPC/Relay/API – signierte oder binäre Bodies, nichts für die Regeln zu finden, viel falsch zu lesen.
+Geplant: aldrin (Detect auf `tabs` und `cloud`; `cloud` braucht Ausnahmen für `homelab/no-server-side-scripts` und CRS 911100, sonst bannen die WebDAV-Methoden die Sync-Clients), grammi (Traefik-Plugin, zuerst auf den öffentlichen Grafana-Pfaden, später NetBird-Dashboard und `/oauth2/`). Nie durch die WAF: Garages S3-API und NetBirds gRPC/Relay/API – signierte oder binäre Bodies, nichts für die Regeln zu finden, viel falsch zu lesen.
+
+Ein Traefik-Plugin auf grammi schützt die Dienste anderer Hosts nicht: Traefik reicht diese Namen als TCP an den NetBird-Proxy durch, und der erreicht seine Ziele direkt.
+
+aldrin läuft seit dem Wechsel mit OpenResty und der Engine im Detect-Modus. `go2x.de` fragt dort als erster vhost AppSec; die Weiterleitungen unter `/I/` und `/i/` antworten schon vor diesem Schritt.
 
 ### Einen Host anschließen
 
@@ -1537,7 +1565,7 @@ Ein Flake, `nixosConfigurations` für fünf Hosts plus `darwinConfigurations` f�
 | `hosts/gusto/` | Die Workstation: `configuration.nix` (System, Casks, macOS-Einstellungen), `home.nix` und `ssh.nix` (home-manager), `ssh/*.pub` (öffentliche Hälften der 1Password-SSH-Schlüssel) |
 | `.envrc` | direnv: lädt die devShell des Flakes (sops, age, tofu, …) im Checkout |
 | `hosts/<host>/` | `configuration.nix`, Hardware, Dienst-Module, sops-Dateien (`secrets.yaml`, `netbird.yaml`, `desec.yaml`) |
-| `pkgs/` | Eigene Pakete: garage-ui, logchef, paperless-gpt, prometheus-paperless-exporter, ollama-metrics-proxy |
+| `pkgs/` | Eigene Pakete: garage-ui, logchef, paperless-gpt, prometheus-paperless-exporter, adguardexporter, ollama-metrics-proxy |
 | `terraform/netbird/` | OpenTofu: NetBird-Account, Policies, DNS-Zonen, Reverse-Proxy-Dienste, Personen/Gruppen (inkl. Pocket ID) |
 | `terraform/desec-tokens/` | OpenTofu: eng gescopte deSEC-Tokens pro Host für DNS-01 |
 | `terraform/github/` | OpenTofu: die Repos `nixlab` (privat) und `nixlab-docs` (öffentlich), Deploy-Keys pro Host |
@@ -1637,7 +1665,7 @@ Drei gemietete VMs tragen die öffentlichen Dienste, ursalia, tummi und zorlock 
 | zummi | NixOS, gemietete VM | Pocket ID (`auth.homelab.example`) – Login für alle Dienste und NetBird | pocket-id separat gepinnt |
 | aldrin | NixOS, gemietete VM | Garage S3 (`s3.aldrin.homelab.example`), garage-ui (`s3-admin`), Backup-Ziel für restic, Doku-Site (`doku`) | Fork-Paket garage-ui mit Subpath-Support |
 | ursalia | NixOS, Bare Metal (ASRock NUC BOX-1260P) | Paperless-ngx 3 + paperless-gpt (`dokumente`), HealthLog (`health`), Bambuddy (`bambuddy`), AdGuard Home (`dns`, `adguard`), Doku-Site (`doku`), Samba für den Scanner, Routing-Peer ins Heim-LAN, Build-Host für cuckoosegg, ESPHome-Build-Server für Home Assistant (nur Heim-LAN, Port 6055), Claude-Code-Brücke zum NanoKVM Go+ (nur bei Bedarf) | LUKS + btrfs via disko, TPM-Unlock, Secure Boot (lanzaboote), WLAN (Intel AX211, `home-wifi.nix`), kein CrowdSec |
-| tummi | NixOS, Bare Metal (ASRock NUC BOX-1260P) | Dateien kopieren und sortieren: 8 TB auf `/data`, SMB-Freigabe „Daten“ im Mesh | Aufbau wie ursalia (disko, TPM-Unlock, Secure Boot), WLAN mit Kabel als Fallback, keine Dienste nach außen |
+| tummi | NixOS, Bare Metal (ASRock NUC BOX-1260P) | Dateien kopieren und sortieren: 8 TB auf `/data`, SMB-Freigabe „Daten“ im Mesh, ganz `/data` gesichert nach Garage auf aldrin | Aufbau wie ursalia (disko, TPM-Unlock, Secure Boot), WLAN mit Kabel als Fallback, keine Dienste nach außen |
 | cuckoosegg | NixOS, VM auf dem Subraum-Proxmox | NetBird-Routing-Peer in die Subraum-Netze | Gruppe `subraum-devices` statt `servers`, kein Repo/Deploy-Key, wird per Push deployed |
 | zorlock | macOS + nix-darwin, Mac mini M6 | Ollama auf der Apple-GPU (`ollama`), genutzt von paperless-gpt | Keins der `modules/*.nix`; FileVault-Unlock nach Reboot per LAN-SSH |
 | gusto | macOS + nix-darwin + home-manager, MacBook Pro | Admin-Workstation: Deploys, Secrets, Tofu, Doku | Laptop, kein sshd, keine Secrets, nicht überwacht; Apps als Homebrew-Casks, NetBird als offizielle App – siehe [gusto](#gusto--die-admin-workstation) und [macOS-Hosts](#macos-hosts) |
@@ -1892,7 +1920,7 @@ gruffi ist der Router des Heimnetzes: ein GL.iNet Flint 4 (GL-BE14000), seit dem
 | Eingespielt | `sysupgrade -n` mit dem sysupgrade-Image (frisch, ohne alte Konfiguration) |
 | Zugang | OpenSSH, nur mit gustos Schlüssel (`hosts/gusto/ssh/gruffi.homelab.example.pub`), aus dem mgmt-Netz, von gusto im privaten Netz und über das Mesh |
 | WLAN | seit dem 2026-11-07 von gruffi selbst, 2,4 und 5 GHz, ohne 6 GHz. ap-og (EAP660 HD, Stock) an lan8 ist Cold Standby: Injektor abgezogen, zum Umschalten einstecken |
-| Display | bleibt dunkel: mit dem Stock-U-Boot übernimmt der Panel-Treiber kein vom Bootloader eingeschaltetes Panel |
+| Display | ab dem nächsten Image [glinet-panel-ui](https://github.com/blogic/glinet-panel-ui) von John Crispin (LVGL, ucode; Feed [blogic/feed-blogic](https://github.com/blogic/feed-blogic)), gebaut aus unseren Forks mit Modi public und private, Rotation und PIN-Sperre, bis das upstream ist. Das laufende Image zeichnet noch nichts. Ohne PIN sichtbar: Traffic, System und der QR-Code des Gastnetzes; Seiten und PIN stehen in `glinet_panel` (`uci.nix`, PIN aus sops). Der Stock-U-Boot ist kein Hindernis: Ohne Übergabe vom Bootloader initialisiert `panel-mipi-dbi` das Panel selbst. Es fehlt nur die Boot-Anzeige aus BL2/U-Boot |
 
 ### Dateien
 
@@ -1904,8 +1932,8 @@ gruffi ist der Router des Heimnetzes: ein GL.iNet Flint 4 (GL-BE14000), seit dem
 | `openwrt/gruffi/config.seed` | Die Paketauswahl und Optionen des Builds |
 | `openwrt/gruffi/inner.sh` | Läuft im Build-Container: PR-Head holen, Fix cherry-picken, Kernel-Optionen setzen, bauen, `BUILDINFO` schreiben |
 | `openwrt/gruffi/build.sh`, `Containerfile` | Startet den Build auf ursalia (Debian-Container, inkrementell, Zustand in `/var/lib/openwrt-build/gruffi`) |
-| `openwrt/gruffi/node-exporter.init`, `node-exporter-modem.uc` | Eigener Dienst für den Node-Exporter und der Modem-Collector (siehe [Metriken](#metriken)) |
-| `openwrt/gruffi/dryrun.sh` | Probelauf mit echten Clients (siehe [Änderungen](#änderungen)) |
+| `openwrt/gruffi/node-exporter.init`, `node-exporter-modem.uc`, `node-exporter-dhcp-leases.uc` | Eigener Dienst für den Node-Exporter, der Modem-Collector und der Lease-Collector (siehe [Metriken](#metriken)) |
+| `openwrt/gruffi/dryrun.sh`, `dryrun-guest.sh` | Probelauf mit echten Clients in einer VM auf ursalia (siehe [Änderungen](#änderungen)) |
 
 ### Ports und Switches
 
@@ -1933,25 +1961,43 @@ Alle LAN-Ports hängen in einer Bridge `br-lan` mit VLAN-Filter; jedes Netz ist 
 - **DNS:** mgmt bekommt gruffi selbst, die übrigen Netze AdGuard Home auf ursalia (IPv4 und seine ULA ::53). Die Firewall lässt beide Adressen zu; gruffis dnsmasq beantwortet `.lan` und die LAN-Namen der Dienste, AdGuard leitet sie an ihn weiter.
 - **Firewall** (fw4): Zonen = Netze; die Weiterleitungen und Einzelregeln stehen in `uci.nix` und folgen der Matrix in `docs/plan-heimnetze.md`. mgmt darf ins WAN (Entscheidung 5a vom Flash-Tag).
 - **PPPoE** auf `lan2.7`, IPv6 per DHCPv6-PD (/56); SQM (cake) auf `pppoe-wan`.
-- **Offload:** Flow-Offloading in Software und Hardware an, `bridger` für Bridge-Flows.
+- **Offload:** Flow-Offloading nur in Software. Hardware-Offloading (PPE) ist seit dem 2026-11-07 aus, wie in der GL-Firmware: Flows in der PPE liefen an cake auf `pppoe-wan` und an den Netdev-Zählern (node-exporter, Panel) vorbei, und 300/150 Mbit/s braucht sie nicht. `bridger` (Gerätepaket des GL-BE14000, legt Bridge-Flows zwischen den beiden Switches und dem WLAN in die PPE) ist aus demselben Grund seit dem 2026-11-07 live gestoppt und deaktiviert. `config.seed` lässt es weg; im Image fehlt es erst ab dem nächsten Build, `inner.sh` bricht ab, falls es doch ausgewählt bleibt. Die CPU bridget 2,8 Gbit/s in Software, die Clients haben höchstens 2,5G.
 
 ### Metriken
 
-`prometheus-node-exporter-ucode` lauscht auf `198.51.100.1:9100`, nur ursalia kommt per Firewall-Regel `r_node_exporter` dorthin; vmagent auf ursalia fragt ihn als Job `gruffi` ab (Dashboard „Homelab / Fiber modem“). Seit 2026-11-07, nixlab#178.
+`prometheus-node-exporter-ucode` lauscht auf `198.51.100.1:9100`, nur ursalia kommt per Firewall-Regel `r_node_exporter` dorthin, `r_node_exporter_mgmt` sperrt `mgmt` aus, dessen Zone sonst Eingehendes annimmt. Im Mesh begrenzen die NetBird-Policies den Zugriff (`terraform/netbird/gruffi.tf`), denn NetBird nimmt `wt0` schon vor den Firewall-Zonen an; `r_node_exporter_mesh` wirkt nicht, solange NetBird läuft; vmagent auf ursalia fragt ihn als Job `gruffi` ab (Dashboard „Homelab / Fiber modem“). Seit 2026-11-07, nixlab#178.
 
 - **Eigener Dienst:** `/etc/init.d/node-exporter`, angepasst aus dem [Startskript des Pakets von Andre Heider](https://github.com/openwrt/packages/blob/d4a4de8309c2462d29a48597c711116360a0e8fa/utils/prometheus-node-exporter-ucode/files/init). Der Dienst des Pakets bleibt deaktiviert, so überschreibt ein `apk upgrade` nichts.
 - **Enger Jail:** eigener Benutzer `node-exporter` (UID 9100) statt root, kein `ubus`, von `/etc/config` nur die eigene Datei. `/etc/config/wireless` ist für alle lesbar und enthält die WLAN-Schlüssel, und `network.wireless status` liefert sie ebenfalls.
 - **Weg nach außen:** `/usr/share/nftables.d/chain-pre/output/90-node-exporter.nft` erlaubt diesem Benutzer neue Verbindungen nur zu `203.0.113.201:80`, alles andere wird abgewiesen und gezählt.
-- **Modem-Collector:** `modem.uc` liest `/ONT/client/data/Status.json` (ohne Login, braucht browserähnliche Header, Timeout 3 s) und übernimmt nur Felder aus einer festen Liste. Die Seriennummer steht ebenfalls in der Antwort und wird nie gelesen. `link_status` entfällt: zeigt 0, während `lan2` mit 2500 Mbit/s läuft. Die Reihen tragen `host="glasfasermodem-2"`, der Job braucht deshalb `honor_labels`.
-- **Kein Flash nötig gewesen:** Pakete per `apk add` installiert, Dateien per `scp`. `config.seed` und `gen-files.sh` nehmen alles beim nächsten Build mit; `sysupgrade -n` entfernt live installierte Pakete. Der Probelauf deckt den Exporter nicht ab.
+- **Modem-Collector:** `modem.uc` liest `/ONT/client/data/Status.json` (ohne Login, braucht browserähnliche Header, Timeout 3 s) und übernimmt nur Felder aus einer festen Liste. Die Seriennummer steht ebenfalls in der Antwort und wird nie gelesen. `link_status` entfällt: Firmware .001 zeigte bei 2500 Mbit/s 0, seit .013 zeigt es 2500. Die Reihen tragen `host="glasfasermodem-2"`, der Job braucht deshalb `honor_labels`.
+- **Stationen:** `wifi_ap.uc` liest APs und Stationen per nl80211, ohne `ubus` (der `wifi.uc` des Feeds fragt `network.wireless status` ab, dessen Antwort die WLAN-Schlüssel enthält). Dazu `gruffi_pci_devices`: 4 mit laufendem Modul. Die Reihen pro Station tragen die MAC der Clients und zeigen, wer wann zu Hause ist, deshalb hat das Dashboard „Homelab / gruffi Wi-Fi“ keinen Freigabe-Link. Vorlage: [`wifi.uc` in openwrt/packages](https://github.com/openwrt/packages/blob/85ba4cff22728b21527e4bf1e29411e7c68a4a3c/utils/prometheus-node-exporter-ucode/files/extra/wifi.uc).
+- **Leases:** `dhcp_leases.uc` liest `/tmp/dhcp.leases`, die einzige Datei aus `/tmp` im Jail, und braucht weder `ubus` noch root. dnsmasq schreibt die Datei an Ort und Stelle neu, die Einbindung bleibt also gültig. Netze und Pools kommen aus der uci-Sektion `collector dhcp_leases`, abgeleitet aus dem Inventar. Hostnamen der Clients gelten als nicht vertrauenswürdig: nur Buchstaben, Ziffern, `.`, `_` und `-`, höchstens 63 Zeichen. Die Serien tragen MAC und Hostname, das Dashboard „Homelab / gruffi DHCP“ ist also nicht zum öffentlichen Teilen. Alarm `DhcpPoolFilling` über 80 % für 30 Minuten. nixlab#115.
+- **Flows:** Je Bridge `br-lan.191`-`195` exportiert ein `softflowd` IPFIX an ursalia, vor dem NAT. goflow2 läuft dort als Kindprozess von Vector (`hosts/ursalia/flows.nix`), der das Gerät per MAC aus dem Inventar und AS und Land aus DB-IP Lite ergänzt und alles an VictoriaLogs auf grammi schickt, 30 Tage. Die Bytes stimmen mit Offloading an mit conntrack überein (nixlab#59). softflowd setzt `br-lan` in den Promiscuous-Modus. Ein Flow erscheint, wenn er endet, lange jede Minute. Verbindungen zwischen zwei VLANs zählen einmal. Als intern gilt auch gruffis delegiertes IPv6-Präfix: `ipv6_prefix.uc` meldet das per DHCPv6-PD erhaltene (seine unreachable-Route in `/proc/net/ipv6_route`), Vector liest es alle 5 Minuten aus VictoriaMetrics zurück; die Präfixlänge aus dem Inventar ist der Rückfall. Alarme `GruffiPrefixLengthMismatch` (gelieferte Länge weicht vom Inventar ab) und `GruffiNoDelegatedPrefix`. Verbindungen innerhalb eines VLANs sind größtenteils nicht sichtbar. Multicast und Broadcast werden verworfen. `/etc/hotplug.d/iface/90-softflowd` startet ihn neu, wenn ein Netz hochkommt. Alarm `FlowExportStopped`.
+- **Log:** `logd` schickt das Systemlog samt DHCP-Ereignissen per UDP an Vector auf ursalia, der es nur von gruffi annimmt. In VictoriaLogs steht es als `host=gruffi`. Das Dashboard „gruffi DHCP“ zeigt die DHCP-Ereignisse.
+- **Firmware des Modems:** .013 seit 2026-11-07, von Hand eingespielt; das Modem war trotz aktiver Auto-Updates noch auf .001. Der wöchentliche Versions-Check vergleicht `modem_info` mit der neuesten Version in [Telekoms Liste](https://www.telekom.de/hilfe/downloads/firmware-aenderungen-glasfaser-modem-2). Ändert Telekom das Format der PDF, meldet er „unknown“.
+- **Kein Flash nötig gewesen:** Pakete per `apk add` installiert, Dateien per `scp`. `config.seed` und `gen-files.sh` nehmen alles beim nächsten Build mit; `sysupgrade -n` entfernt live installierte Pakete. Der Probelauf prüft nur, wer den Port des Exporters erreicht, nicht den Exporter selbst.
+- **Temperaturen und Lüfter:** `hwmon.uc` liest CPU, die drei mt7996-Sensoren, Drehzahl und PWM aus `sysfs`, unter den Namen des offiziellen node_exporter. Dashboard „gruffi cooling“. Seit dem 2026-11-09 live, nixlab#255.
+
+### Lüfter
+
+[fancontrol von JiaY-shi](https://github.com/JiaY-shi/fancontrol/commit/bdd72939b50a483333a6928f37bddce31259c002) (MIT) regelt den Lüfter stufenlos statt der drei Kernel-Stufen. Es kommt mit dem nächsten Image auf gruffi; bis dahin regelt der Kernel. Die Kurve steht in `fanSettings` in `openwrt/gruffi/uci.nix` (nixlab#255).
+
+- **Kurve:** aus unter 55 °C, dann von PWM 40 (etwa 1430 RPM) linear bis PWM 240 bei 85 °C; aus bei 52 °C. Kein Kick, denn ab PWM 30 läuft der Lüfter aus dem Stillstand an.
+- **Sensor:** nur die CPU-Zone. Die WLAN-Sensoren zeigt das Dashboard; bleiben sie deutlich über der CPU, müsste die Kurve auch ihnen folgen, was einen Patch braucht.
+- **Obergrenze 240:** auch für Sensorausfall und Beenden, deren Standard 255 ist. Der Device Tree von OpenWrt sagt, dass 255 diesen Lüfter anhält. Gemessen lief er 5 s lang mit 5370 RPM, und [Tomato64](https://github.com/tomato64/tomato64/blob/8b144be1b07c406abada39a4a7d4c75e031f587d/tomato64/board/arm64/be14000/linux-patches/00002-mt7988a-glinet-gl-be14000.dts.patch) misst auf der Stock-Firmware ebenfalls keinen Stillstand. Einen Dauerlauf gab es nicht; 240 kostet rund 5 % Drehzahl.
+- **Kernel als Rückfallebene:** `step_wise` bleibt aktiv und schreibt bei jedem Überschreiten eines Trip-Punkts seine Stufe, bis der Daemon sie nach höchstens 2 s korrigiert. Damit das beim Abkühlen nicht stört, setzt `fan-trip` den untersten Trip-Punkt beim Booten von 60 auf `start_temp`. `user_space` wäre ruhiger, aber ohne Daemon kühlte dann niemand nach.
+- **Messen:** Ein Schreibzugriff auf `pwm1` verschiebt auch `cur_state` des Cooling Device. Tests dürfen den alten Wert also nicht daraus lesen.
+- **Last:** Volle CPU-Last ohne Lüfter erreichte in 4 Minuten nur 54,8 °C, ausgehend von 51 °C. Verkehr und WLAN waren dabei nicht dabei.
 
 ### Änderungen
 
 Am Gerät wird nichts dauerhaft von Hand geändert – Änderungen gehen in `uci.nix` (oder ins Inventory), dann:
 
 1. `nix develop -c openwrt/gruffi/build.sh` – Build auf ursalia (braucht 1Password für sops).
-2. `nix develop -c openwrt/gruffi/dryrun.sh` – führt das `90-gruffi` des letzten Builds in einem OpenWrt-x86-Container mit veth-Ports in gruffis Namen aus und prüft pro Netz: DHCPv4-Lease (Pool, Router, DNS), die erste Reservierung, das RA (ULA-Präfix, DNS) mit `rdisc6`, dazu `fw4 check` und die Zahl der DHCP-Bereiche. Mit `--no-dhcpv4` muss er fehlschlagen.
+2. `nix develop -c openwrt/gruffi/dryrun.sh` – führt das `90-gruffi` des letzten Builds in einer OpenWrt-x86-VM auf ursalia aus (QEMU/KVM ohne Netzwerkkarte und ohne Watchdog-Gerät, die Clients als Namespaces in der VM an veth-Ports in gruffis Namen) und prüft pro Netz: DHCPv4-Lease (Pool, Router, DNS), die erste Reservierung, das RA (ULA-Präfix, DNS) mit `rdisc6`, dazu `fw4 check`, die Zahl der DHCP-Bereiche, den Modem-Zugriff pro Zone und dass nur ursalia den Port des Node Exporters erreicht. Mit `--no-dhcpv4` muss er fehlschlagen. Bis nixlab#181 lief der Probelauf in privilegierten Containern, die ursalia über den Hardware-Watchdog zurücksetzen konnten. Die Probeläufe von ap-og und sw-og-flur laufen noch so; der der WLAN-Bridges läuft in zwei VMs (`openwrt/bridge/dryrun.sh`).
 3. Image nach gusto und gruffi, SHA-256 vergleichen, `sysupgrade -T`, dann `sysupgrade -n`.
+4. gruffi wieder im Mesh anmelden: `sysupgrade -n` löscht die Anmeldung, der alte Peer bleibt aber stehen, also zuerst im NetBird-Dashboard löschen. `just netbird-key-gruffi` legt einen neuen Setup-Key in die Zwischenablage, der Befehl zum Anmelden steht in `terraform/netbird/gruffi.tf`. Ohne `--management-url` geht `netbird up` an die NetBird-Cloud.
 
 Für Eingriffe am laufenden Gerät (Testregeln, Reservierungen bis zum nächsten Build): uci setzen, `uci commit`, dann `fw4 reload` bzw. `/etc/init.d/dnsmasq restart`, wenn das reicht. `/etc/init.d/network reload` ist erlaubt (auch `wifi up`, `wifi down` und `wifi reload` lösen ihn aus), danach aber prüfen, ob `lan2` empfängt, zum Beispiel per Ping zum Modem. Am 2026-11-02 empfing `lan2` nach mehreren Reloads nichts mehr, bis zum Neustart; am 2026-11-06 kam das bei 11 Reloads auf einem neueren Image nicht wieder (nixlab#94). Bei Änderungen an `lan2.7` oder `wan` und an Ports mit angeschlossenem Gerät ist das ungetestet, dort lieber neu starten.
 
@@ -5027,6 +5073,7 @@ Dienste sind nach Funktion benannt, nicht nach Produkt. Es gibt drei Arten der E
 | `s3.aldrin` | Garage S3-API | aldrin | öffentlich (nginx) |
 | `cloud` | OpenCloud | aldrin | öffentlich (nginx), Login über Pocket ID; nicht hinter dem Reverse Proxy, dessen SSO würde die Sync-Clients aufhalten |
 | `tabs` | WebDAV für floccus (rclone) | aldrin | öffentlich (nginx), ein Account mit Basic Auth ([warum](#floccus-tabs-und-lesezeichen-über-tabs)) |
+| `go2x.de` | Kurz-URL-Dienst (Chhoto URL) | aldrin | öffentlich (nginx), Codes ohne Login, Verwaltung unter `/admin/manage/` über Pocket ID |
 | `rezepte` | Mealie | grammi | Reverse Proxy + SSO |
 | `grist` | Grist | grammi | Reverse Proxy + SSO |
 | `logs` | logchef | grammi | Reverse Proxy + SSO |
@@ -5092,6 +5139,7 @@ Die 20 Module unter `modules/` tragen die gemeinsame Konfiguration aller Hosts; 
 | `just try <host>` | Aktuellen Themen-Branch auf einen Host deployen und ihn dort halten, bis der Branch gemergt ist ([Branch vor dem Merge testen](#branch-vor-dem-merge-auf-einem-host-testen)) |
 | `just try-confirm <host> [minutes] [via]` | Wie `try`, rollt aber von selbst zurück, wenn der Host nicht innerhalb der Frist erreicht und bestätigt wird ([mit automatischem Zurückrollen](#mit-automatischem-zurückrollen-just-try-confirm)) |
 | `just release <host>` / `holds` | Halt ohne Merge aufheben / alle Halte anzeigen |
+| `just test-restic-verified` | Erzwungene Backup-Fehler in einer Wegwerf-VM auf ursalia ([Wann ein Backup als erfolgreich gilt](#wann-ein-backup-als-erfolgreich-gilt)) |
 | `just restore-test <host> [isolation]` | grammi oder zummi aus restic in eine Wegwerf-VM ohne Netz auf ursalia zurückholen und die RTO messen ([Restore testen](#restore-testen)) |
 | `just check <host>` | `git pull` + `nixos-rebuild dry-activate` |
 | `just secrets <host>` / `pull-secrets <host>` | Host-Secrets auf dem Host editieren und zurückholen |
@@ -5115,6 +5163,8 @@ Die 20 Module unter `modules/` tragen die gemeinsame Konfiguration aller Hosts; 
 | `just github-key <host>` | Neuer GitHub-Deploy-Key für einen Host (Schlüssel per sops, Registrierung per Tofu) |
 | `just github-plan` / `github-apply` | Repos und Deploy-Keys auf GitHub ändern |
 | `just garage-plan` / `garage-apply` | Buckets, Keys und Rechte in Garage auf aldrin ändern (`terraform/garage`) |
+| `just aldrin-backup-secrets` | Den Garage-Schlüssel des Buckets `aldrin-backups` aus dem Tofu-State und ein neues Repository-Passwort nach `hosts/aldrin/backup.yaml` schreiben – einmal, nach `garage-apply` |
+| `just data-backup-secrets <host>` | Dasselbe für den Bucket `<host>-data-backups` nach `hosts/<host>/backup-data.yaml` (`modules/restic-data.nix`) – einmal pro Host, nach `garage-apply` |
 | `just garage-admin-token` | Garages Admin-Token per SSH von aldrin nach `terraform/secrets.yaml` kopieren – einmal, und wieder nach jeder Rotation |
 | `just desec-key <host>` / `desec-verify` | deSEC-Token tauschen bzw. Scopes von jedem Host aus prüfen |
 | `just nanokvm-mcp-key` | MCP-API-Key des NanoKVM Go+ verschlüsselt für ursalia ablegen (danach committen, ursalia deployen) |
@@ -5137,7 +5187,7 @@ eval $(op signin) && export SOPS_AGE_KEY_CMD='op read "op://<vault>/<item>/passw
 - Nach einem `nixos-rebuild` sagt `systemctl --failed` nichts über die Vergangenheit – der Switch räumt Failed-States ab. Stattdessen `journalctl -u <unit>`.
 - NetBird down, Tailscale noch da: `NIXLAB_DOMAIN=example-tailnet.ts.net` vor das Rezept setzen.
 - Tofu-Rezepte verweigern den Lauf gegen leeren State, damit keine zweite `servers`-Gruppe oder Token-Garnitur entsteht.
-- WLAN auf tummi: `iw dev wlo1 link` zeigt Band, Signal und PHY-Modus. Das 5-GHz-Netz des Routers liegt auf Kanal 36–48 ohne DFS mit 100 TU Beacon-Intervall; Band, Signal, Raten und PHY-Modus gehen auch an VictoriaMetrics (node_exporter-Collector `wifi` plus `wifi_link_*`), Grafana-Dashboard „Homelab / WLAN“.
+- WLAN auf tummi: `iw dev wlo1 link` zeigt Band, Signal und PHY-Modus. Das 5-GHz-Netz des Routers liegt auf Kanal 36–48 ohne DFS mit 100 TU Beacon-Intervall; Band, Signal, Raten und PHY-Modus gehen auch an VictoriaMetrics (node_exporter-Collector `wifi` plus `wifi_link_*`), Grafana-Dashboard „Homelab / Wi-Fi“.
 - Nach einem Netzwechsel kann NetBird minutenlang an einem toten P2P-Weg festhalten und trotzdem `Connected` zeigen (gesehen auf ursalia, 2026-10-19). Abhilfe: `systemctl restart netbird-mesh` auf dem Host, notfalls über Tailscale.
 - Ein Proxy-Dienst hängt im NetBird-Dashboard bei „Issuing certificate…“ oder liefert von außen einen TLS-Fehler („internal error“): `just netbird-proxy-certs` – fragt die Namen ohne Zertifikat von außen ab und startet `netbird-proxy` auf grammi neu (NetBird-Diskussion #7118). Läuft auch am Ende von `just netbird-apply`.
 - Ein Host ist ohne Shutdown im Journal neu gestartet: im vorigen Boot nach dem Hardware-Watchdog suchen, `journalctl -b -1 -k | grep -i watchdog` („watchdog did not stop!“ heißt, ein Prozess hat ihn scharf geschaltet und ohne Magic Close losgelassen). Wo `services.hardwareWatchdog` an ist, hält systemd das Gerät, jeder andere Prozess bekommt EBUSY; `fuser -v /dev/watchdog0` zeigt den Halter, `wdctl` den Timeout. Test: `kill -SEGV 1` muss den Host innerhalb eines Timeouts zurücksetzen (#117).

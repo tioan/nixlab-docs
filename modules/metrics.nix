@@ -16,6 +16,7 @@
 }:
 let
   textfileDir = "/var/lib/prometheus-node-exporter-text-files";
+  nginxStatusPort = 8079;
 in
 {
   services.prometheus.exporters = {
@@ -77,11 +78,21 @@ in
 
   services.prometheus.exporters.nginx = lib.mkIf config.services.nginx.enable {
     enable = true;
+    scrapeUri = "http://127.0.0.1:${toString nginxStatusPort}/nginx_status";
   };
 
-  # nginx's stub_status, which the exporter above reads. Bound to localhost by
-  # the nginx module; only the exporter needs it.
-  services.nginx.statusPage = lib.mkIf config.services.nginx.enable true;
+  # nginx's stub_status, which the exporter above reads; only the exporter
+  # needs it. The nginx module would put this vhost on :80 on all addresses
+  # without forceSSL, so `Host: localhost` got nginx's default page in plain
+  # HTTP, from the internet on zummi. :80 only ever redirects (admin/nixlab#234),
+  # hence a loopback-only port of its own.
+  services.nginx = lib.mkIf config.services.nginx.enable {
+    statusPage = true;
+    virtualHosts.localhost.listen = [
+      { addr = "127.0.0.1"; port = nginxStatusPort; }
+      { addr = "[::1]"; port = nginxStatusPort; }
+    ];
+  };
 
   # Status codes and request rates per vhost, parsed from the access log. The
   # nginx exporter above only reports connection counts; this is the one that

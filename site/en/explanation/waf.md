@@ -22,13 +22,15 @@ If CrowdSec cannot be reached, nginx lets requests through unchecked (`APPSEC_FA
 | `homelab/no-server-side-scripts` – `.php`, `.asp(x)`, `.jsp`, `.cgi`, `/cgi-bin/` | in-band | 403 |
 | `homelab/foreign-stack-probing` – `/wp-admin`, `/phpmyadmin`, `/actuator`, `/owa`, `.aws`, `.ssh`, … | in-band | 403 |
 | Method allowlist per name (`services.waf.allowedMethods`) – on `auth.homelab.example` only GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS | in-band | 403 |
-| `crowdsecurity/appsec-crs` – OWASP Core Rule Set | out-of-band | no block; more than 5 hits in 30 s ban the IP |
+| `crowdsecurity/appsec-crs` – OWASP Core Rule Set | out-of-band | no block; ban when the bucket overflows (capacity 5, one token leaks every 30 s) |
 
 Every in-band match gets a 403. The IP is banned once two *different* in-band rules hit within 60 s (`crowdsecurity/appsec-vpatch`: capacity 1 with `distinct: rule_name`) – the same rule repeated does not fill the bucket. Scanners usually hit several quickly.
 
 The two own rules are the coarse net under the CVE rules: no public service here runs PHP, ASP, JSP or CGI, so any request for one is a scan or an exploit – including for a hole that has no rule of its own yet. The CRS runs out of band only, because it is broad and a single false positive should not lock out a legitimate user.
 
 Exceptions per name: `services.waf.ruleExclusions."<fqdn>" = [ "<rule>" ];`. OpenCloud (aldrin) needs this for `homelab/no-server-side-scripts`, since it keeps ownCloud's `/remote.php`, `/status.php` and `/ocs/v*.php` for the desktop clients.
+
+CRS rules can be excepted too, by ID and optionally by path: `services.waf.outOfBandExclusions."<fqdn>" = [ { ruleId = <id>; paths = [ "<path>" ]; } ];`. On `auth.homelab.example` this covers CRS 931100 on `/authorize` and `/api/oidc/token`: it reads the `redirect_uri=http://127.0.0.1:<port>` of native OIDC clients such as OpenCloud Desktop as remote file inclusion.
 
 ## Modes
 
@@ -41,9 +43,14 @@ The log-based HTTP scenarios from `modules/crowdsec.nix` do not depend on the mo
 
 | Host | vhosts | Mode |
 | --- | --- | --- |
-| zummi | `auth.homelab.example` (Pocket ID) | detect (pilot since 2026-10-25) |
+| zummi | `auth.homelab.example` (Pocket ID) | block (since 2026-11-08, detect from 2026-10-25) |
+| aldrin | `go2x.de` | detect (since 2026-11-08) |
 
-Planned: grammi (Traefik plugin, only the dashboard, `/oauth2/` and the public Grafana paths), aldrin (garage-ui, OpenCloud). Never behind the WAF: Garage's S3 API and NetBird's gRPC/relay/API – signed or binary bodies, nothing for the rules to find and plenty to misread.
+Planned: aldrin (detect on `tabs` and `cloud`; `cloud` needs exceptions for `homelab/no-server-side-scripts` and CRS 911100 – WebDAV methods would otherwise ban the sync clients), grammi (Traefik plugin, first on the public Grafana paths, later the NetBird dashboard and `/oauth2/`). Never behind the WAF: Garage's S3 API and NetBird's gRPC/relay/API – signed or binary bodies, nothing for the rules to find and plenty to misread.
+
+A Traefik plugin on grammi does not protect the services of other hosts: Traefik passes those names through as TCP to the NetBird proxy, which reaches its targets directly.
+
+aldrin runs OpenResty with the engine in detect since the switch. `go2x.de` is the first vhost there to consult AppSec; its `/I/` and `/i/` redirects return before that step.
 
 ## Adding a host
 

@@ -9,6 +9,7 @@ Services are named by function, not by product. There are three kinds of reachab
 | `s3.aldrin` | Garage S3 API | aldrin | public (nginx) |
 | `cloud` | OpenCloud | aldrin | public (nginx), login via Pocket ID; not behind the reverse proxy, its SSO would stop the sync clients |
 | `tabs` | WebDAV for floccus (rclone) | aldrin | public (nginx), one account with basic auth ([why](../explanation/secrets-network-access.md#tabs)) |
+| `go2x.de` | URL shortener (Chhoto URL) | aldrin | public (nginx), codes without login, management at `/admin/manage/` via Pocket ID |
 | `rezepte` | Mealie | grammi | reverse proxy + SSO |
 | `grist` | Grist | grammi | reverse proxy + SSO |
 | `logs` | logchef | grammi | reverse proxy + SSO |

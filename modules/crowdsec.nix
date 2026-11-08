@@ -40,6 +40,7 @@
 {
   config,
   lib,
+  pkgs,
   ...
 }:
 let
@@ -148,6 +149,8 @@ in
             "2001:db8:10::1" # zummi v6
             "203.0.113.11" # aldrin v4
             "2001:db8:11::2" # aldrin v6
+            "203.0.113.12" # grammi v4
+            "2001:db8:12::2" # grammi v6
           ];
           cidr = [
             "100.64.0.0/10" # tailnet
@@ -157,21 +160,27 @@ in
         };
       }
     ]
-    # The nix cache in Garage on aldrin (modules/nix-cache.nix). A substituter
-    # asks for one narinfo per store path it might need, and most of them are
-    # 404 - by design, the cache only holds what cache.nixos.org lacks. That
-    # is crowdsecurity/http-probing to the letter: it banned the home IP
-    # (ursalia, and with it everyone at home) on 2026-10-31, minutes into the
-    # first nightly prebuild. The home address is dynamic and grammi's is not
-    # in the list above, so by path rather than by IP. The bucket is private;
-    # probing it yields nothing but 403s.
+    # The S3 buckets in Garage on aldrin, by path rather than by IP, because
+    # the home address is dynamic. Every S3 client looks like a scanner:
+    #  - nix-cache (modules/nix-cache.nix): a substituter asks for one narinfo
+    #    per store path it might need, and most of them are 404 by design.
+    #    crowdsecurity/http-probing banned the home IP (ursalia, and with it
+    #    everyone at home) on 2026-10-31, minutes into the first nightly
+    #    prebuild.
+    #  - The backup buckets: restic's GETs for many distinct objects are
+    #    http-crawl-non_statics to the letter. It banned ursalia's addresses
+    #    every 4 h from 2026-11-07, so the 2026-11-08 backup failed and
+    #    HealthLog lost uploads (#238).
+    # All buckets are private; probing them yields nothing but 403s. The list
+    # follows terraform/garage/buckets.tf and nix-cache.tf. A path in the
+    # shared access log matches on any vhost, which only spares these names.
     ++ lib.optional config.services.nginx.enable {
-      name = "homelab/nix-cache";
-      description = "Substituter lookups against the nix cache bucket";
+      name = "homelab/s3-buckets";
+      description = "S3 clients against the private buckets in Garage";
       whitelist = {
-        reason = "nix cache lookups";
+        reason = "S3 bucket traffic";
         expression = [
-          "evt.Meta.log_type in ['http_access-log', 'http_error-log'] && evt.Parsed.request startsWith '/nix-cache/'"
+          "evt.Meta.log_type in ['http_access-log', 'http_error-log'] && evt.Parsed.request matches '^/(nix-cache|grammi-backups|zummi-backups|ursalia-backups|ursalia-data-backups|tummi-data-backups|aldrin-backups|healthlog-backups|arq-mattheus-mbp14)([/?]|$)'"
         ];
       };
     }
@@ -288,6 +297,26 @@ in
   users.users.crowdsec.extraGroups = lib.mkIf (logGroups != [ ]) logGroups;
   systemd.services.crowdsec.serviceConfig.SupplementaryGroups =
     lib.mkIf (logGroups != [ ]) logGroups;
+
+  # The nixpkgs module links local parsers under a name with the store hash
+  # and never removes the old link, so every change to one leaves the previous
+  # version in /etc/crowdsec until the store path is collected. The name inside
+  # stays the same, and the old file went on shadowing the new one: grammi's
+  # addresses were in homelab/lab-hosts on zummi and it was banned anyway
+  # (2026-11-08). So before the start, drop every store link no tmpfiles rule
+  # asks for. The same goes for homelab/detect-only after a switch to block.
+  # After the module's own steps, which clear the list first; `+` for root,
+  # the unit runs as crowdsec.
+  systemd.services.crowdsec.serviceConfig.ExecStartPre = lib.mkAfter [
+    "+${pkgs.writeShellScript "crowdsec-prune-links" ''
+      set -eu
+      ${config.systemd.package}/bin/systemd-tmpfiles --create --prefix=/etc/crowdsec
+      ${pkgs.findutils}/bin/find /etc/crowdsec -type l -lname '/nix/store/*' -print |
+        while read -r link; do
+          ${pkgs.gnugrep}/bin/grep -qFs -- "$link" /etc/tmpfiles.d/*.conf || ${pkgs.coreutils}/bin/rm -v -- "$link"
+        done
+    ''}"
+  ];
 
   # crowdsec-update-hub.service had failed every night since at least
   # 2026-08-13, and which step fails is the whole point: the

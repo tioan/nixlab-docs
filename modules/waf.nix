@@ -17,9 +17,11 @@
 #    lab's own below (homelab/*: script types and stacks nothing here runs).
 #  - Rules, out of band (only evaluated, never block a request by
 #    themselves): crowdsecurity/appsec-crs, the OWASP CRS. Its hits are
-#    events; crowdsecurity/crowdsec-appsec-outofband bans an IP after more
-#    than 5 within 30 s. That keeps the broad, false-positive-prone CRS
-#    useful without one stray match locking out a legitimate user.
+#    events; crowdsecurity/crowdsec-appsec-outofband bans an IP when its
+#    bucket overflows: capacity 5, one token leaking every 30 s, so a sixth
+#    hit in quick succession is enough, and a slow steady trickle adds up
+#    too. That keeps the broad, false-positive-prone CRS useful without one
+#    stray match locking out a legitimate user.
 #  - Bans: every in-band match gets a 403; the IP is banned once two
 #    *different* in-band rules hit within 60 s (crowdsecurity/appsec-vpatch:
 #    capacity 1 with distinct rule_name, so one rule repeated never fills
@@ -43,8 +45,12 @@
 #
 # Bootstrap per host: `just waf-key <host>` registers the bouncer with the
 # host's LAPI and writes its key to hosts/<host>/waf.yaml (sops). Without
-# that file the nginx side stays off and evaluation warns - the AppSec
-# engine itself runs regardless.
+# that file the nginx side stays off, and evaluation warns if vhosts are
+# listed - the AppSec engine itself runs regardless.
+#
+# OpenResty applies to the whole host, and the nixpkgs module lifts
+# MemoryDenyWriteExecute from nginx.service for it, since LuaJIT's JIT needs
+# that. Only nginx loses this hardening, not the services behind it.
 #
 # Docs: docs/site/*/explanation/waf.md.
 {
@@ -171,6 +177,8 @@ let
     # pre_eval runs before any rule is evaluated.
     #  - Per-name exceptions (option ruleExclusions): drop the rule for that
     #    request only.
+    #  - Out-of-band exceptions (option outOfBandExclusions): the same for
+    #    CRS rules, by ID, optionally only on some paths.
     #  - Method allowlists (option allowedMethods): anything else is dropped
     #    in band, which counts like a rule match - alert, and in block mode
     #    a 403. IsInBand because top-level hooks run in both passes; without
@@ -180,6 +188,12 @@ let
         filter = "req.Host == ${builtins.toJSON name}";
         apply = map (r: "RemoveInBandRuleByName(${builtins.toJSON r})") rules;
       }) cfg.ruleExclusions
+      ++ lib.concatLists (lib.mapAttrsToList (name: exclusions: map (e: {
+        filter =
+          "IsOutBand && req.Host == ${builtins.toJSON name}"
+          + lib.optionalString (e.paths != [ ]) " && req.URL.Path in ${builtins.toJSON e.paths}";
+        apply = [ "RemoveOutBandRuleByID(${toString e.ruleId})" ];
+      }) exclusions) cfg.outOfBandExclusions)
       ++ lib.mapAttrsToList (name: methods: {
         filter = "IsInBand && req.Host == ${builtins.toJSON name} && req.Method not in ${builtins.toJSON methods}";
         apply = [ "DropRequest(${builtins.toJSON "method not allowed on ${name}"})" ];
@@ -250,6 +264,32 @@ in
         "cloud.homelab.example" = [ "homelab/no-server-side-scripts" ];
       };
       description = "In-band rules (by name) not applied to requests for that Host.";
+    };
+
+    outOfBandExclusions = lib.mkOption {
+      type = lib.types.attrsOf (lib.types.listOf (lib.types.submodule {
+        options = {
+          ruleId = lib.mkOption {
+            type = lib.types.ints.positive;
+            description = "ID of the out-of-band (CRS) rule to skip.";
+          };
+          paths = lib.mkOption {
+            type = lib.types.listOf lib.types.str;
+            default = [ ];
+            description = "Exact request paths the exception applies to; empty means every path.";
+          };
+        };
+      }));
+      default = { };
+      example = {
+        "auth.homelab.example" = [
+          { ruleId = 931100; paths = [ "/authorize" ]; }
+        ];
+      };
+      description = ''
+        Out-of-band rules not applied to requests for that Host. A CRS match
+        cannot block a request, but enough of them ban the address.
+      '';
     };
 
     allowedMethods = lib.mkOption {
@@ -333,7 +373,10 @@ in
       systemd.services.crowdsec.restartTriggers = map (f: f.file) (ruleFiles ++ configFiles);
     }
 
-    (lib.mkIf (hasKey && cfg.nginx.vhosts != [ ]) {
+    # With the key, the whole host moves to OpenResty and the bouncer loads,
+    # even with an empty vhost list: a host can make the switch first and put
+    # its vhosts behind AppSec one by one afterwards (aldrin).
+    (lib.mkIf hasKey {
       sops.secrets."crowdsec_nginx_bouncer_api_key" = {
         sopsFile = keyFile;
       };
@@ -371,16 +414,18 @@ in
       # Adapted from CrowdSec's cs-nginx-bouncer, nginx/crowdsec_nginx.conf
       # (https://github.com/crowdsecurity/cs-nginx-bouncer/blob/067541cdfff4b650182d819e92c04a207aa2fbb5/nginx/crowdsec_nginx.conf),
       # with Nix paths and without the unix-socket map (no vhost here listens
-      # on one). The cache holds stream-mode decisions; 10m instead of
-      # upstream's 50m on these small VMs - it is shared memory and only
-      # grows with the ban list.
+      # on one). The cache holds stream-mode decisions, about 79,000 on zummi
+      # on 2026-11-08 with the community lists. 10m was too small: it evicted
+      # entries with "cache is full" tens of thousands of times a day (#236).
+      # 32m instead of upstream's 50m on these small VMs - it is shared
+      # memory and only grows with the ban list.
       #
       # Every start logs "error loading captcha plugin: no recaptcha site key
       # provided" at error level. Harmless: no captcha is configured, and
       # the bouncer carries on without that plugin.
       services.nginx.appendHttpConfig = ''
         lua_package_path '${bouncer}/lib/lua/?.lua;${luaHttp}/share/lua/5.1/?.lua;;';
-        lua_shared_dict crowdsec_cache 10m;
+        lua_shared_dict crowdsec_cache 32m;
 
         init_by_lua_block {
           cs = require "crowdsec"

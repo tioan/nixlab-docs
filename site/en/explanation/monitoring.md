@@ -25,9 +25,13 @@ The dashboards are JSON in `hosts/grammi/dashboards/`, provisioned from the repo
 | Hosts Overview | Scrape targets, CPU/memory/disk/network per host, failed units, certificates, backups (btrbk, restic), pending firmware, WLAN band/signal |
 | Topology | Hosts, exporters and data flows as a Graphviz diagram |
 | NetBird | Control plane reachable per host; peers per host as expected (Tofu) / known (network map) / connected P2P / connected relay, plus deviations; connection history, P2P latency, sync and setup times; netbird-server (signal, relay, gRPC, API); throughput and volume of the exit nodes aldrin/zummi per IP family ([exit nodes](secrets-network-access.md#exit-nodes-monitoring)) |
-| WLAN | ursalia's and zorlock's band (2.4 / 5 / 6 GHz) over time, channel, signal, PHY mode, link rate, traffic, MCS, retries, time associated |
+| Wi-Fi | ursalia's and zorlock's band (2.4 / 5 / 6 GHz) over time, channel, signal, PHY mode, link rate, traffic, MCS, retries, time associated |
 | Disk Health | SMART of ursalia's NVMe and SATA SSD: status, critical warnings, wear, spare, temperature, data written, ATA error counters, outcome and age of the last self-tests |
 | Fiber modem | Modem on gruffi's `lan2`: optical Rx/Tx power with the class B+ limits, BIP/CRC errors, hardware status, traffic on the Link port; plus gruffi's load, memory, conntrack and `lan2` |
+| gruffi Wi-Fi | gruffi's access points: stations per SSID and band, signal per client (with MAC, not for sharing), traffic and retries, PCI devices |
+| gruffi cooling | gruffi's temperatures (CPU, Wi-Fi sensors), fan speed and PWM |
+| gruffi DHCP | gruffi's current DHCPv4 leases with their inventory name, those not in the inventory, leases and pool usage per network (with MAC and client hostname, not for sharing) |
+| Home network flows | Who talks to whom in the home networks: traffic per device, top devices and destinations by AS, goflow2's health. Each device name opens "Flow device" with its destinations, ports and latest records. Not for sharing |
 | Paperless | Health (Celery, Redis, DB, index, classifier), documents, inbox, failed tasks, storage, log warnings |
 | paperless-gpt | OCR and suggestion backlog, OCR time per page, LLM requests, durations, tokens, errors; zorlock's GPU and memory |
 | ESPHome builds | The build server on ursalia: health, ESPHome version, builds and success rate, duration per build and device, CPU and memory next to Paperless, toolchain cache size, warnings. Builds and durations come from the log lines "Starting job …" / "Job … completed/failed" via LogsQL; device-builder has no metrics endpoint |
@@ -52,11 +56,14 @@ The dashboards are JSON in `hosts/grammi/dashboards/`, provisioned from the repo
 | UnitFailed | journal: systemd's "unit failed" (`MESSAGE_ID d9b373ed…`) per host and unit in 30 min (failures in the mute window: 3 h), plus `node_systemd_unit_state{state="failed"}` for 10 min | one failure is enough, the message gives the count |
 | MacosUpdatePending, MacosUpdateCheckStale | `macos_updates_pending`, `macos_updates_last_check_timestamp_seconds` | macOS update pending for over a week, daily check without success for 3 days (zorlock); installed by hand |
 | NixosUpgradeStale | `nixlab_nixos_upgrade_last_success_seconds` | no success for 26 h, except under a deploy hold |
+| BackupRunFailed, BackupNotVerified, BackupMetricMissing | `nixlab_backup_last_run_failed`, `nixlab_backup_verified_timestamp_seconds` | last run not verified, last verified run older than 26 h (0 = never), metric gone |
+| BackupBucketNoNewObject, HealthlogOffhostIncomplete | `nixlab_s3_last_new_object_timestamp_seconds`, `nixlab_s3_new_objects_24h` | aldrin's view: nothing new in the bucket for 26 h; HealthLog fewer than 4 objects in 24 h |
 | ResticBackupStale, ResticCheckFailed | `restic_backup_timestamp`, `restic_check_success` | newest snapshot older than 26 h, check failed |
 | BtrbkSnapshotStale | `btrbk_last_snapshot_timestamp_seconds` | older than 26 h |
 | CertExpiring | `ssl_certificate_expiry_seconds`, only `/var/lib/acme/<domain>/cert.pem` | less than 21 days |
 | DiskFull | `node_filesystem_*` | above 85 % for 15 min |
 | HostGone, TargetDown | `up` | host sent within the last 24 h, but not now; exporter down for 15 min |
+| PublicServiceDown, PublicProbeStale, PublicProbeMissing | `nixlab_http_probe_success`, `nixlab_http_probe_timestamp_seconds` | zummi's view of go2x.de: not answering for 5 min; no new probe result for about 15 min; no such metric for 15 min |
 | NetbirdGroupSyncStale | `nixlab_netbird_group_sync_last_success_seconds` | no clean run for 1 h |
 | SyncCredentialExpiring | `nixlab_netbird_group_sync_credential_expiry_seconds` | the group sync's token or key expires in less than 30 days |
 | PersonNotManaged | `nixlab_netbird_group_sync_unmanaged_person` | Pocket ID user in `homelab`/`homelab_admins` who is not in `people.tf`, for 1 h |
@@ -64,10 +71,12 @@ The dashboards are JSON in `hosts/grammi/dashboards/`, provisioned from the repo
 | ModemRxPowerOutOfSpec, ModemTxPowerOutOfSpec | `modem_pon_rx_power_dbm`, `modem_pon_tx_power_dbm` | Rx outside -27 to -8 dBm, Tx outside +0.5 to +5 dBm, 5 min each (ITU-T G.984.2, table A.1, class B+; whether the Telekom line is B+ is not confirmed) |
 | ModemRxPowerDropped, ModemBipErrors, ModemUnreachable | `modem_pon_rx_power_dbm`, `modem_pon_rx_bip_crc_total`, `modem_scrape_success` | Rx 3 dB below the 7-day average for 1 h; BIP/CRC rising for 15 min; modem not answering for 10 min (all three thresholds our own choice) |
 | ModemHardwareFault | `modem_hardware_ok` | the modem reports a hardware fault for 5 min |
+| GruffiFanNotTurning, GruffiTooHot | `node_hwmon_temp_celsius`, `node_hwmon_fan_rpm` | CPU above 65 °C and the fan at 0 RPM for 5 min; CPU above 90 °C for 10 min |
 | GruffiWifiMissing | `up`, `node_network_info` | gruffi answers, but no AP interface is `up` for 5 min: the Wi-Fi module may be missing (nixlab#93). A deliberate `wifi down` fires this too |
 | LinkSpeedDropped | `node_network_speed_bytes` | an Ethernet link negotiates less than within the last 7 days, for 30 min |
 | AddressNotInInventory, MacNotInInventory | `node_network_address_info`, `node_network_info` | an interface with an address or MAC in the inventory reports a different one, for 30 min |
 | VersionCheckCriticalUpdate | journal: the "critical update" lines of the version check on zorlock (`hosts/zorlock/version-check.nix`) | a core service (`criticality: core` in `inventory.json`) has an upstream release no report has covered yet; held back until 07:00, stays up for 12 h; the assessment is in that night's `claude.md` (`just version-check-fetch`) |
+| CrowdsecCacheFull | journal: the "crowdsec cache) is full" lines of the Lua bouncer (`modules/waf.nix`) | a new decision evicted a valid one from `lua_shared_dict crowdsec_cache`, so bans may be missing; stays up for 6 h |
 | Watchdog | `vector(1)` | always, as heartbeat |
 
 **Link speed:** LinkSpeedDropped compares a link with its own past, not with `speed` in `inventory.json`: that is what one end can do, a link gets the slower of both ends (tummi's 2.5G port behind the Beryl's 1G). After a deliberate move to a slower port, silence it; it resolves once the faster week has passed. Wi-Fi and unplugged ports report no speed. Only ports with a `speed` in the inventory count: veths, taps and bridges report made-up speeds, and a bridge follows its ports. Negotiated and inventory capability side by side: table "Links: negotiated vs. capability" in the Hosts Overview, fed by `nixlab_inventory_link_speed_bytes` (vmalert group `nixlab-inventory`, one constant series per interface with a `speed`).
@@ -83,3 +92,15 @@ The dashboards are JSON in `hosts/grammi/dashboards/`, provisioned from the repo
 **In HA:** automation "nixlab Alertmanager" (webhook, one run per group; tag `nixlab-<alert>-<host>`, so that the resolve removes the push and the web UI notification again), "nixlab Alerting stumm" and the timer. The push goes through the legacy service `notify.mobile_app_…`, because `notify.send_message` takes no `data.tag`. The webhook ID is the only secret: `just alerting-webhook-key` puts a new one on the clipboard (for the automation's trigger) and the URL into `hosts/grammi/alerting.yaml`. Deploy grammi afterwards. "gruffi: Shelly-Leiste nicht erreichbar" sends a push when the strip's switch is `unavailable` for 5 min, and an all-clear; it does not need grammi, but it does need the internet through gruffi (nixlab#191).
 
 **Testing:** send a synthetic alert straight to Alertmanager: `ssh root@grammi.peer.homelab.example amtool --alertmanager.url=http://127.0.0.1:9093 alert add alertname=Test host=test --annotation=summary=Test`. It goes away by itself after 5 min. End to end: `systemd-run --unit=alerting-selftest false` on a host, UnitFailed arrives within about 5 min; the resolve follows once the failure drops out of the 30 min window.
+
+## When a backup counts as successful { #backup-verified }
+
+Not when the unit reports `success`: the nightly switch resets failed units, and restic also exits 0 with a missing path. For the restic jobs on ursalia, tummi, grammi and zummi only what [`modules/restic-verified.nix`](https://github.com/tioan/nixlab-docs/blob/main/modules/restic-verified.nix) confirms counts:
+
+- **Before:** every path holds data, and the inputs (dumps, the Paperless export) succeeded within 26 h. If not, the backup is stored anyway, but its snapshot gets the tag `unverified`.
+- **After:** the snapshot is read back from the repository: it exists, it is from this run, its size is plausible, the required paths are in it, `restic check` passes (Sundays with 5% of the data, 1% for the `data` jobs).
+- **Only then** does `nixlab_backup_verified_timestamp_seconds` move and `forget --prune` run. Otherwise `nixlab_backup_last_run_failed` stays at 1, across switches too, until a run is verified.
+
+Unverified jobs start again at 05:15 and 07:15. When restoring, use the ID from `nixlab_backup_verified_snapshot_info` rather than `latest`, because the newest snapshot may be `unverified`. `just test-restic-verified` exercises this with forced failures.
+
+The `data` jobs on tummi and ursalia ([`modules/restic-data.nix`](https://github.com/tioan/nixlab-docs/blob/main/modules/restic-data.nix)) back up the whole `/data` disk and have no restic exporter, so the Hosts Overview shows them only in the panel of verified backup ages. Their size check is minimal: on a box for sorting files, a large deletion is normal. A first run takes days over the home line; until it ends, `BackupNotVerified` and `BackupBucketNoNewObject` fire for that job.
