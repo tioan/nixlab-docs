@@ -56,7 +56,7 @@ The remote site (a club whose Omada network is looked after from here) is connec
 
 Only the admin device: the four NetBird policies `remote-*` (`terraform/netbird/remote.tf`, one per VLAN) have `admin-workstations` as their source, that is gusto, and no person group. Every other peer does not even get the route. When gusto is at the site itself, the route goes away (posture check `not-at-remote`) and traffic goes direct.
 
-gw-remote itself is in the group `remote-devices`, not `servers`: it ends tunnels from a network others run, so it reaches only what it is explicitly allowed, grammi's metrics and log ingest (`remote-devices-telemetry`, TCP 8428/9428), like cuckoosegg.
+gw-remote itself is in the group `remote-devices`, not `servers`: it ends tunnels from a network others run, so it reaches only what it is explicitly allowed, grammi's metrics and log ingest (`remote-devices-telemetry`, TCP 8427 – vmauth, write only, as itself), like cuckoosegg.
 
 ## Isolation { #isolation }
 

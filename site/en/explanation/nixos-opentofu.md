@@ -58,7 +58,7 @@ The flow for a new host: Tofu creates the setup key, `just netbird-key` writes i
 
 | Direction | File | Created by | Read by | Contents |
 | --- | --- | --- | --- | --- |
-| Tofu → NixOS | `hosts/<host>/desec.yaml` | `just desec-key <host>` (`tofu output acme_tokens` → `sops encrypt`) | `modules/acme.nix` (`sopsFile`) | deSEC token for TXT records only, VMs pinned to their IP |
+| Tofu → NixOS | `hosts/<host>/desec.yaml` | `just desec-key <host>` (`tofu output acme_tokens` → `sops encrypt`) | `modules/acme.nix` (`sopsFile`) | deSEC token only for the `_acme-challenge` TXT records of its own names, VMs pinned to their IP |
 
 ### Expected and admin peers { #peers }
 

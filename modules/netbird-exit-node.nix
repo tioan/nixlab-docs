@@ -108,9 +108,8 @@ in
       '';
     };
 
-    # Into node_exporter's textfile collector (modules/metrics.nix), same
-    # pattern as tailscale-metrics there: a timer, a temporary file and an
-    # atomic rename.
+    # Into node_exporter's textfile collector (modules/metrics.nix): a timer,
+    # a temporary file and an atomic rename.
     systemd.services.netbird-exit-node-metrics = {
       description = "NetBird exit node traffic counters for node_exporter's textfile collector";
       after = [ "nftables.service" ];

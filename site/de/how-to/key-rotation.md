@@ -7,6 +7,8 @@ Was sich wie erneuern lässt und was danach zu tun ist. Die Rezepte ersetzen den
 | NetBird-Setup-Key eines Hosts | `just netbird-key <host>` | Deploy innerhalb von 24 h | bei Neuinstallation oder verlorenem Client-State |
 | deSEC-Token eines Hosts | `just desec-key <host>` | sofort deployen, dann `just desec-verify` | bei Verdacht, sonst nie |
 | GitHub-Deploy-Key eines Hosts | `just github-key <host>` | commit + deploy | bei Verdacht |
+| Signaturschlüssel der Workstation (1Password „nixlab commit signing“) | neuer SSH-Schlüssel in 1Password, öffentlicher Teil nach `hosts/gusto/git-signing.pub` | committen, mit dem **alten** Schlüssel signieren, alle Hosts deployen, dann `just mac-switch` | bei Verdacht |
+| Prebuild-Signaturschlüssel von ursalia | `just prebuild-signing-key` | committen, alle Hosts vor 02:30 deployen | bei Verdacht |
 | Tofu-Token für NetBird (Service-User `terraform`) | `just netbird-renew-token` | – | jährlich |
 | App-Secrets | `just secrets <host>` (siehe [Secrets eintragen](secrets.md)) | deploy | bei Verdacht |
 

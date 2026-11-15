@@ -27,8 +27,9 @@
 # hosts/grammi/alerting.nix.
 #
 # Setting up a host:
-#   add the bucket to terraform/garage/buckets.tf, modules/crowdsec.nix and
-#     hosts/aldrin/s3-upload-metrics.nix, and deploy aldrin first
+#   add the bucket to terraform/garage/buckets.tf, services.crowdsecBuckets in
+#     hosts/aldrin/configuration.nix and hosts/aldrin/s3-upload-metrics.nix,
+#     and deploy aldrin first
 #   just garage-apply
 #   just data-backup-secrets <host>
 #   deploy the host, then once: restic-data init

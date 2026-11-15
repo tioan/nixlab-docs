@@ -1,7 +1,6 @@
 # NetBird client, joining the homelab mesh (control plane: mesh.homelab.example,
-# hosts/grammi/netbird.nix; account: terraform/netbird). Runs next to
-# Tailscale, not instead of it - see modules/tailscale.nix, which stays as
-# it is until individual services move over.
+# hosts/grammi/netbird.nix; account: terraform/netbird). The only overlay
+# since Tailscale was removed (2026-11, admin/nixlab#360).
 #
 # The host registers once with a single-use setup key from
 # hosts/<host>/netbird.yaml, written by `just netbird-key <host>` (24 h
@@ -55,7 +54,7 @@ in
   services.netbird.package = nb.netbird;
 
   services.netbird.clients.mesh = {
-    # Root, like tailscaled - not the module's default "hardened" user.
+    # Root - not the module's default "hardened" user.
     # Hardened, the client could neither serve peer.homelab.example names (no
     # CAP_NET_BIND_SERVICE for :53 - "bind: permission denied") nor hand them
     # to systemd-resolved: the module's answer to that is a polkit rule, and
@@ -66,8 +65,7 @@ in
     hardened = false;
 
     # WireGuard. openFirewall (module default) opens it on the public
-    # interfaces - same reasoning as Tailscale's 41641 in modules/firewall.nix:
-    # NAT traversal works without it, an open port makes direct connections
+    # interfaces: NAT traversal works without it, an open port makes direct connections
     # reliable when the other side sits behind a strict NAT.
     port = 51820;
 
@@ -123,7 +121,7 @@ in
     restartUnits = [ "${client.service.name}-login.service" ];
   };
 
-  # Same trap as tailscaled (see modules/tailscale.nix): the client registers
+  # The client registers
   # its DNS scope with systemd-resolved over D-Bus at startup, and a
   # restarted resolved forgets it - peer.homelab.example names would stop
   # resolving without anything failing.
@@ -198,8 +196,8 @@ in
   services.metricsShipping.exporterPorts.netbird = metricsPort;
 
   # ifstate reconciles links, routes and rules and deletes what it does not
-  # know - the exact failure tailscale0 had (modules/tailscale.nix). Keep it
-  # off NetBird's:
+  # know - tailscale0 lost its link and rules that way on every activation
+  # while Tailscale still ran here. Keep it off NetBird's:
   #  - the nb-mesh interface,
   #  - its policy rules: priority 105 (lookup main, suppress_prefixlength 0)
   #    and 110 (not fwmark 0x1BD00 -> table 0x1BD0/7120), v4 and v6 - from
@@ -211,7 +209,6 @@ in
   # Verified with a live 0.80 client and `ifstatecli check` against aldrin's
   # generated ifstate.yaml: with these entries nothing of NetBird's is
   # touched; without them it plans "nb-mesh del", "#105 del", "#110 del".
-  # Additive to the Tailscale entries, the module system concatenates lists.
   # Inert on hosts without ifstate (ursalia).
   networking.ifstate.settings.parameters.ignore = {
     ifname = [ "^${client.interface}$" ];
@@ -224,12 +221,10 @@ in
     ];
   };
 
-  # Trusted like tailscale0 (modules/firewall.nix), so everything a host
-  # serves to the tailnet today is reachable over the mesh too - the
-  # precondition for moving hosts over one by one. Who may connect is
-  # decided by NetBird's policies (terraform/netbird: any peer -> servers),
-  # which the client enforces in its own nftables table before this
-  # firewall sees the packet; the same scope Tailscale has today with its
-  # default allow-all policy. Was untrusted while nothing was served here.
+  # Trusted, so everything a host serves only to the mesh needs no port
+  # opening of its own (modules/firewall.nix opens 22/80/443 publicly).
+  # Who may connect is decided by NetBird's policies (terraform/netbird:
+  # any peer -> servers), which the client enforces in its own nftables
+  # table before this firewall sees the packet.
   networking.firewall.trustedInterfaces = [ client.interface ];
 }

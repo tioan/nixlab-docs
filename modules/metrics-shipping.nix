@@ -29,7 +29,7 @@ let
         # showing an undifferentiated "127.0.0.1:9113" in the Instance
         # dropdown with nothing indicating which exporter that even is.
         static_configs = lib.mapAttrsToList (name: port: {
-          targets = [ "127.0.0.1:${toString port}" ];
+          targets = [ "${cfg.exporterAddresses.${name} or "127.0.0.1"}:${toString port}" ];
           labels.instance = name;
         }) cfg.exporterPorts;
       }
@@ -57,8 +57,28 @@ in
         VictoriaMetrics remote_write endpoint, over the NetBird mesh. Mesh-only
         by design - see hosts/grammi/configuration.nix, the ingest port is not
         in networking.firewall.allowedTCPPorts, only reachable over the
-        trusted mesh (and tailnet) interface.
+        trusted mesh interface.
       '';
+    };
+
+    basicAuth = {
+      username = lib.mkOption {
+        type = lib.types.nullOr lib.types.str;
+        default = null;
+        description = ''
+          User at the receiving end (vmauth on grammi, modules/
+          telemetry-ingest.nix); null sends without credentials.
+        '';
+      };
+      passwordFile = lib.mkOption {
+        type = lib.types.nullOr lib.types.str;
+        default = null;
+        example = "/run/secrets/telemetry-ingest";
+        description = ''
+          File holding that user's password, read at start. Any owner:
+          systemd hands it to vmagent as a credential.
+        '';
+      };
     };
 
     exporterPorts = lib.mkOption {
@@ -70,6 +90,18 @@ in
         services.prometheus.exporters.<name>.port values. The name becomes
         this target's `instance` label in VictoriaMetrics, so vmui shows
         e.g. "node"/"nginx" instead of an undifferentiated "127.0.0.1:9113".
+      '';
+    };
+
+    exporterAddresses = lib.mkOption {
+      type = lib.types.attrsOf lib.types.str;
+      default = { };
+      example = { restic = "[::1]"; };
+      description = ''
+        Loopback address to scrape per exporterPorts name, "127.0.0.1" where
+        absent. For exporters that also answer on [::1] through
+        modules/loopback-v6-proxy.nix: the lab prefers IPv6, so those are
+        scraped there. IPv6 literals need their brackets.
       '';
     };
 
@@ -90,6 +122,11 @@ in
   };
 
   config = lib.mkIf cfg.enable {
+    assertions = [{
+      assertion = (cfg.basicAuth.username == null) == (cfg.basicAuth.passwordFile == null);
+      message = "services.metricsShipping.basicAuth: set username and passwordFile together.";
+    }];
+
     systemd.services.vmagent = {
       description = "vmagent - ships local Prometheus metrics to ${cfg.remoteWriteUrl}";
       # The endpoint only resolves (peer.homelab.example via NetBird's DNS) and
@@ -109,13 +146,21 @@ in
         # system" until pointed at an explicit, writable path. StateDirectory
         # creates and owns /var/lib/vmagent for the dynamic user.
         StateDirectory = "vmagent";
-        ExecStart = ''
-          ${pkgs.victoriametrics}/bin/vmagent \
-            -promscrape.config=${scrapeConfig} \
-            -remoteWrite.url=${cfg.remoteWriteUrl} \
-            -remoteWrite.tmpDataPath=/var/lib/vmagent \
-            -httpListenAddr=127.0.0.1:8429
-        '';
+        # -enableTCP6: without it vmagent dials IPv4 only and fails every
+        # target written as "[::1]:port" ("no suitable address found"), see
+        # exporterAddresses.
+        ExecStart = lib.concatStringsSep " " ([
+          "${pkgs.victoriametrics}/bin/vmagent"
+          "-promscrape.config=${scrapeConfig}"
+          "-remoteWrite.url=${cfg.remoteWriteUrl}"
+          "-remoteWrite.tmpDataPath=/var/lib/vmagent"
+          "-enableTCP6"
+          "-httpListenAddr=127.0.0.1:8429"
+        ] ++ lib.optionals (cfg.basicAuth.username != null) [
+          "-remoteWrite.basicAuth.username=${cfg.basicAuth.username}"
+          "-remoteWrite.basicAuth.passwordFile=/run/credentials/vmagent.service/ingest-password"
+        ]);
+        LoadCredential = lib.mkIf (cfg.basicAuth.passwordFile != null) [ "ingest-password:${cfg.basicAuth.passwordFile}" ];
         Restart = "on-failure";
         RestartSec = "10s";
       };

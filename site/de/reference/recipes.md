@@ -6,6 +6,7 @@
 | `just try-confirm <host> [minutes] [via]` | Wie `try`, rollt aber von selbst zurück, wenn der Host nicht innerhalb der Frist erreicht und bestätigt wird ([mit automatischem Zurückrollen](../how-to/try-branch.md#confirm)) |
 | `just release <host>` / `holds` | Halt ohne Merge aufheben / alle Halte anzeigen |
 | `just test-restic-verified` | Erzwungene Backup-Fehler in einer Wegwerf-VM auf ursalia ([Wann ein Backup als erfolgreich gilt](../explanation/monitoring.md#backup-verified)) |
+| `just test-gw-remote-private-users` | gw-remote im User-Namespace in einer Wegwerf-VM auf ursalia: OpenVPN, nftables, WireGuard im Container, dann der Switch zurück ohne |
 | `just restore-test <host> [isolation]` | grammi oder zummi aus restic in eine Wegwerf-VM ohne Netz auf ursalia zurückholen und die RTO messen ([Restore testen](../how-to/restore-test.md)) |
 | `just check <host>` | `git pull` + `nixos-rebuild dry-activate` |
 | `just secrets <host>` / `pull-secrets <host>` | Host-Secrets auf dem Host editieren und zurückholen |
@@ -23,9 +24,12 @@
 | `just netbird-proxy-certs` | Proxy-Diensten ohne Zertifikat eins holen und das Dashboard nachziehen (NetBird #7118); läuft am Ende von `netbird-apply` |
 | `just dokumente-share-pin` / `dokumente-share-pin-show` | Neue zufällige PIN für Paperless-Freigabelinks von außen (danach `netbird-apply`) bzw. aktuelle anzeigen |
 | `just netbird-key <host>` | Neuer Setup-Key für einen Host, 24 h Zeit zum Deployen |
+| `just netbird-key-techo5` | Setup-Key für ein TECHO5-Gerät (Echo Show 8) in die Zwischenablage des Macs, nie ausgegeben; 24 h gültig, Schritte in `terraform/netbird/techo5.tf` |
 | `just netbird-import` | Tofu-State aus dem Account neu aufbauen – nur nötig, wenn auch git ihn nicht hat ([Tofu-State](../explanation/nixos-opentofu.md#state)) |
-| `just netbird-renew-token` | Jährliche Erneuerung des Service-User-Tokens |
+| `just netbird-renew-token` | Service-User-Token erneuern (90 Tage gültig; Alarm NetbirdTokenExpiring drei Wochen vorher) |
 | `just tf-state-passphrase` | Einmalig: Passphrase für die Tofu-States nach `terraform/secrets.yaml` (überschreibt nie) |
+| `just tf-state-rekey` | Neue zufällige State-Passphrase, alle States damit neu verschlüsselt und mit `terraform/secrets.yaml` in einem Commit; im Haupt-Checkout auf main, danach pushen. Die alten Chiffrate bleiben in der git-Historie |
+| `just telemetry-credentials [user]` | Passwörter für grammis Metrik-/Log-Eingang (vmauth, ein Benutzer pro Absender in `hosts/grammi/telemetry-ingest.json`): ergänzt fehlende, oder ein neues für `user`; landet in `hosts/grammi/telemetry-ingest.yaml` und in der `telemetry.yaml` des Absenders, wird nie ausgegeben |
 | `just github-key <host>` | Neuer GitHub-Deploy-Key für einen Host (Schlüssel per sops, Registrierung per Tofu) |
 | `just github-plan` / `github-apply` | Repos und Deploy-Keys auf GitHub ändern |
 | `just garage-plan` / `garage-apply` | Buckets, Keys und Rechte in Garage auf aldrin ändern (`terraform/garage`) |
@@ -33,11 +37,14 @@
 | `just data-backup-secrets <host>` | Dasselbe für den Bucket `<host>-data-backups` nach `hosts/<host>/backup-data.yaml` (`modules/restic-data.nix`) – einmal pro Host, nach `garage-apply` |
 | `just garage-admin-token` | Garages Admin-Token per SSH von aldrin nach `terraform/secrets.yaml` kopieren – einmal, und wieder nach jeder Rotation |
 | `just desec-key <host>` / `desec-verify` | deSEC-Token tauschen bzw. Scopes von jedem Host aus prüfen |
+| `just desec-names` | `terraform/desec-tokens/acme-names.json` aus der Flake neu schreiben (Namen, die jeder Token schreiben darf); danach `desec-apply` |
 | `just nanokvm-mcp-key` | MCP-API-Key des NanoKVM Go+ verschlüsselt für ursalia ablegen (danach committen, ursalia deployen) |
+| `just nanokvm-cert` | Selbstsigniertes Zertifikat des NanoKVM Go+ so holen, wie ursalia es sieht, und nach dem Vergleich pinnen (danach committen, ursalia deployen) |
 | `just kvm-bridge setup\|start\|stop\|status\|log` | Claude-Code-Brücke zum NanoKVM Go+ auf ursalia: einmal einrichten, starten, stoppen, Zustand, Log |
 | `just mac-diff [host]` / `mac-switch [host]` | Macs (Standard gusto, oder zorlock per SSH): zeigen, was ein Switch ändern würde (nvd, Homebrew entfernt/installiert), oder schalten mit Zusammenfassung – siehe [macOS-Hosts](../explanation/macos-hosts.md) |
 | `just apps [suche] [--host h]` / `just apps install\|uninstall <name>…` / `apps-list [host]` / `apps-rm <name> [host]` | Software eines Macs (`hosts/<host>/apps.json`): eine Runde aus Suchen in nixpkgs, Homebrew und App Store, Hinzufügen (nach Pin-Prüfung) und Entfernen, dann ein Switch und ein Commit; exakte Namen wie brew installieren oder deinstallieren; auflisten; einen Eintrag entfernen – auf gusto auch als `apps`, `apps-list`, `apps-rm` in jedem Ordner, siehe [Software auf den Macs](../how-to/software.md) |
 | `just mac-upgrade` | Auf gusto: Homebrew-Pins aktualisieren, schalten, `brew upgrade`, NetBird-Version neben dem Mesh-Pin; `flake.lock` committen |
+| `just container-bump <host> <name> [tag]` | Container-Image auf den Digest des neuesten Release-Tags (oder des angegebenen) in `hosts/<host>/container-images.json` pinnen; dann committen und deployen ([Container-Image aktualisieren](../how-to/container-images.md)) |
 | `just gc <host>` | Store-Generationen älter als 7 Tage löschen |
 | `just docs` | Diese Doku bauen: private PDFs (de/en) und die anonymisierte öffentliche Fassung (README, PDFs, Site-Quellen, Module) in `public-docs/` (Clone von `nixlab-docs`, gitignored), dort committet und gepusht; GitHub baut daraus die Site |
 | `just docs-serve` | Private Site mit echten Werten lokal bauen und unter `http://127.0.0.1:8000` zeigen |

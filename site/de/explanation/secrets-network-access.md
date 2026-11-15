@@ -17,16 +17,17 @@ Der Workstation-Key liegt in 1Password und wird über `SOPS_AGE_KEY_CMD` gelesen
 
 ## Netzwerk
 
-- **NetBird-Mesh** (`192.0.2.0/24` und `2001:db8:203:0::/64`, Peer-Namen unter `peer.homelab.example`): Control Plane auf grammi, Login über Pocket ID. Private Range (RFC 1918) statt CGNAT, weil tailscaled Pakete aus 100.64/10 verwirft, solange beide Clients parallel laufen.
+- **NetBird-Mesh** (`192.0.2.0/24` und `2001:db8:203:0::/64`, Peer-Namen unter `peer.homelab.example`): Control Plane auf grammi, Login über Pocket ID. Private Range (RFC 1918) statt CGNAT, weil tailscaled Pakete aus 100.64/10 verwarf, solange beide Clients parallel liefen; ein Umnummerieren würde heute jeden Peer verschieben.
 - **Gruppen:** `servers` (alle Hosts außer cuckoosegg), `subraum-devices`, `remote-devices` (gw-remote, [Standort-Gateway](site-gateway.md)), `admin-workstations` (MacBook), dazu Personengruppen aus Pocket ID.
 - **Heim-LAN** (`198.51.100.0/24`): Route über ursalia (Metrik 100), die beiden Apple TVs als Rückfall (Gruppe `home-routers`, Metrik 200, eigener Setup-Key per `just netbird-router-key`, keiner Person zugeordnet, in keiner Policy); für Gruppe `home-lan`, nicht für Geräte, die schon zu Hause sind (Posture-Check `not-at-home`). Rosenpass ist seit 2026-10-24 im ganzen Mesh aus (bis 2026-10-31, siehe [macOS-Hosts](macos-hosts.md#netbird-auf-den-beiden-macs)); „Quantum-Resistance“ in der App der Apple TVs gehört für diese Zeit ebenfalls aus.
 - **Reiserouter** (Mudi 7, GL.iNet GL-E5800): Peer `mudi7`, Gruppe `travel-routers`, eigener Setup-Key per `just netbird-key-mudi7`, keiner Person zugeordnet und vorerst in keiner Policy. Das OpenWrt-Paket liefert nur NetBird 0.24.3; das Binary wird von Hand gegen das `linux_arm64`-Release in der Mesh-Version getauscht (`terraform/netbird/travel-router.tf`).
+- **TECHO5** (Echo Show 8 mit der TECHO5-Firmware, vorerst das Testgerät „TECHO5 Test“): Gruppe `techo5`, eigener Setup-Key per `just netbird-key-techo5`, einzufügen auf der Setup-Seite des Geräts (Network → NetBird), keiner Person zugeordnet. Home Assistant erreicht die ESPHome-API (TCP 6053), `admin-workstations` Setup-Seite (TCP 8181), SSH und Ping; mehr lässt die Firewall von TECHO5 aus dem Mesh ohnehin nicht herein, DNS und Routen aus dem Mesh nimmt das Gerät nicht an. Als oft ausgeschaltetes Testgerät nicht in den erwarteten Peers gezählt (`terraform/netbird/techo5.tf`).
 - **Anbindung von ursalia:** seit 2026-11-02 per 2,5G-Kabel (`enp46s0`, `hosts/ursalia/lan.nix`) ins Hauptnetz des Heim-LANs, DHCP ohne Reservierung. Das WLAN (Intel AX211, `modules/home-wifi.nix`) ist aus: Am Flint 4 scheiterte die Anmeldung, weil das 5-GHz-Netz SAE H2E ankündigt und wpa_supplicant dafür die Passphrase in der eigenen Konfiguration braucht, die per `ext_password` aber nicht dort steht („SAE: Could not find PT for group 19“). Ein WLAN als Reserve neben dem Kabel ist bewusst weggelassen: Beide Verbindungen gleichzeitig aktiv hat NetBird auf der M720q schlecht vertragen.
 - **Anbindung von zorlock:** ebenfalls WLAN (`en1`, Broadcom); `hosts/zorlock/wifi.nix` stellt sicher, dass `homelab` als bevorzugtes Netz eingetragen ist (`networksetup`, fügt nur hinzu, Passwort per sops in `hosts/zorlock/wifi.yaml`). nix-darwin hat kein WLAN-Modul; die Bandwahl bleibt bei macOS.
 - **Exit-Nodes und IPv6:** aldrin und zummi als Exit-Nodes für die Gruppe `exit-nodes`; das Mesh ist Dualstack (`2001:db8:203:0::/64`) – siehe [Exit-Nodes & IPv6](#exit-nodes).
-- **Subraum:** Route über cuckoosegg für `subraum-access`. cuckoosegg selbst darf nur grammis Ingest (TCP 8428/9428) erreichen und nur vom MacBook per SSH erreicht werden.
+- **Subraum:** Route über cuckoosegg für `subraum-access`. cuckoosegg selbst darf nur grammis Ingest (TCP 8427, vmauth: nur schreiben, nur als es selbst) erreichen und nur vom MacBook per SSH erreicht werden.
 - **Subraum-Namen pro Gerät:** Die Domain-Resource `subraum-names` (`*.subraum.hackspace.example`, seit 2026-11-13) gibt `subraum-access`-Geräten außerhalb des Subraums die interne Sicht des Subraum-Routers: A-Records und ULAs statt nur öffentlicher GUAs. Der NetBird-Client schickt die Anfragen an den DNS-Forwarder auf cuckoosegg und routet jede Antwort-Adresse, IPv4 wie IPv6, über cuckoosegg. Standardmäßig ausgewählt; abschalten im Networks-Menü oder mit `netbird networks deselect subraum-names`, dann gilt wieder die öffentliche Sicht. Im Subraum selbst greift der Posture-Check `not-in-subraum`. Die Apex `subraum.hackspace.example` bleibt öffentlich. cuckoosegg nimmt DNS nur per DHCPv4 vom Subraum-Router an, nicht aus Router Advertisements – ein zweites Gerät in VLAN 10 kündigt sich dort als DNS-Server an und liefert keine A-Records.
-- **Tailscale** läuft während der Migration noch parallel und dient als Break-Glass: `NIXLAB_DOMAIN=example-tailnet.ts.net just deploy zummi`.
+- **Notzugang bei totem Mesh** (grammi weg, gusto aus dem Mesh): für die Hosts mit öffentlicher Adresse (aldrin, grammi, zummi) über admin auf dem öffentlichen Namen des Hosts zu seiner eigenen Mesh-Adresse springen, `ssh -i ~/.ssh/pub/<host>.homelab.example.pub -J admin@<host>.homelab.example root@<eigene nb-mesh-Adresse>` (die Adresse: `ip -4 -o addr show dev nb-mesh` als admin). root kommt hinein, weil die Verbindung auf der Mesh-Adresse ankommt (`modules/ssh.nix`); ein funktionierendes Mesh braucht es nicht, nur die Adresse noch auf `nb-mesh` – also nicht nach einem Neustart während des Ausfalls. Dann: Provider-Konsole (realtox: aldrin, grammi; IONOS: zummi) mit dem root-Passwort aus `just root-password-show <host>`. Beides am 2026-11-15 geprobt. Tailscale, der frühere Notzugang, ist seit [nixlab#360](https://github.com/admin/nixlab/issues/360) weg.
 
 ### Exit-Nodes & IPv6 { #exit-nodes }
 
@@ -153,7 +154,7 @@ Das Gegenstück in NetBird sind Nameserver-Gruppen mit `domains` (Match-Domains)
 
 ## Zugriff
 
-Öffentlich offen sind nur 22/80/443. root-SSH lässt `modules/ssh.nix` nur von Mesh- oder Tailscale-Adressen zu; jeder Host hat ein eigenes Login-Keypair. Mesh heißt dabei beide Ranges, `192.0.2.0/24` und `2001:db8:203:0::/64` ([Dualstack](#mesh-ipv6)).
+Öffentlich offen sind nur 22/80/443. root-SSH lässt `modules/ssh.nix` nur auf der Mesh-Adresse des Hosts zu (auch über den admin-Sprung oben); jeder Host hat ein eigenes Login-Keypair. Mesh heißt dabei beide Ranges, `192.0.2.0/24` und `2001:db8:203:0::/64` ([Dualstack](#mesh-ipv6)).
 
 ### Wer erreicht die Server { #to-servers }
 
@@ -165,19 +166,21 @@ Das Gegenstück in NetBird sind Nameserver-Gruppen mit `domains` (Match-Domains)
 | `to-smb` | Personen-Geräte | ursalia (Gruppe `smb-servers`) | TCP 445 |
 | `to-servers-icmp` | Personen-Geräte | alle Server | ICMP |
 | `admin-to-servers` | `admin-workstations` (gusto) | alle Server | alles |
-| `servers-to-servers` | `servers` | alle Server | alles |
+| `servers-to-servers` | `servers` | alle Server | TCP 443 |
+| `servers-telemetry` | `servers` | grammi (Gruppe `telemetry-sink`) | TCP 8427 (vmauth) |
+| `servers-to-servers-icmp` | `servers` | alle Server | ICMP |
 
 Personen-Geräte erreichen damit nur die Web-Eingänge (nginx, Traefik, Caddy mit ihren eigenen Regeln) und die Samba-Freigabe – nicht mehr SSH, Exporter, Garages Admin-API, VictoriaMetrics/-Logs oder Traefiks `apps`-Entrypoint. `homelab_admins` bekommt nicht mehr als `homelab`: Admin ist ein in `admin-workstations` benanntes Gerät, kein Login. ICMP ganz statt nur Ping, weil eine NetBird-Regel nicht nach ICMP-Typ filtern kann.
 
-Der Reverse Proxy braucht keine dieser Policies: NetBird erlaubt seinen Peers den Port jedes Dienst-Ziels von selbst (`management/server/types/legacynmap/proxy_policies.go`, 0.81.0). Eigene Policies haben weiter cuckoosegg (nur 8428/9428 auf grammi), Home Assistant und die Exit-Nodes. `servers-to-servers` auf die genutzten Ports einzuschränken, ist geparkt ([offener Punkt](../project/open-items.md)).
+Der Reverse Proxy braucht keine dieser Policies: NetBird erlaubt seinen Peers den Port jedes Dienst-Ziels von selbst (`management/server/types/legacynmap/proxy_policies.go`, 0.81.0). Eigene Policies haben weiter cuckoosegg und gw-remote (nur 8427 auf grammi), Home Assistant und die Exit-Nodes. Zwischen den Servern ist seit 2026-11 nur offen, was sie nutzen ([nixlab#14](https://github.com/admin/nixlab/issues/14)): 443 für ursalia → zorlock (Ollama), aldrin → ursalia (Immich-Freigabelinks) und grammi → zummi (Pocket ID für den Gruppen-Sync), dazu der Ingest. Garage S3, die Pocket-ID-Logins und den NetBird-Management-Server erreichen die Server über deren öffentliche Adressen; Deploys kommen von den Admin-Arbeitsplätzen.
 
-Prüfen von einem Gerät nur in `homelab` (MacBook Pro, iPhone): `nc -zv grammi.peer.homelab.example 443` verbindet, `nc -zv grammi.peer.homelab.example 8090` und `… 8428` laufen in den Timeout.
+Prüfen von einem Gerät nur in `homelab` (MacBook Pro, iPhone): `nc -zv grammi.peer.homelab.example 443` verbindet, `nc -zv grammi.peer.homelab.example 8090` und `… 8427` laufen in den Timeout. Von einem Server, z. B. aldrin: 443 auf einem anderen Server und 8427 auf grammi verbinden, 22 und 8090 laufen in den Timeout.
 
 ### Apps auf grammi: nur über Traefik `:8090`
 
-Mealie, Grist, logchef und Grafana lauschen auf grammi nur auf `127.0.0.1`. Der Reverse Proxy erreicht sie über den Traefik-Entrypoint `apps` (Port 8090), der vor jede App Wartungsschalter und Fehlerseiten setzt ([Wartungsmodus](../how-to/maintenance.md)). VictoriaMetrics (8428) und VictoriaLogs (9428) lauschen weiter auf allen Adressen, weil die anderen Hosts ihre Metriken und Logs über das Mesh dorthin schicken.
+Mealie, Grist, logchef und Grafana lauschen auf grammi nur auf `127.0.0.1`. Der Reverse Proxy erreicht sie über den Traefik-Entrypoint `apps` (Port 8090), der vor jede App Wartungsschalter und Fehlerseiten setzt ([Wartungsmodus](../how-to/maintenance.md)). VictoriaMetrics und VictoriaLogs ebenso; die anderen Hosts erreichen sie nur über vmauth auf 8427, und nur zum Schreiben ([Monitoring](monitoring.md)).
 
-**Restlücke:** `:8090` selbst hat keine SSO. Von 2026-10-23 bis 2026-11-01 war das für jeden Mesh-Peer offen, auch für die Geräte aller Personen; seit [`to-servers`](#to-servers) auf 80/443 eingeschränkt ist, erreichen den Port nur noch der Proxy, die Admin-Geräte und die anderen Server. Ganz zu wird er erst, wenn der Proxy per `direct_upstream` auf Loopback zugreifen kann ([offener Punkt](../project/open-items.md)).
+**Restlücke:** `:8090` selbst hat keine SSO. Von 2026-10-23 bis 2026-11-01 war das für jeden Mesh-Peer offen, auch für die Geräte aller Personen; seit [`to-servers`](#to-servers) auf 80/443 eingeschränkt ist, erreichen den Port nur noch der Proxy, die Admin-Geräte und – bis [`servers-to-servers`](#to-servers) 2026-11 auf 443 eingeschränkt wurde – die anderen Server. Ganz zu wird er erst, wenn der Proxy per `direct_upstream` auf Loopback zugreifen kann ([offener Punkt](../project/open-items.md)).
 
 ### Private Doku: Admin-Geräte, Heimnetz, Login
 
@@ -221,6 +224,18 @@ Damit die Admin-Geräte mit ihrer Mesh-Adresse ankommen, zeigt eine NetBird-DNS-
 - Ohne NetBird auf dem Gerät gilt der öffentliche Eintrag: Login geht, der Admin-Bereich antwortet 403. Ein Browser mit eigenem DNS-over-HTTPS umgeht NetBirds DNS ebenso.
 - `just pocketid-plan`/`-apply` brauchen deshalb NetBird auf dem MacBook.
 - Ein neues Admin-Gerät: in `admin-workstations`, `just netbird-apply`, dann zummi deployen (wie bei der Doku auch aldrin und ursalia).
+
+### Zertifikate: deSEC-Tokens und CAA { #acme-caa }
+
+Jeder Host holt seine Zertifikate per DNS-01 mit einem eigenen deSEC-Token (`terraform/desec-tokens`). Seit 2026-11-15 darf jeder Token nur die `_acme-challenge`-TXT-Records der Namen seines Hosts schreiben (`acme-names.json`, von `just desec-names` aus `security.acme.certs` abgeleitet), sonst nichts; die Tokens der VMs sind zusätzlich an die öffentliche Adresse des Hosts gebunden. Kein Token kann ein Zertifikat für den Namen eines anderen Hosts oder eine Wildcard bekommen.
+
+Dazu CAA (Repo DNSControl, seit 2026-11-15):
+
+- **Pocket ID ist an zummis Konto gebunden:** `auth` ist ein CNAME auf `zummi`, also liest Let's Encrypt die CAA-Records von `zummi.homelab.example` – `issue` nur für Konto `3599937201`, nur `dns-01`, `issuewild ";"`. Selbst mit einem Token, der `_acme-challenge.auth` schreiben darf, braucht ein Zertifikat zummis Kontoschlüssel.
+- **Keine Wildcards:** `issuewild ";"` am Apex aller vier Zonen; im Lab nutzt niemand eine.
+- **Ein neues ACME-Konto auf zummi bricht die Erneuerung:** Das lego-Kontoverzeichnis hängt an E-Mail, Schlüsseltyp und Server – eine geänderte `security.acme.defaults.email` (`modules/acme.nix`) oder ein verlorenes `/var/lib/acme` registriert ein neues Konto, das CAA ablehnt. Vorher die `accounturi` in DNSControl anpassen. Das Konto liegt in zummis restic-Backup (`pocket-id`).
+- **Clients ohne E-Mail sind Absicht:** dns01proxy (Caddy) und der NetBird-Proxy auf grammi haben ihre Konten ohne E-Mail registriert. Let's Encrypt verschickt keine Ablauf-Mails mehr; den Ablauf überwacht der Zertifikats-Exporter (`modules/metrics.nix`), und eine E-Mail nachzutragen würde neue Konten anlegen.
+- **Tokens, die CAA noch schreiben können:** `DNSControl` (Workstation, sops) und der Tofu-Bootstrap-Token (`OpenTofu API-Key Management`), der Tokens verwalten darf und damit faktisch Vollzugriff hat (sops, `terraform/desec-tokens/secrets.yaml`). Beide bleiben bewusst so.
 
 ### Pocket ID → NetBird: Gruppensync { #group-sync }
 
@@ -271,14 +286,14 @@ Im Mesh löst `dokumente.homelab.example` über die NetBird-Zone direkt zu ursal
 
 ### Grafana: öffentliche Dashboards über `dash`
 
-Seit 2026-10-23 lassen sich Dashboards nach außen teilen („Share externally“, in Grafana „öffentliche Dashboards“). Das Recht dazu hat nur die Grafana-Rolle Admin. Die vergibt der SSO-Login an die Pocket-ID-Gruppe `grafana_admins` (eigens dafür, `terraform/netbird/people.tf`; Mitglieder in Pocket ID pflegen, wirksam beim nächsten Grafana-Login), alle anderen bleiben Editor.
+Seit 2026-10-23 lassen sich Dashboards nach außen teilen („Share externally“, in Grafana „öffentliche Dashboards“). Das Recht dazu hat nur die Grafana-Rolle Admin. Die vergibt der SSO-Login an die Pocket-ID-Gruppe `grafana_admins` (eigens dafür, `terraform/netbird/people.tf`; Mitglieder in Pocket ID pflegen, wirksam beim nächsten Grafana-Login). Alle anderen sind seit #306 Viewer: Dashboards ja, Explore nein – Explore hieße beliebige Abfragen gegen das Journal aller Hosts. Aus demselben Grund lassen `vm.homelab.example` und `vl.homelab.example` (die vmui von VictoriaMetrics und VictoriaLogs, ohne eigene Anmeldung) nur `homelab_admins` herein. Die Viewer-Rolle blendet Explore aus, ist aber keine harte Schranke: Grafana OSS kennt keine Rechte pro Datenquelle, ein Viewer kann über `/api/ds/query` weiter Abfragen schicken; die eigentliche Schranke ist die Proxy-Gruppe von `metrics`.
 
 **Der Weg:** `dash.homelab.example` ist ein eigener Dienst im Reverse Proxy, **ohne Login**. Sein Ziel ist derselbe Entrypoint `apps` von Traefik auf grammi wie bei `metrics`, aber für diesen Namen lässt Traefik nur `/public-dashboards/`, `/api/public/` und `/public/` (Assets) zu Grafana durch. Alles andere beantwortet Traefik mit 404. Dieser Router hält die App von anonymen Besuchern fern, nicht der Proxy.
 
 | Wer | Weg | Ergebnis |
 | --- | --- | --- |
 | Jeder mit Link | Reverse Proxy → Traefik `apps` (Host `dash`) → Grafana | nur das freigegebene Dashboard, lesend |
-| SSO | `metrics.homelab.example` | volle App |
+| SSO | `metrics.homelab.example` | Dashboards; Explore und Freigaben nur `grafana_admins` |
 
 **Link weitergeben:** Grafana baut den Link aus `root_url`, er lautet also `https://metrics.homelab.example/public-dashboards/<token>` – unter `metrics` landet ein Gast beim SSO-Login. Den Link für Gäste zeigt das Dashboard „Homelab / Shared dashboards“: ein Timer auf grammi fragt alle 10 Sekunden die Grafana-API ab und schreibt jede Freigabe mit ihrer `dash`-Adresse und den genutzten Template-Variablen als Metrik `grafana_public_dashboard_info` (`hosts/grammi/grafana-shares.nix`). Jedes Dashboard verlinkt oben rechts dorthin („Share externally“). Die Spalte „Manage“ öffnet den Freigabe-Dialog des jeweiligen Dashboards zum Pausieren und Widerrufen – ein Schalter direkt in der Tabelle geht nicht, weil Grafana Panel-Actions seine eigene API nur per POST/PUT aufrufen lässt und das Pausieren PATCH braucht. Die Tokens liegen damit in VictoriaMetrics, sichtbar für alle, die Grafana öffnen können.
 
@@ -300,6 +315,8 @@ Seit 2026-10-23 lassen sich Dashboards nach außen teilen („Share externally�
 **HA ist ein NetBird-Peer** (NetBird-Add-on, `terraform/netbird/home-assistant.tf`), in einer eigenen Gruppe `home-assistant` – nicht in `servers`, es erreicht also genau zwei Dinge, und außer dem Proxy erreicht nichts HA. Die DNS-Verwaltung durch NetBird ist für die Gruppe aus: HA löst weiter über den Heimrouter (Flint 4) auf, auch wenn das Internet weg ist.
 
 **TLS endet in Mosquitto, nicht am Proxy.** Der Service `mqtt` (`terraform/netbird/reverse-proxy.tf`) läuft im L4-Modus `tls` mit dem Peer HA als Ziel: Der Proxy liest nur die SNI und reicht die Verbindung unverändert durch. Für einen L4-Service mit eigenem Port bindet der Proxy diesen Port selbst auf allen Adressen (einen PROXY-Header muss dort nur 127.0.0.1 schicken); grammis Firewall öffnet 8883 in `hosts/grammi/netbird-proxy.nix`.
+
+**Ratenbegrenzung statt Login** (nixlab#309). L4 hat kein SSO, die Mosquitto-Nutzer sind also die Schranke – und Mosquitto sieht für jede Verbindung von außen die Mesh-Adresse des Proxys, CrowdSec sieht von der Durchleitung nichts. Die echte Quelle kennt nur grammis Kernel: Die nftables-Tabelle `mqtt-ratelimit` (gleiche Datei) lässt jede Quelle (IPv4-Adresse, IPv6-/64) 20 neue Verbindungen auf einmal und danach 4 pro Minute aufbauen und verwirft den Rest; bestehende Verbindungen bleiben unberührt. Ein Gerät, das sich nach einem Stromausfall neu verbindet (AWTRIX: etwa 5 Versuche in 70 s), bleibt weit darunter. Verworfene und angenommene Verbindungen werden gezählt (`nixlab_mqtt_ratelimit_packets_total`, Dashboard *Homelab / MQTT edge*), und der Alarm `MqttConnectionFlood` schlägt bei mehr als 50 verworfenen in 15 Minuten an. Client-Zertifikate für die Geräte draußen wären die stärkere Schranke, offen in nixlab#347.
 
 **Das Zertifikat** gilt für `homeassistant.homelab.example` und `mqtt.homelab.example`. HAs Let's-Encrypt-Add-on holt es per DNS-01 – aber ohne eigenen deSEC-Token (der ließe sich an keine Adresse binden, die Heimadresse wechselt). Es fragt stattdessen dns01proxy auf grammi (`hosts/grammi/dns01proxy.nix`, Provider `dns-httpreq`), unter `https://acme.homelab.example:8446`:
 

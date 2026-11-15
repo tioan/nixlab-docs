@@ -12,8 +12,9 @@
 # one A record per host that imports this module
 # (terraform/netbird/mesh-services.tf), public DNS has no record, and the
 # vhost admits only mesh addresses. Certificate via DNS-01 (modules/acme.nix)
-# - each host gets its own; hosts whose deSEC token is limited to named
-# records need "doku" in their acme_names (terraform/desec-tokens/main.tf).
+# - each host gets its own; its deSEC token may write the challenge record
+# once `just desec-names` and `just desec-apply` have run
+# (terraform/desec-tokens).
 #
 # Two more ways in, both optional and both only additions - the mesh way
 # above stays the one that does not depend on anything but the host
@@ -100,8 +101,13 @@ let
     </body>
     </html>
   '';
+
+  # The proxy listeners admit only the mesh (lab.mesh, modules/lab.nix).
+  meshOnly = lib.concatMapStrings (n: "allow ${n};\n") config.lab.mesh.networks + "deny all;";
 in
 {
+  imports = [ ./lab.nix ];
+
   options.services.docsSite = {
     enable = lib.mkEnableOption "the private docs site on the mesh";
 
@@ -118,7 +124,8 @@ in
 
     allow = lib.mkOption {
       type = lib.types.listOf lib.types.str;
-      default = [ "192.0.2.0/24" "2001:db8:203:0::/64" ];
+      default = config.lab.mesh.networks;
+      defaultText = lib.literalExpression "config.lab.mesh.networks";
       description = ''
         Addresses or networks nginx serves the site to; everyone else gets
         403, with a page that says why and how a device gets in. Default:
@@ -306,18 +313,14 @@ in
         # access check and hands over to the named location.
         locations = {
           "/".extraConfig = ''
-            allow 192.0.2.0/24;
-            allow 2001:db8:203:0::/64;
-            deny all;
+            ${meshOnly}
             try_files /.redirect-only @redirect;
           '';
           "@redirect".return = "301 ${cfg.redirectTo}$request_uri";
         } // lib.optionalAttrs (cfg.login.fqdn != "") {
           # /login: to the login service instead of the public docs.
           "~ ^/login/?$".extraConfig = ''
-            allow 192.0.2.0/24;
-            allow 2001:db8:203:0::/64;
-            deny all;
+            ${meshOnly}
             try_files /.redirect-only @login;
           '';
           "@login".return = "302 https://${cfg.login.fqdn}/";
@@ -336,9 +339,7 @@ in
         ];
         root = cfg.package;
         extraConfig = ''
-          allow 192.0.2.0/24;
-          allow 2001:db8:203:0::/64;
-          deny all;
+          ${meshOnly}
           if ($nixlab_docs_key_ok = "") { return 403; }
           # Relative redirects: absolute ones would say http://...:port,
           # this listener's side of the proxy.

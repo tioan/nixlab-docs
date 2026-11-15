@@ -36,6 +36,7 @@ nav = [
     "explanation/monitoring.md",
     "explanation/failure-modes.md",
     "explanation/waf.md",
+    "explanation/web-baseline.md",
     "explanation/macos-hosts.md",
   ] },
   { "Anleitungen" = [
@@ -46,6 +47,7 @@ nav = [
     "how-to/key-rotation.md",
     "how-to/software.md",
     "how-to/hotfix.md",
+    "how-to/container-images.md",
     "how-to/try-branch.md",
     "how-to/restore-test.md",
   ] },

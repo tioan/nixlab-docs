@@ -56,7 +56,7 @@ Der Remote-Standort (ein Verein, dessen Omada-Netz von hier aus mitbetreut wird)
 
 Nur das Admin-Gerät: Die vier NetBird-Policies `remote-*` (`terraform/netbird/remote.tf`, eine je VLAN) haben `admin-workstations` als Quelle, also gusto, und keine Personengruppe. Alle anderen Peers bekommen die Route gar nicht erst. Ist gusto selbst am Standort, fällt die Route weg (Posture-Check `not-at-remote`), dann geht der Verkehr direkt.
 
-gw-remote selbst steckt in der Gruppe `remote-devices`, nicht in `servers`: Es beendet Tunnel aus einem Netz, das andere betreiben, und erreicht deshalb nur, was ihm ausdrücklich erlaubt ist, nämlich grammis Metrik- und Log-Eingang (`remote-devices-telemetry`, TCP 8428/9428), wie cuckoosegg.
+gw-remote selbst steckt in der Gruppe `remote-devices`, nicht in `servers`: Es beendet Tunnel aus einem Netz, das andere betreiben, und erreicht deshalb nur, was ihm ausdrücklich erlaubt ist, nämlich grammis Metrik- und Log-Eingang (`remote-devices-telemetry`, TCP 8427 – vmauth, nur schreiben, nur als es selbst), wie cuckoosegg.
 
 ## Abschottung { #isolation }
 

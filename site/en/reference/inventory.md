@@ -17,7 +17,7 @@ Rule of thumb for what goes in: **only what cannot be derived from a config.** O
 
 ## Structure
 
-Eight sections, each an object of entries keyed by id. Ids are lower-case letters, digits and dashes (usable unchanged as Graphviz node or label values).
+Nine sections, each an object of entries keyed by id. Ids are lower-case letters, digits and dashes (usable unchanged as Graphviz node or label values).
 
 ```
 owners    ◄──────── hosts.owner
@@ -26,6 +26,7 @@ contracts ◄──────── hosts.contracts[], uplinks.contracts[], se
 uplinks   ◄──────── sites.uplinks[]
 sites     ◄──────── hosts.site, networks.site
 networks  ◄──────── hosts.interfaces.<name>.network
+overlays
 hosts     ◄──────── hosts.runsOn / inside / power / manages[] / unlock.tang[], networks.dhcpServer, services.hosts[]
 services  ◄──────── services.dependsOn[] / uses[] / endpoints[].via / backup[].to
 ```
@@ -81,6 +82,12 @@ A layer-2 network with its IPv4 prefix: the home LAN, a VLAN in the hackerspace.
 All fields with type, default and meaning: [Inventory schema → networks](inventory-schema.md#networks).
 
 A network without any interface is allowed – it can be entered before its devices are.
+
+### overlays
+
+A network that is not at any site: the NetBird mesh every peer joins wherever it is. Kept apart from `networks`, which are layer-2 networks at a site (and which Tofu filters by site). The hosts read the mesh's ranges as `lab.mesh` (`modules/lab.nix`, set in `flake.nix`) instead of repeating them in their allow lists.
+
+All fields with type, default and meaning: [Inventory schema → overlays](inventory-schema.md#overlays).
 
 ### providers
 

@@ -3,6 +3,12 @@
 {
   nix.settings.experimental-features = [ "nix-command" "flakes" ];
 
+  # Only root and wheel may talk to the daemon (default: everyone, dynamic
+  # service users included). Everything that builds or deploys here - the
+  # nightly upgrade, ursalia's prebuild and push to cuckoosegg, `just
+  # deploy` / `nix copy` over SSH - runs as root (admin/nixlab#310).
+  nix.settings.allowed-users = [ "root" "@wheel" ];
+
   # Flakes only - no channels. Every host builds from its /etc/nixos flake,
   # pinned by flake.lock; a channel is a second, unpinned nixpkgs nobody
   # updates (nixos-install on ursalia left one registered in

@@ -50,7 +50,12 @@ in
         "smb ports" = "445";
         # The iX1600 speaks SMB up to 3.0.2/3.1.1; macOS anyway.
         "server min protocol" = "SMB3";
-        "server smb encrypt" = "desired";
+        # Required, not desired (admin/nixlab#313): every client so far speaks
+        # SMB 3.1.1 with AES-GCM (smbstatus -b, 2026-11-15). The iX1600 is not
+        # connected yet (hosts/ursalia/samba.nix); if it cannot encrypt, the
+        # global value has to go back to desired, with required on every
+        # share but the scanner's (a share cannot lower the global value).
+        "server smb encrypt" = "required";
         "ntlm auth" = "ntlmv2-only";
         "map to guest" = "never";
         "restrict anonymous" = "2";

@@ -58,7 +58,7 @@ Der Ablauf für einen neuen Host: Tofu legt den Setup-Key an, `just netbird-key`
 
 | Richtung | Datei | Erzeugt von | Gelesen von | Inhalt |
 | --- | --- | --- | --- | --- |
-| Tofu → NixOS | `hosts/<host>/desec.yaml` | `just desec-key <host>` (`tofu output acme_tokens` → `sops encrypt`) | `modules/acme.nix` (`sopsFile`) | deSEC-Token nur für TXT-Records, VMs auf ihre IP gepinnt |
+| Tofu → NixOS | `hosts/<host>/desec.yaml` | `just desec-key <host>` (`tofu output acme_tokens` → `sops encrypt`) | `modules/acme.nix` (`sopsFile`) | deSEC-Token nur für die `_acme-challenge`-TXT-Records der eigenen Namen, VMs auf ihre IP gepinnt |
 
 ### Soll- und Admin-Peers { #peers }
 

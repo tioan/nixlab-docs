@@ -17,7 +17,7 @@ Faustregel für den Inhalt: **nur, was sich nicht aus einer Config ableiten läs
 
 ## Aufbau
 
-Acht Abschnitte, jeder ein Objekt aus Einträgen mit ID als Schlüssel. IDs bestehen aus Kleinbuchstaben, Ziffern und Bindestrichen (unverändert als Graphviz-Knoten oder Label verwendbar).
+Neun Abschnitte, jeder ein Objekt aus Einträgen mit ID als Schlüssel. IDs bestehen aus Kleinbuchstaben, Ziffern und Bindestrichen (unverändert als Graphviz-Knoten oder Label verwendbar).
 
 ```
 owners    ◄──────── hosts.owner
@@ -26,6 +26,7 @@ contracts ◄──────── hosts.contracts[], uplinks.contracts[], se
 uplinks   ◄──────── sites.uplinks[]
 sites     ◄──────── hosts.site, networks.site
 networks  ◄──────── hosts.interfaces.<name>.network
+overlays
 hosts     ◄──────── hosts.runsOn / inside / power / manages[] / unlock.tang[], networks.dhcpServer, services.hosts[]
 services  ◄──────── services.dependsOn[] / uses[] / endpoints[].via / backup[].to
 ```
@@ -81,6 +82,12 @@ Ein Layer-2-Netz mit seinem IPv4-Präfix: das Heimnetz, ein VLAN im Hackerspace.
 Alle Felder mit Typ, Standardwert und Bedeutung: [Inventar-Schema → networks](inventory-schema.md#networks).
 
 Ein Netz ohne Interface ist erlaubt – es kann vor seinen Geräten eingetragen werden.
+
+### overlays
+
+Ein Netz, das an keinem Standort liegt: das NetBird-Mesh, dem jeder Peer beitritt, wo immer er steht. Getrennt von `networks`, das Layer-2-Netze an einem Standort sind (und die Tofu nach Standort filtert). Die Hosts lesen die Bereiche des Mesh als `lab.mesh` (`modules/lab.nix`, gesetzt in `flake.nix`), statt sie in ihren Allow-Listen zu wiederholen.
+
+Alle Felder mit Typ, Standard und Bedeutung: [Inventar-Schema → overlays](inventory-schema.md#overlays).
 
 ### providers
 

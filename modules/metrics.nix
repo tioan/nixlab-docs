@@ -1,13 +1,11 @@
 # Per-node metrics exporters.
 #
-# Everything here binds 0.0.0.0 and stays off the public internet through the
-# firewall rather than through bind addresses: modules/firewall.nix opens only
-# 22/80/443 to the world and trusts tailscale0 wholesale, so an exporter that
-# is not in allowedTCPPorts is reachable over the tailnet and nowhere else.
-#
-# Binding the Tailscale address directly would be tighter, but tailscale0 does
-# not exist yet when these units start at boot, and a listener cannot bind an
-# address that is not there. The firewall is the more robust guard.
+# Every exporter here listens on 127.0.0.1 only (nixlab#15, decision 3b of
+# 2026-11-01): each host's own vmagent scrapes them locally
+# (modules/metrics-shipping.nix) and no host scrapes another, so nothing
+# needs them on the mesh. Until 2026-11 they bound 0.0.0.0 and the firewall
+# kept them off the internet - which left them open to every mesh peer the
+# NetBird policies let through.
 {
   config,
   lib,
@@ -17,6 +15,8 @@
 let
   textfileDir = "/var/lib/prometheus-node-exporter-text-files";
   nginxStatusPort = 8079;
+  # The S3 vhost's own access log (modules/crowdsec.nix), where it exists.
+  bucketLog = lib.attrByPath [ "services" "crowdsecBuckets" "logFile" ] null config;
 in
 {
   # The textfile directory as an option, so other modules read it from here
@@ -40,6 +40,7 @@ in
     # chance into something that pages you.
     node = {
       enable = true;
+      listenAddress = "127.0.0.1";
       enabledCollectors = [
         "systemd"
         "processes"
@@ -60,6 +61,7 @@ in
     # something is looking.
     node-cert = {
       enable = true;
+      listenAddress = "127.0.0.1";
       paths = [ "/var/lib/acme" ];
     };
   };
@@ -91,6 +93,7 @@ in
 
   services.prometheus.exporters.nginx = lib.mkIf config.services.nginx.enable {
     enable = true;
+    listenAddress = "127.0.0.1";
     scrapeUri = "http://127.0.0.1:${toString nginxStatusPort}/nginx_status";
   };
 
@@ -113,12 +116,13 @@ in
   # pocket-id's asset requests.
   services.prometheus.exporters.nginxlog = lib.mkIf config.services.nginx.enable {
     enable = true;
+    listenAddress = "127.0.0.1";
     settings.namespaces = [
       {
         name = "nginx";
         # NixOS' nginx writes the standard combined format.
         format = ''$remote_addr - $remote_user [$time_local] "$request" $status $body_bytes_sent "$http_referer" "$http_user_agent"'';
-        source.files = [ "/var/log/nginx/access.log" ];
+        source.files = [ "/var/log/nginx/access.log" ] ++ lib.optional (bucketLog != null) bucketLog;
       }
     ];
   };
@@ -129,45 +133,16 @@ in
   systemd.services.prometheus-nginxlog-exporter.serviceConfig.SupplementaryGroups =
     lib.mkIf config.services.nginx.enable [ "nginx" ];
 
-  # tailscaled has no scrapeable endpoint - `tailscale metrics` only offers
-  # `print` and `write`, both producing Prometheus text format. That is exactly
-  # what node_exporter's textfile collector consumes, so the bridge is a timer
-  # writing a file rather than another listener.
-  #
-  # Written to a temporary name and renamed, because the collector reads
-  # whatever is in the directory whenever it is scraped: without the atomic
-  # rename it would eventually parse a half-written file and report an error
-  # instead of the metrics.
+  # The directory node_exporter's textfile collector reads (the option
+  # above). Writers put a temporary name there and rename it, because the
+  # collector reads whatever is in the directory whenever it is scraped:
+  # without the atomic rename it would eventually parse a half-written file.
   systemd.tmpfiles.settings."10-node-exporter-textfile".${textfileDir}.d = {
     user = "root";
     group = "root";
-    # World-readable on purpose: the writer is this root oneshot, the reader is
+    # World-readable on purpose: the writers are root units, the reader is
     # node_exporter under a DynamicUser that shares no group with it.
     mode = "0755";
-  };
-
-  # Only where tailscaled runs: cuckoosegg (NetBird only) does not import
-  # modules/tailscale.nix, and the timer would fail there every 30 s.
-  systemd.services.tailscale-metrics = lib.mkIf config.services.tailscale.enable {
-    description = "Tailscale client metrics for node_exporter's textfile collector";
-    after = [ "tailscaled.service" ];
-    serviceConfig = {
-      Type = "oneshot";
-      ExecStart = pkgs.writeShellScript "tailscale-metrics-write" ''
-        set -euo pipefail
-        ${pkgs.tailscale}/bin/tailscale metrics write ${textfileDir}/tailscale.prom.tmp
-        chmod 0644 ${textfileDir}/tailscale.prom.tmp
-        mv ${textfileDir}/tailscale.prom.tmp ${textfileDir}/tailscale.prom
-      '';
-    };
-  };
-
-  systemd.timers.tailscale-metrics = lib.mkIf config.services.tailscale.enable {
-    wantedBy = [ "timers.target" ];
-    timerConfig = {
-      OnBootSec = "1min";
-      OnUnitActiveSec = "30s";
-    };
   };
 
   # CPU and memory per systemd service, read from its cgroup. node_exporter's

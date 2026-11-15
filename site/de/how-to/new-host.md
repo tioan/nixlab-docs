@@ -19,7 +19,7 @@ Gemietete VMs werden beim Anbieter von Hand angelegt; Bare Metal und die Subraum
 | `inventory.json` | `hosts.<host>` mit `"managed": true` – Art, Site, Owner, Entsperren (siehe [Inventar](../reference/inventory.md)) |
 | `justfile` | `hosts := "…"` (nur Pull-Hosts, für `ship-all`) |
 | `terraform/netbird/main.tf` | `local.hosts`: Host → Setup-Key-Gruppe (`servers` o. ä.) |
-| `terraform/desec-tokens/main.tf` | `local.hosts`: erlaubte Quelladressen, `acme_names` |
+| `terraform/desec-tokens/main.tf` | `local.hosts`: erlaubte Quelladressen; die Namen schreibt `just desec-names` nach `acme-names.json` |
 | `terraform/github/main.tf` | `local.hosts`: Deploy-Key nur lesend oder mit Schreibrecht |
 
 ## 4. sops-Empfänger

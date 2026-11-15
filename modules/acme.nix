@@ -7,12 +7,19 @@ let
   desecFile = ../hosts + "/${config.networking.hostName}/desec.yaml";
 in
 {
+  # dns01.extraNames, for names this host answers challenges for outside of
+  # security.acme.certs (grammi's dns01proxy). Together with the certificates
+  # it decides what this host's token may write - see lib.dns01Names in
+  # flake.nix and terraform/desec-tokens.
+  imports = [ ./dns01-names.nix ];
+
   # The secret holds the bare token and nothing else.
   #
-  # Token scoping (allowed_subnets, restricting write access to TXT-only
-  # under homelab.example instead of deSEC's default full-account access) is
-  # managed declaratively via terraform/desec-tokens/ - see that module's
-  # README for how a new value gets rotated in. This file just
+  # Token scoping (allowed_subnets, write access only to the
+  # _acme-challenge TXT records of this host's certificate names instead of
+  # deSEC's default full-account access) is managed declaratively via
+  # terraform/desec-tokens/ - see that module's README for how a new value
+  # gets rotated in and how a new name gets granted. This file just
   # consumes whatever value sops.secrets."desec_token" holds; it doesn't
   # care whether that token is scoped or not.
   #
@@ -41,6 +48,11 @@ in
   security.acme = {
     acceptTerms = true;
     defaults = {
+      # Part of lego's account directory name (with key type and server):
+      # a different email - or a lost /var/lib/acme - registers a new Let's
+      # Encrypt account. zummi's is pinned by CAA accounturi (DNSControl,
+      # zummi.homelab.example), so update that record first, or auth.homelab.example
+      # stops renewing (admin/nixlab#68).
       email = "admin@homelab.example";
       dnsProvider = "desec";
       environmentFile = config.sops.templates."desec-env".path;

@@ -36,6 +36,10 @@ let
 
   stateDir = "/var/lib/nix-cache-prebuild";
 
+  # The same verifying pull as the hosts' nightly upgrade (modules/
+  # auto-upgrade-git.nix, signers from git-signers.nix via deploy.nix).
+  pullCmd = lib.getExe config.services.autoUpgradeGit.verifySignatures.package;
+
   # Priority 50: after cache.nixos.org (40), so the common case does not
   # depend on aldrin, and a path this cache lacks costs one fast 404.
   cacheInfo = pkgs.writeText "nix-cache-info" ''
@@ -53,7 +57,10 @@ let
     cd ${toString config.services.autoUpgradeGit.flakeDir}
 
     git checkout -- flake.lock
-    git pull --ff-only
+    # Build and sign only on top of a verified main: the lock commit below
+    # is signed with a key the hosts accept, and must never end up on a
+    # commit they would refuse on its own.
+    ${pullCmd} .
     nix flake update ${lib.escapeShellArgs cfg.prebuild.updateInputs}
 
     # Every NixOS host of the flake, so a new one is covered without an edit
@@ -76,14 +83,17 @@ let
 
     nix-cache-upload ${stateDir}/systems/*
 
-    # Same commit + push as modules/auto-upgrade-git.nix, see there for the
-    # rebase. Only after the upload: a host that pulls this lock finds the
-    # cache already filled.
+    # The only place that commits and pushes the lock; the hosts' own
+    # upgrade (modules/auto-upgrade-git.nix) never does. Only after the upload: a host that pulls this lock finds the
+    # cache already filled. Signed (commit.gpgsign in the unit's
+    # environment, the rebase re-signs too) - and the rebase goes only onto
+    # an upstream that passed the check, never a plain `git pull --rebase`.
     if ! git diff --quiet -- flake.lock; then
       git add flake.lock
       git commit -m "flake.lock: nightly update, prebuilt on ${config.networking.hostName} ($(date -u +%Y-%m-%dT%H:%M:%SZ))"
       if ! git push; then
-        if git pull --rebase -X theirs && git push; then
+        if git fetch --quiet && up=$(git rev-parse '@{upstream}') && ${pullCmd} --verify "$up" \
+          && git rebase -X theirs "$up" && git push; then
           echo "nix-cache-prebuild: pushed after rebasing onto upstream"
         else
           git rebase --abort || true
@@ -148,6 +158,13 @@ in
       sops.secrets.nix_cache_push_key_id.sopsFile = ../hosts/ursalia/nix-cache.yaml;
       sops.secrets.nix_cache_push_secret_key.sopsFile = ../hosts/ursalia/nix-cache.yaml;
       sops.secrets.nix_cache_signing_key.sopsFile = ../hosts/ursalia/nix-cache.yaml;
+      # SSH key for the flake.lock commit (`just prebuild-signing-key`),
+      # lock-only in git-signers.nix. root-only, like the deploy key.
+      sops.secrets.git_signing_key = {
+        sopsFile = ../hosts/ursalia/git-signing.yaml;
+        mode = "0400";
+        owner = "root";
+      };
 
       # The rclone remote for the upload, as environment variables
       # (RCLONE_CONFIG_<NAME>_<OPTION>) rather than a config file.
@@ -167,6 +184,16 @@ in
             GIT_SSH_COMMAND GIT_AUTHOR_EMAIL GIT_COMMITTER_EMAIL;
           GIT_AUTHOR_NAME = "${config.networking.hostName} nix-cache-prebuild";
           GIT_COMMITTER_NAME = "${config.networking.hostName} nix-cache-prebuild";
+          # Sign every commit this unit makes (the lock commit and its
+          # rebase) - git config from the environment, so the checkout's
+          # own config stays untouched.
+          GIT_CONFIG_COUNT = "3";
+          GIT_CONFIG_KEY_0 = "gpg.format";
+          GIT_CONFIG_VALUE_0 = "ssh";
+          GIT_CONFIG_KEY_1 = "user.signingkey";
+          GIT_CONFIG_VALUE_1 = config.sops.secrets.git_signing_key.path;
+          GIT_CONFIG_KEY_2 = "commit.gpgsign";
+          GIT_CONFIG_VALUE_2 = "true";
           STAGE = "${stateDir}/stage";
           REMOTE = "nixcache:${bucket}";
           RCLONE_CONFIG_NIXCACHE_TYPE = "s3";

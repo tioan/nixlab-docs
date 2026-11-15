@@ -1,10 +1,9 @@
 # Monitoring
 
-Everything ends up on grammi: **vmagent** on every host sends metrics to VictoriaMetrics (`:8428`), **Vector** sends journald and nginx logs to VictoriaLogs (`:9428`), both over the mesh. Grafana (`metrics`) and logchef (`logs`) sit behind the reverse proxy with SSO. Exporters per host come from `modules/metrics.nix`; whatever has no endpoint of its own goes through node_exporter's textfile collector (`/var/lib/prometheus-node-exporter-text-files`), written by small timers or services:
+Everything ends up on grammi: **vmagent** on every host sends metrics, **Vector** journald and nginx logs, both over the mesh to **vmauth** on grammi (`:8427`), which passes them on to VictoriaMetrics and VictoriaLogs on loopback. Every sender logs in as itself (one user and password per host, `just telemetry-credentials`), may only write, and vmauth stamps its `host` onto everything it writes – a host taken over can neither read the other hosts' data nor write in their name. ursalia is the exception for `host`, because it writes for gruffi and the OpenWrt devices; it and zorlock's version check may also run instant queries (`hosts/grammi/telemetry-ingest.json`). Deleting series needs an admin key from sops. Grafana (`metrics`) and logchef (`logs`) sit behind the reverse proxy with SSO. Exporters per host come from `modules/metrics.nix`; whatever has no endpoint of its own goes through node_exporter's textfile collector (`/var/lib/prometheus-node-exporter-text-files`), written by small timers or services:
 
 | Textfile metric | Host | Source |
 | --- | --- | --- |
-| `tailscale_*` | hosts with Tailscale | `tailscale metrics write`, every 30 s |
 | `fwupd_updates_*` | ursalia | `fwupdmgr get-updates` after each metadata refresh |
 | `smart_selftest_*` | ursalia | self-test log of every disk in `services.diskHealth.devices` (`smartctl -l selftest`), hourly (`modules/disk-health.nix`) |
 | `wifi_link_*` | tummi | `iw dev wlo1 link` (PHY mode, width, MCS, NSS), every 30 s |
@@ -75,6 +74,7 @@ The dashboards are JSON in `hosts/grammi/dashboards/`, provisioned from the repo
 | NetbirdGroupSyncStale | `nixlab_netbird_group_sync_last_success_seconds` | no clean run for 1 h |
 | SyncCredentialExpiring | `nixlab_netbird_group_sync_credential_expiry_seconds` | the group sync's token or key expires in less than 30 days |
 | PersonNotManaged | `nixlab_netbird_group_sync_unmanaged_person` | Pocket ID user in `homelab`/`homelab_admins` who is not in `people.tf`, for 1 h |
+| MqttConnectionFlood | `nixlab_mqtt_ratelimit_packets_total` | the rate limit on the public MQTT port 8883 on grammi dropped more than 50 new-connection packets in 15 min: password guessing or a device stuck reconnecting (nixlab#309) |
 | RemoteUplinkDown, RemoteSiteUnreachable | `nixlab_remote_uplink_connected` | one uplink of the remote site disconnected for 30 min; none for 10 min |
 | RemoteUplinkFlapping | `nixlab_remote_uplink_connected_since_seconds` | an uplink started at least 4 new sessions within 30 min; stays up 15 min after |
 | ModemRxPowerOutOfSpec, ModemTxPowerOutOfSpec | `modem_pon_rx_power_dbm`, `modem_pon_tx_power_dbm` | Rx outside -27 to -8 dBm, Tx outside +0.5 to +5 dBm, 5 min each (ITU-T G.984.2, table A.1, class B+; whether the Telekom line is B+ is not confirmed) |

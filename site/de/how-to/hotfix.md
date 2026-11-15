@@ -1,15 +1,18 @@
 # Paket per Hotfix fixen
 
-Wenn nixpkgs eine Version mit Sicherheitslücke oder Bug ausliefert und der Fix noch nicht in unserem Pin ist, pinnen wir das Paket selbst – aber über `hotfix` aus [`modules/hotfixes.nix`](https://github.com/tioan/nixlab-docs/blob/main/modules/hotfixes.nix), nicht mit einem nackten `overrideAttrs`. `hotfix` wendet das Override nur an, solange nixpkgs es noch braucht, und warnt, sobald es das nicht mehr tut.
+Wenn nixpkgs eine Version mit Sicherheitslücke oder Bug ausliefert und der Fix noch nicht in unserem Pin ist, pinnen wir das Paket selbst – aber über `hotfix` aus [`modules/hotfixes.nix`](https://github.com/tioan/nixlab-docs/blob/main/modules/hotfixes.nix), nicht mit einem nackten `overrideAttrs`. Das ist Pflicht: Jede Überschreibung, deren Kommentar „entfernen, sobald nixpkgs … hat“ sagen würde, ist ein `hotfix`. `hotfix` wendet das Override nur an, solange nixpkgs es noch braucht, und warnt, sobald es das nicht mehr tut.
 
 Warum: Der nächtliche Auto-Upgrade bewegt `nixpkgs` und `nixpkgs-unstable` von selbst. Ein handgeschriebener Pin veraltet unbemerkt und pinnt, sobald nixpkgs weiter ist, eine *ältere* Version. So geschehen beim paperless-3.3.2-Bump auf ursalia: unstable hatte 3.3.2 schon eine Weile, bevor es jemand bemerkte. Die Warnung ist unsere Ergänzung, der Rest ist snowballs Arbeit, siehe [Credits](#credits).
 
 ## Wann sich der Hotfix abschaltet { #off }
 
-`hotfix` gibt das nixpkgs-Paket unverändert zurück und warnt, sobald eins von beidem gilt:
+`hotfix` gibt das nixpkgs-Paket unverändert zurück und warnt, sobald eins davon gilt:
 
 - `pkg.version` ≥ `fixedVersion` – nixpkgs hat aktualisiert, oder
-- einer von `pkg.patches` hat `fixPatch` im Dateinamen – stable hat den Fix als Patch zurückportiert, ohne die Version anzuheben (bei CVEs auf einem stable Release der Normalfall).
+- einer von `pkg.patches` hat `fixPatch` im Dateinamen – stable hat den Fix als Patch zurückportiert, ohne die Version anzuheben (bei CVEs auf einem stable Release der Normalfall), oder
+- `fixedWhen` ist wahr – für einen Fix, den keine Versionsnummer markiert. Die Bedingung sollte im selben nixpkgs-Commit wie der Fix umspringen; bei gotenberg ([`modules/hotfixes/gotenberg.nix`](https://github.com/tioan/nixlab-docs/blob/main/modules/hotfixes/gotenberg.nix)) ist es „das Paket nimmt das Argument `unoconv`, das der Hotfix ersetzt, nicht mehr an“.
+
+Jeder Hotfix braucht `fixedVersion` oder `fixedWhen` (oder beides); `fixPatch` kommt nur hinzu.
 
 Das Override selbst samt src-Hash wird dann gar nicht mehr ausgewertet.
 
@@ -56,7 +59,11 @@ let
 in
 ```
 
-Änderungen, die *nicht* an einer Version hängen – ein Patch für ein offenes Upstream-Issue, abgeschaltete Tests – bleiben außerhalb von `hotfix`, als normales `overrideAttrs` auf dem Ergebnis.
+## Überschreibungen, die bleiben sollen { #permanent }
+
+Nicht jede Überschreibung ist ein Hotfix. Ein lokaler Patch, den Upstream nicht nimmt, eine Build-Variante, abgeschaltete Tests – das bleiben normale Überschreibungen (`overrideAttrs`, `override`), und ihr Kommentar sagt, dass sie dauerhaft sind, statt „entfernen, sobald …“. Aktuelle Beispiele: paperless ohne Testsuiten (`hosts/ursalia/paperless-v3.nix`), mactop nur auf localhost (`hosts/zorlock/monitoring.nix`), der Proxmark5-Build (`pkgs/proxmark3-pm5.nix`), der Crockford-Patch in `pkgs/chhoto-url.nix`.
+
+Die Macs laden `modules/hotfixes.nix` nicht; für einen Hotfix dort müsste das Modul erst in ihre Konfiguration.
 
 ## Wo die Warnung erscheint { #warning }
 

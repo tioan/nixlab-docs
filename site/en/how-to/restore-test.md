@@ -21,7 +21,7 @@ just restore-test zummi
 1. **Build:** `lib.restoreTest.<host>` – the host's own configuration plus [`tests/restore/vm.nix`](https://github.com/admin/nixlab/blob/main/tests/restore/vm.nix) – is built on ursalia as a QEMU VM.
 2. **T0:** the VM starts with an empty disk. Its services come up empty or fail on missing secrets, like after a reinstall.
 3. **While it boots**, on ursalia: the `admin` key decrypts `restic_password` and the S3 key from the repository's `hosts/<host>/secrets.yaml`; restic restores the newest snapshot. The `admin` key is deleted again right after.
-4. **Isolation:** the VM must reach neither ursalia, the internet nor aldrin's S3, and NetBird, Tailscale and the restic timers must not run – checked before any secret goes into the VM. The check proves itself on the VM's own sshd.
+4. **Isolation:** the VM must reach neither ursalia, the internet nor aldrin's S3, and neither NetBird nor the restic timers may run – checked before any secret goes into the VM. The check proves itself on the VM's own sshd.
 5. **Secrets:** the restored SSH host key must match `inventory.json`; in the VM, sops-nix then decrypts every secret of the host with it.
 6. **Data:** grammi – fresh Postgres cluster, `pg_dumpall` dump loaded, mealie, Grist, Grafana, logchef and NetBird state in place. zummi – the pocket-id database from the consistent `.backup` copy and the Let's Encrypt account.
 7. **Checks:** every service has to answer over HTTP; pocket-id's JWKS must hold a key (proves the encryption key fits the database). Then counts (users, peers, documents, OIDC clients) in the VM next to the same counts on the live host – read-only there.

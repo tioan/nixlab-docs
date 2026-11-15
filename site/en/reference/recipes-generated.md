@@ -16,6 +16,18 @@ failing on git commit's exit 1.
 
 Push to the origin remote (GitHub, admin/nixlab)
 
+## `just merge branch`
+
+Merge a PR branch (as pushed to origin) into main with a signed merge
+commit and push. GitHub sees the PR's commits on main and marks it
+merged; the branch itself is left alone.
+
+## `just seal`
+
+Put a signed empty commit on top of main and push - the way out when an
+unsigned commit is the tip (a merge on github.com) and the hosts refuse
+to upgrade. Signing it vouches for everything below it: look first.
+
 ## `just secrets host`
 
 Edit a host's sops secrets, then bring the result back into the repo.
@@ -167,7 +179,10 @@ http://127.0.0.1:8000. Ctrl-C stops it. English at /, German at /de/.
 Pull the latest config on a remote host, no rebuild. A modified flake.lock
 there is always the leftover of a nightly upgrade that never finished
 (modules/auto-upgrade-git.nix) - never built, never activated - and would
-make `git pull` refuse; discard it first.
+make `git pull` refuse; discard it first. The pull is the same signature-
+checked one as the nightly upgrade (auto-upgrade-git-pull, #304): an
+unsigned tip on main is refused here too - sign it with `just seal`.
+Hosts deployed before the check existed fall back to a plain pull.
 
 ## `just rebuild host`
 
@@ -225,6 +240,22 @@ Every `just try` hold on every NixOS host.
 Forced failures for modules/restic-verified.nix in a throwaway VM on ursalia:
 each must end unverified, only a good run verified. No secrets, about 3 min.
 
+## `just test-try-confirm`
+
+The host side of `just try-confirm` in a throwaway VM on ursalia: rollback
+without confirmation, none with it. No secrets, about 4 min.
+
+## `just test-loopback-v6-proxy`
+
+modules/loopback-v6-proxy.nix in a throwaway VM on ursalia: a 127.0.0.1-only
+service must answer on [::1] too, and on no other address. About 1 min.
+
+## `just test-gw-remote-private-users`
+
+gw-remote in a user namespace in a throwaway VM on ursalia: the real container
+with a throwaway PKI, keys owned like aldrin's, OpenVPN/nftables/WireGuard
+inside, then the switch back without one. No secrets, a few minutes.
+
 ## `just pve-image host pve`
 
 Build a host's Proxmox image (vzdump .vma.zst) on ursalia and copy it
@@ -245,6 +276,34 @@ the seconds this runs. Rotating = run it again, then deploy cuckoosegg
 (new public key) before ursalia (new private key) - or the next night's
 push fails.
 
+## `just root-password host`
+
+root's console password for a NixOS host (modules/base.nix, users are
+immutable since admin/nixlab#310). A random one: 24 characters, letters
+and digits without y/z (the console keymap is German, a VNC client's
+often is not) and without 0/O/o/1/l/I - about 136 bits. Two files, both
+encrypted here (encrypting needs only the public keys, see .sops.yaml):
+
+```
+hosts/<host>/root-password.yaml        yescrypt hash, host + admin -
+what the host reads
+hosts/<host>/root-password-plain.yaml  the password, workstation +
+admin - for `just
+root-password-show <host>`
+```
+
+The password goes from /dev/urandom through pipes into mkpasswd and sops
+only: no argument (ps would show it), no file, no output. Changing it =
+run this again, commit both files, deploy the host.
+
+## `just root-password-show host`
+
+Print root's console password for a host (from `just root-password`).
+Needs the workstation key (SOPS_AGE_KEY_CMD, hosts/gusto/home.nix). Run
+it yourself in Ghostty - not as a `!` command in the Claude app, whose
+output goes into the conversation. The password is meant for a console,
+not for a log or a chat.
+
 ## `just nanokvm-mcp-key`
 
 Store the NanoKVM Go+'s MCP API key for the Claude Code bridge on ursalia
@@ -252,6 +311,15 @@ Store the NanoKVM Go+'s MCP API key for the Claude Code bridge on ursalia
 under Settings > MCP once MCP is on; it is read silently here and goes
 straight into hosts/ursalia/nanokvm-mcp.yaml (sops, ursalia + admin -
 encrypting needs only the public keys). Commit, then deploy ursalia.
+
+## `just nanokvm-cert`
+
+Fetch the NanoKVM Go+'s self-signed certificate as ursalia's nginx sees it
+and pin it (hosts/ursalia/nanokvm-go.crt, claude-remote.nix). Shows the
+pinned and the offered certificate side by side; only on "y" is the file
+replaced. Compare the fingerprint with the device's web UI or a second
+path first - a certificate taken over the network is only as good as
+that check. Commit, then deploy ursalia.
 
 ## `just maintenance-list`
 
@@ -354,12 +422,37 @@ Each old state stays next to it as <state>.pre-encryption (gitignored) -
 delete those once every plan shows no changes. Skips states that are
 already encrypted.
 
+## `just tf-state-rekey`
+
+Change the state passphrase (admin/nixlab#313): a new random one, every
+module's state rewritten with it, then the swap in terraform/secrets.yaml -
+states and secrets file in one commit. Run in the main checkout on main,
+with no other tofu work in flight, then push.
+
+Never loses a state: the new passphrase is stored first (as
+tf_state_passphrase_next), each state is read with either passphrase and
+written with the new one, and only checked with the new one alone before
+the swap. Interrupted? Run it again - it picks up the stored next one.
+
+What it cannot do: the old ciphertexts stay in git history, in every
+host's checkout. If the old passphrase was weak, rotate what the states
+hold as well (NetBird PAT and setup keys, Garage keys, deSEC tokens,
+Pocket ID clients) - the new passphrase only protects what comes after.
+
 ## `just desec-migrate-state`
 
 Once, 2026-10-18: copy the state from its old name (terraform.tfstate,
 implicit default backend) to desec.tfstate, which the explicit backend
 reads from now on. The old file stays as a backup. Refuses if the new one
 already exists.
+
+## `just desec-names`
+
+Regenerate terraform/desec-tokens/acme-names.json - per host the names its
+deSEC token may answer DNS-01 challenges for - from the flake
+(lib.dns01Names). Run after adding a certificate name; `nix flake check`
+fails until you do, and `just desec-apply` grants the new name. Via a temp
+file, so a failed eval leaves the old JSON.
 
 ## `just desec-plan`
 
@@ -552,7 +645,7 @@ an imported token has none, its plaintext only exists at creation.
 
 ## `just netbird-renew-token`
 
-Replace the service user's token (yearly, it expires after 365 days) and
+Replace the service user's token (every 90 days, when NetbirdTokenExpiring fires) and
 store the new one: the replace authenticates with the current token, then
 netbird-rotate-token swaps it in secrets.yaml.
 
@@ -624,6 +717,14 @@ Setup key for the NanoKVM Go+ (terraform/netbird/nanokvm.tf), on the
 Mac's clipboard: never printed, never on disk. Its web UI only knows
 NetBird Cloud via SSO, so it joins from the web UI's terminal - the join
 command is in that file. One-off, valid for 24 h; run again if it has to re-register.
+
+## `just netbird-key-techo5`
+
+Setup key for a TECHO5 device (Echo Show 8 on the TECHO5 firmware,
+terraform/netbird/techo5.tf), on the Mac's clipboard: never printed,
+never on disk. Paste it on the device's setup page (Network > NetBird) -
+the steps are in that file. One-off, valid for 24 h; run again if it has
+to re-register.
 
 ## `just dns01proxy-key-homeassistant`
 
@@ -836,6 +937,16 @@ terraform/garage (nix-cache.tf, output nix_cache_keys) and a new signing key
   Once only: a new signing key invalidates everything already in the cache,
   so it refuses while either file exists. Prints the public key, which goes
   into modules/nix-cache.nix.
+
+## `just prebuild-signing-key`
+
+Key with which ursalia's nix-cache-prebuild signs its nightly flake.lock
+commit (admin/nixlab#304, git-signers.nix: lock-only). Generated in a
+temp dir, removed on exit: the private half goes sops-encrypted to
+hosts/ursalia/git-signing.yaml, the public half to
+hosts/ursalia/git-signing.pub. Rotating = run it again, commit, then
+deploy every host before ursalia's next prebuild (02:30) - hosts with the
+old list refuse the new signature until then.
 
 ## `just github-plan`
 

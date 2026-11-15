@@ -164,6 +164,6 @@ Traefik ersetzt mit der `errors`-Middleware auch Antworten des Dienstes, deshalb
 
 ## Neuen Dienst aufnehmen { #new-service }
 
-- **nginx**: den vHost (Attributname) in `services.maintenance.nginx.vhosts` des Hosts eintragen, oder in `nginx.errorPagesOnly` für nur die Fehlerseiten. Nicht für vHosts mit `allow`/`deny`, deren Port auch Abgewiesene erreichen – die Wartungsprüfung läuft vor `allow`/`deny`.
+- **nginx**: Ein vHost in `lab.vhosts` ist automatisch dabei (`maintenance = "errorPages"` oder `"none"` ändert das, [Web-Grundlage](../explanation/web-baseline.md)). Jeden anderen (Attributname) in `services.maintenance.nginx.vhosts` des Hosts eintragen, oder in `nginx.errorPagesOnly` für nur die Fehlerseiten. Nicht für vHosts mit `allow`/`deny`, deren Port auch Abgewiesene erreichen – die Wartungsprüfung läuft vor `allow`/`deny`.
 - **grammi**: jeder Eintrag in `hosts/grammi/proxy-services.json` ist automatisch dabei.
 - **Neuer Host**: `./modules/maintenance.nix` in `flake.nix` importieren, `services.maintenance.enable = true`, den Host in `.sops.yaml` (`maintenance`) und in `just maintenance-token` aufnehmen und das Token neu erzeugen.

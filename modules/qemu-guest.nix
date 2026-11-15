@@ -12,7 +12,7 @@
 # sits on the host side is root in the guest. That is no protection against
 # the hoster itself, who owns our RAM either way. It protects against the
 # realistic case: someone takes over the provider account and thereby has a
-# root shell on every host, with no SSH key, past CrowdSec, past Tailscale -
+# root shell on every host, with no SSH key, past CrowdSec, past the mesh -
 # and read access to /run/secrets, where sops-nix has already decrypted
 # everything. guest-exec and guest-file-* ARE that shell; the rest of the list
 # below is incidental.

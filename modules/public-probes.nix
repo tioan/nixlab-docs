@@ -44,13 +44,17 @@ let
           timeout = "10s";
           http = {
             method = "GET";
-            valid_status_codes = [ p.status ];
+            valid_status_codes = p.status;
             preferred_ip_protocol = "ip${p.family}";
             ip_protocol_fallback = false;
             # The answer of the endpoint itself, not of wherever it points.
             follow_redirects = false;
           }
-          // lib.optionalAttrs (p.body != [ ]) { fail_if_body_not_matches_regexp = p.body; };
+          // lib.optionalAttrs (p.body != [ ]) { fail_if_body_not_matches_regexp = p.body; }
+          // lib.optionalAttrs (p.hostHeader != null) { headers.Host = p.hostHeader; }
+          // lib.optionalAttrs (p.location != null) {
+            fail_if_header_not_matches = [ { header = "Location"; regexp = p.location; } ];
+          };
         }
       ) probes
     );

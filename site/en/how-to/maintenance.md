@@ -164,6 +164,6 @@ Traefik also replaces the service's responses with its `errors` middleware, henc
 
 ## Adding a service { #new-service }
 
-- **nginx**: add the vhost (attribute name) to the host's `services.maintenance.nginx.vhosts`, or to `nginx.errorPagesOnly` for the error pages only. Not for vhosts with `allow`/`deny` whose port refused clients can reach too – the maintenance check runs before `allow`/`deny`.
+- **nginx**: a vhost in `lab.vhosts` is in automatically (`maintenance = "errorPages"` or `"none"` to change that, [web baseline](../explanation/web-baseline.md)). Any other: add it (attribute name) to the host's `services.maintenance.nginx.vhosts`, or to `nginx.errorPagesOnly` for the error pages only. Not for vhosts with `allow`/`deny` whose port refused clients can reach too – the maintenance check runs before `allow`/`deny`.
 - **grammi**: every entry in `hosts/grammi/proxy-services.json` is in automatically.
 - **New host**: import `./modules/maintenance.nix` in `flake.nix`, set `services.maintenance.enable = true`, add the host to `.sops.yaml` (`maintenance`) and to `just maintenance-token`, and create the token anew.

@@ -7,12 +7,16 @@
 # specific secret name into it would take that away. It stays the mechanism,
 # this file is the lab's policy.
 { config, ... }:
+let
+  signers = import ../git-signers.nix;
+in
 {
-  # Write-enabled deploy key for the repo, used both by a manual `git pull` on
-  # the host and by the nightly flake.lock push. Generated on the workstation
-  # by `just github-key <host>`: the private half sops-encrypted for this host
-  # in hosts/<host>/github.yaml, the public half registered on GitHub by
-  # terraform/github.
+  # Deploy key for the repo, used by a manual `git pull` on the host and by
+  # the nightly upgrade. Read-only everywhere except ursalia, whose
+  # nix-cache-prebuild pushes flake.lock (terraform/github/main.tf).
+  # Generated on the workstation by `just github-key <host>`: the private
+  # half sops-encrypted for this host in hosts/<host>/github.yaml, the public
+  # half registered on GitHub by terraform/github.
   sops.secrets."github_deploy_key" = {
     sopsFile = ../hosts + "/${config.networking.hostName}/github.yaml";
   };
@@ -33,17 +37,22 @@
     publicKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl";
   };
 
-  # The inputs the nightly run updates. nixpkgs-unstable is only evaluated
-  # by grammi (Grist) and ursalia (paperless), but bumping it for everyone is
-  # harmless - the others never read it - and keeps those on current security
-  # fixes like everything else.
+  # The inputs the nightly run updates. nixpkgs-unstable is evaluated
+  # by grammi, ursalia, aldrin, zorlock and the docs site (flake.nix lists
+  # what each takes from it); bumping it for everyone is harmless - the
+  # others never read it - and keeps those on current security fixes like
+  # everything else.
   #
   # Since 2026-10-31 one host updates them for the whole lab: ursalia's
   # nix-cache-prebuild (modules/nix-cache.nix) updates flake.lock, builds
   # every host, fills the nix cache and pushes the lock. The hosts' own
   # upgrade only pulls it and substitutes, instead of each one updating -
   # and possibly building from source - on its own.
-  services.nixCache.prebuild.updateInputs = [ "nixpkgs" "nixpkgs-unstable" "sops-nix" ];
+  #
+  # sops-nix is not in the list: its activation code runs as root with every
+  # secret of the host, so it is bumped by hand, with the diff read first
+  # (`nix flake update sops-nix`, #313).
+  services.nixCache.prebuild.updateInputs = [ "nixpkgs" "nixpkgs-unstable" ];
 
   services.autoUpgradeGit = {
     enable = true;
@@ -64,6 +73,16 @@
     };
 
     deployKeySecret = "github_deploy_key";
+
+    # Pull only to commits signed per git-signers.nix (#304): a push to main
+    # from a stolen GitHub session or a compromised host's key is not
+    # enough to become root here at 04:00. A refused tip fails the run and
+    # the host stays where it is; NixosUpgradeStale reports it after a while.
+    verifySignatures = {
+      enable = true;
+      trustedSigners = signers.trusted;
+      lockOnlySigners = signers.lockOnly;
+    };
 
     # `just try` holds (modules/deploy-hold.nix). The check also lifts a hold
     # whose branch has been merged and pulled into /etc/nixos meanwhile.

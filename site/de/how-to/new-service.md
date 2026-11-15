@@ -12,8 +12,8 @@ Dienste heißen nach ihrer Funktion (`rezepte`, nicht `mealie`); neue Webdienste
 
 1. In `terraform/netbird/mesh-services.tf` eine Zeile unter `local.mesh_services`: Name → Host(s). Daraus entsteht eine eigene NetBird-DNS-Zone mit A-Record(s) auf die Mesh-Adresse(n); öffentliches DNS kennt den Namen nicht.
 2. `just netbird-apply` – neue Zonen kommen seit NetBird 0.81 ohne Neustart bei den Clients an.
-3. Auf dem Host einen nginx-vHost mit `enableACME`, `acmeRoot = null` (DNS-01 über deSEC) und `allow 192.0.2.0/24; deny all;`.
-4. Steht der Dienst auf ursalia oder zorlock: den Namen in `acme_names` des Hosts in `terraform/desec-tokens/main.tf` ergänzen und `just desec-apply` – deren Tokens dürfen nur genau diese TXT-Records schreiben.
+3. Auf dem Host einen vHost mit `lab.vhosts.<name> = { port = …; meshOnly = true; }` – Zertifikat über DNS-01 (deSEC), Allow-Liste nur fürs Mesh, Security-Header und Wartungsschalter kommen mit ([Web-Grundlage](../explanation/web-baseline.md#der-vhost-helfer)).
+4. Braucht der Dienst ein Zertifikat per DNS-01: `just desec-names` und `just desec-apply` – jeder deSEC-Token darf nur die `_acme-challenge`-Records der Namen seines Hosts schreiben (`terraform/desec-tokens/acme-names.json`, abgeleitet aus `security.acme.certs`). `nix flake check` schlägt fehl, solange die Datei fehlt.
 5. Host deployen, `just topology` (neuer vHost).
 
 ## Öffentlich hinter dem Reverse Proxy

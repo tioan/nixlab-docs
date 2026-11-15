@@ -11,6 +11,14 @@
 # Each check is probed twice, over IPv4 and over IPv6, without falling back
 # from one to the other: a broken AAAA record or IPv6 route shows as its own
 # failure instead of hiding behind a working IPv4.
+#
+# Port 80 (admin/nixlab#234): it does nothing but redirect to https, for
+# every name. Probed for every web endpoint the lab serves itself - public
+# and mesh ones on their own host, proxy ones on the reverse proxy's host -
+# by name, and once per host and kind of address also with `Host:
+# localhost` and an unknown name, the two cases that once got a page
+# instead (modules/web-baseline.nix has the default servers). Mesh names
+# are probed from grammi, the rest as above.
 { lib, inventory }:
 let
   # path: what to request. status: the one status code that counts as
@@ -82,6 +90,68 @@ let
     ) (lib.filterAttrs (_: s: (s.hosts or null) != null && s.hosts != [ ]) inventory.services)
   );
 
+  # --- Port 80 ----------------------------------------------------------------
+  services = inventory.services;
+  hostsOf = id: if services ? ${id} then services.${id}.hosts or null else null;
+
+  # Where a request for the endpoint lands: its own hosts, or for a proxied
+  # one the hosts of what it goes through. Endpoints with a port of their
+  # own are not web on 80/443; ones that land outside the lab (a provider's
+  # proxy) are not the lab's to probe.
+  webEndpoints = lib.concatLists (
+    lib.mapAttrsToList (
+      id: s:
+      map (e: {
+        inherit id;
+        inherit (e) fqdn exposure;
+        lands = if e.exposure == "proxy" then hostsOf e.via else s.hosts or null;
+      }) (lib.filter (e: (e.fqdn or null) != null && (e.port or null) == null && lib.elem e.exposure [ "public" "mesh" "proxy" ]) (s.endpoints or [ ]))
+    ) services
+  );
+  web = lib.filter (ep: ep.lands != null && ep.lands != [ ]) webEndpoints;
+
+  redirectProber = ep:
+    if ep.exposure == "mesh" then (if lib.elem "grammi" ep.lands then "zummi" else "grammi")
+    else proberFor { hosts = ep.lands; };
+
+  # One endpoint per host and kind of address carries the Host-header
+  # variants: a host's public and mesh addresses can have different default
+  # servers (aldrin binds its public vhosts to the public address).
+  key = ep: "${lib.concatStringsSep "+" ep.lands} ${if ep.exposure == "mesh" then "mesh" else "public"}";
+  representatives = lib.attrValues (
+    lib.foldl' (acc: ep: if acc ? ${key ep} then acc else acc // { ${key ep} = ep; }) { } (
+      lib.sort (a: b: a.fqdn < b.fqdn) web
+    )
+  );
+
+  redirectVariants = [
+    { name = "name"; host = null; }
+    { name = "localhost"; host = "localhost"; }
+    { name = "unknown"; host = "nonexistent.invalid"; }
+  ];
+
+  redirectProbesOf =
+    ep: variants:
+    lib.concatMap (
+      v:
+      map (family: {
+        inherit (ep) id fqdn;
+        path = "/ (port 80${lib.optionalString (v.host != null) ", Host: ${v.host}"})";
+        status = [ 301 308 ];
+        inherit family;
+        body = [ ];
+        hostHeader = v.host;
+        location = "^https://";
+        prober = redirectProber ep;
+        url = "http://${ep.fqdn}/";
+        module = "${ep.id}-${lib.replaceStrings [ "." ] [ "-" ] ep.fqdn}-http-${v.name}-ip${family}";
+      }) [ "4" "6" ]
+    ) variants;
+
+  redirectProbes =
+    lib.concatMap (ep: redirectProbesOf ep (lib.take 1 redirectVariants)) web
+    ++ lib.concatMap (ep: redirectProbesOf ep (lib.drop 1 redirectVariants)) representatives;
+
   probesOf =
     ep:
     let
@@ -94,9 +164,12 @@ let
         i: c:
         map (family: {
           inherit (ep) id fqdn;
-          inherit (c) path status;
+          inherit (c) path;
+          status = [ c.status ];
           inherit family;
           body = c.body ep.fqdn;
+          hostHeader = null;
+          location = null;
           prober = proberFor ep.service;
           url = "https://${ep.fqdn}${c.path}";
           # The blackbox module this probe uses, unique per check and family.
@@ -106,5 +179,5 @@ let
     );
 in
 {
-  probes = lib.concatMap probesOf publicEndpoints;
+  probes = lib.concatMap probesOf publicEndpoints ++ redirectProbes;
 }

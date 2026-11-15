@@ -19,7 +19,7 @@ Rented VMs are created by hand at the provider; bare metal and the Subraum VM fo
 | `inventory.json` | `hosts.<host>` with `"managed": true` – kind, site, owner, unlock (see [Inventory](../reference/inventory.md)) |
 | `justfile` | `hosts := "…"` (pull hosts only, for `ship-all`) |
 | `terraform/netbird/main.tf` | `local.hosts`: host → setup key group (`servers` or similar) |
-| `terraform/desec-tokens/main.tf` | `local.hosts`: allowed source addresses, `acme_names` |
+| `terraform/desec-tokens/main.tf` | `local.hosts`: allowed source addresses; `just desec-names` writes the names to `acme-names.json` |
 | `terraform/github/main.tf` | `local.hosts`: deploy key read-only or with write access |
 
 ## 4. sops recipient

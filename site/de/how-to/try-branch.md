@@ -56,7 +56,7 @@ Meldet sich der Host danach unter einem anderen Namen (Umbenennung), nennt `via`
 just try-confirm ursalia 10 root@ursalia-next.peer.homelab.example
 ```
 
-Die Frage braucht ein echtes Terminal; ohne eines gilt die Antwort als „nein“.
+Die Antwort ist der Beweis, dass ein Mensch den Host nach der Änderung erreicht hat; deshalb startet `try-confirm` ohne Terminal an stdin gar nicht erst – ein durchgereichtes `y` würde blind bestätigen. Vor der Aktivierung und noch einmal vor dem Bestätigen prüft es, ob der Rollback-Timer scharf ist; läuft die neue Generation ohne ihn, bricht es laut ab und nennt den Befehl für den Weg zurück von Hand ([#368](https://github.com/admin/nixlab/issues/368)). Die Host-Seite ist in einer VM getestet: `just test-try-confirm`.
 
 Das Muster – einspielen, von außen prüfen, nur bei Bestätigung innerhalb einer Frist behalten, sonst zurück – stammt von snowball (BBBSnowball): [`firewall-update.sh`](https://github.com/BBBSnowball/nixcfg/blob/35264a74189686e8ce0231b4752f85225d0c9e00/hosts/sonline0/firewall-update.sh) macht das für iptables-Regeln, `try-confirm` für eine ganze NixOS-Generation.
 

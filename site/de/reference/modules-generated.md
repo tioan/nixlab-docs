@@ -11,18 +11,60 @@ challenge and can issue for names that never resolve publicly.
 
 [Quelltext](https://github.com/tioan/nixlab-docs/blob/main/modules/acme.nix)
 
+## auto-upgrade-git-pull.nix
+
+auto-upgrade-git-pull: fast-forward a checkout to its upstream, but only
+to a commit whose SSH signature checks out. Used by
+modules/auto-upgrade-git.nix (the nightly upgrade), by modules/
+nix-cache.nix (the prebuild) and by hand; tested by
+tests/auto-upgrade-git-pull.nix.
+
+
+```
+auto-upgrade-git-pull <dir>           fetch, verify @{upstream}, merge --ff-only
+auto-upgrade-git-pull --verify <rev>  only verify <rev> (in the current directory)
+```
+
+
+The rule, walked from the commit to be merged:
+
+- signed by a trusted signer: accepted, and everything before it with it.
+  The signer vouches for the whole history it signed on top of.
+- signed by a lock-only signer: accepted only if it has exactly one
+  parent and changes `lockFile` and nothing else; then its parent is
+  checked the same way. So a host that signs the nightly lock update
+  cannot launder anything else - not its own changes, and not an
+  unsigned commit someone slipped in underneath.
+- anything else (unsigned, unknown key, bad signature): refused.
+
+`%G?` and `%GS` rather than `git verify-commit`: the latter would refuse
+an unknown key as well (git 2.54: `%G?` = U, exit 1), but the signer's
+name from the allowed-signers file is what picks one of the two rules.
+
+A merge made on github.com carries GitHub's PGP signature; git then tries
+gpg, which is deliberately not here ("cannot run gpg"), and `%G?` is N -
+refused like any other commit outside the list.
+
+Two layers: `core` reads its settings from the environment, so the test
+can run it against keys generated at build time; the package itself is a
+wrapper that fixes those settings to the signers given here.
+
+[Quelltext](https://github.com/tioan/nixlab-docs/blob/main/modules/auto-upgrade-git-pull.nix)
+
 ## auto-upgrade-git.nix
 
 Reusable module: nightly `nixos-rebuild switch --flake <flakeDir>#<flakeAttr>`
-via system.autoUpgrade, which then commits + pushes the updated flake.lock
-back to the git repo the flake lives in. Meant to be dropped into any
-host's `modules` list unchanged (see hosts/zummi for the reference usage).
+via system.autoUpgrade, optionally after fast-forwarding the checkout the
+flake lives in to a verified upstream commit. It never commits or pushes: a
+flake.lock changed by `updateInputs` is built and switched, then reset at
+the next start. Meant to be dropped into any host's `modules` list
+unchanged (see hosts/zummi for the reference usage).
 
 **Optionen** (`services.autoUpgradeGit`):
 
 | Option | Beschreibung |
 | --- | --- |
-| `enable` | Enable: nightly auto-upgrade with automatic flake.lock commit + push |
+| `enable` | Enable: nightly auto-upgrade of the flake checkout |
 | `flakeDir` | Directory containing the flake (and its git checkout) to upgrade from. |
 | `flakeAttr` | nixosConfigurations attribute name to build, i.e. the `#<attr>` part of the flake ref. |
 | `updateInputs` | Flake inputs to update before rebuilding. Empty list skips the update step entirely. |
@@ -30,20 +72,50 @@ host's `modules` list unchanged (see hosts/zummi for the reference usage).
 | `dates` | systemd calendar expression for when to run, passed through to system.autoUpgrade.dates. |
 | `allowReboot` | Whether to allow automatic reboots after a kernel/boot-relevant upgrade. |
 | `rebootWindow` | Restrict automatic reboots to this time window. Null means no restriction beyond `dates`. |
-| `deployKeySecret` | Name of the sops secret holding the write-enabled SSH deploy key for the flake's git repo. Declared automatically by this module (mode 0400, owner root) - just put the key under this name in the host's secrets.yaml. |
+| `deployKeySecret` | Name of the sops secret holding the SSH deploy key for the flake's git repo. Read-only is enough: this module never pushes. Declared automatically by this module (mode 0400, owner root) - just put the key under this name in the host's secrets.yaml. |
 | `holdFile` | Skip the whole run (no input update, no switch, no reboot) while this file exists - the host deliberately runs something other than the checkout. Checked by `holdCheck`, which must exit 0 to go ahead and 1 to skip (systemd's ExecCondition semantics); null disables both. |
 | `holdCheck` | Command deciding whether `holdFile` still applies. Null means the file's presence alone skips the run. |
-| `gitAuthorEmail` | Email used for the git author/committer identity of the automated flake.lock commit. |
+| `gitAuthorEmail` | Email used for the git author/committer identity of git operations run by the unit. |
 
 [Quelltext](https://github.com/tioan/nixlab-docs/blob/main/modules/auto-upgrade-git.nix)
 
 ## base.nix
 
-Baseline every host in this lab shares: locale, console, time, and the
-handful of tools that should exist on any machine you might have to debug
+Baseline every host in this lab shares: accounts, kernel hardening,
+locale, console, time, and the handful of tools that should exist on any machine you might have to debug
 from a VNC console at two in the morning.
 
 [Quelltext](https://github.com/tioan/nixlab-docs/blob/main/modules/base.nix)
+
+## container-pins.nix
+
+Registry images for virtualisation.oci-containers, pinned by digest.
+
+A tag - `latest` as much as `1.3.1` - is whatever the registry says it is
+today; a digest is the content itself, the way a fetcher's hash is. Each pin
+names the image, the tag its digest was read from (for people and for the
+version check), the digest that is pulled, and the upstream repository the
+version check looks for releases in. A container uses the pin's `ref`:
+
+
+```
+services.containerPins.images.app = {
+image = "ghcr.io/example/app";
+tag = "1.2.3";
+digest = "sha256:0123...";
+source = "https://github.com/example/app";
+};
+virtualisation.oci-containers.containers.app.image =
+config.services.containerPins.images.app.ref;
+```
+
+
+With `enforce` (the default), every oci container on the host has to be
+pinned by digest or built locally (pull = "never"), and none may carry
+podman's auto-update label: `podman auto-update` would otherwise move the
+image behind the configuration's back.
+
+[Quelltext](https://github.com/tioan/nixlab-docs/blob/main/modules/container-pins.nix)
 
 ## crowdsec.nix
 
@@ -80,13 +152,21 @@ community blocklist), and the firewall bouncer (enforces them as nftables
 rules). No host depends on the other - a deliberate choice for a two-host
 setup, where a central LAPI would buy little beyond what the shared
 community blocklist already covers, at the price of coupling both hosts to
-one machine and to the tailnet being up.
+one machine and to the mesh being up.
 
 What this is actually for: SSH here is key-only with root confined to the
-tailnet (modules/ssh.nix), so the constant bot noise on port 22 cannot
+mesh (modules/ssh.nix), so the constant bot noise on port 22 cannot
 succeed and CrowdSec mostly quiets the logs. The real target is port 443 -
 pocket-id on zummi is an OIDC provider and the one place where credentials
 can be guessed, and aldrin exposes Garage's S3 API.
+
+**Optionen** (`services.crowdsecBuckets`):
+
+| Option | Beschreibung |
+| --- | --- |
+| `vhost` | nginx virtualHost (attribute name) that serves the S3 API. It gets its own access log, and only lines from that log can be exempted. null: no bucket whitelist on this host. |
+| `buckets` | Bucket names (path-style) whose ordinary traffic is not counted. |
+| `logFile` | The vhost's access log, in nginx's combined format, for anything else that reads nginx's access logs. Matches /var/log/nginx/*.log, so CrowdSec and logrotate pick it up without further configuration. |
 
 [Quelltext](https://github.com/tioan/nixlab-docs/blob/main/modules/crowdsec.nix)
 
@@ -182,6 +262,20 @@ reboot during the 11 h QVO test, for instance) - the journal says which.
 
 [Quelltext](https://github.com/tioan/nixlab-docs/blob/main/modules/disk-health.nix)
 
+## dns01-names.nix
+
+Names a host answers ACME DNS-01 challenges for outside of
+security.acme.certs: a Caddy of its own (nix-darwin has no security.acme),
+or a DNS-01 proxy that writes challenges for other clients with this
+host's DNS provider token.
+
+Only a declaration - nothing here acts on it. Whatever scopes the host's
+token reads it together with security.acme.certs; in this lab that is
+lib.dns01Names in flake.nix, which feeds terraform/desec-tokens.
+Plain option module, so it works on NixOS and nix-darwin alike.
+
+[Quelltext](https://github.com/tioan/nixlab-docs/blob/main/modules/dns01-names.nix)
+
 ## docs-site.nix
 
 The private docs site (flake package docs-site, built from docs/) on the
@@ -199,8 +293,9 @@ one A record per host that imports this module
 (terraform/netbird/mesh-services.tf), public DNS has no record, and the
 vhost admits only mesh addresses. Certificate via DNS-01 (modules/acme.nix)
 
-- each host gets its own; hosts whose deSEC token is limited to named
-  records need "doku" in their acme_names (terraform/desec-tokens/main.tf).
+- each host gets its own; its deSEC token may write the challenge record
+  once `just desec-names` and `just desec-apply` have run
+  (terraform/desec-tokens).
 
 Two more ways in, both optional and both only additions - the mesh way
 above stays the one that does not depend on anything but the host
@@ -245,14 +340,9 @@ them serve the same commit after a deploy or the nightly upgrade.
 
 Shared firewall baseline for every homelab host.
 
-Public surface is deliberately tiny: SSH plus HTTP(S). Anything arriving over
-the tailnet is trusted wholesale via trustedInterfaces, so tailnet-only
-services (garage-ui behind `tailscale serve`, the admin APIs) need no port
-openings of their own.
-
-Note that several of these exist only because of Tailscale, but they live
-here rather than in tailscale.nix so that the whole networking.firewall
-namespace stays in one place.
+Public surface is deliberately tiny: SSH plus HTTP(S). The NetBird mesh
+interface is trusted by modules/netbird.nix; NetBird's own UDP port is
+opened there too.
 
 [Quelltext](https://github.com/tioan/nixlab-docs/blob/main/modules/firewall.nix)
 
@@ -271,6 +361,13 @@ console or the ArkKVM.
 ## hotfixes.nix
 
 Package hotfixes that switch themselves off.
+
+MANDATORY (rule of 2026-11-15, nixlab#321): every override that waits for
+nixpkgs - "drop this once nixpkgs has ..." - goes through `hotfix`, never
+a bare overrideAttrs with such a comment. Overrides that are meant to stay
+(a local patch, a build variant, tests switched off) are not hotfixes and
+stay plain overrides; their comment says so ("permanent, not a hotfix").
+The Macs do not load this module; there is no hotfix on them yet.
 
 A hotfix pins a package to a newer version (or adds a patch) until nixpkgs
 catches up. Written by hand, it has to be removed by hand too - and since
@@ -297,9 +394,15 @@ override = pkg: pkg.overrideAttrs (old: { ... });
 
 It returns `pkg` untouched once pkg.version >= fixedVersion, or once one of
 pkg.patches has `fixPatch` in its name - stable releases usually backport a
-CVE as a patch without bumping the version. In both cases evaluation warns
+CVE as a patch without bumping the version. In every case evaluation warns
 that the hotfix can go, so it does not linger; the override (and its src
 hash) is then not evaluated at all.
+
+A fix that no version number marks takes `fixedWhen` instead of (or next
+to) fixedVersion: a boolean that turns true once nixpkgs has it, e.g. "the
+package no longer takes the argument the override replaces"
+(modules/hotfixes/gotenberg.nix). Pick a test that flips in the same
+nixpkgs commit as the fix, so it cannot switch the hotfix off early.
 
 Credits: the pattern is snowball's (BBBSnowball), offered for reuse on
 2026-10-23 - version check plus CVE patch detection, one overlay per file:
@@ -357,6 +460,27 @@ are reduced to the program name.
 
 [Quelltext](https://github.com/tioan/nixlab-docs/blob/main/modules/intel-gpu-metrics.nix)
 
+## lab.nix
+
+Lab-wide constants that several modules and hosts need, declared once.
+The values are set by flake.nix from inventory.json (labConstants there);
+this file only declares them, so the modules that read them stay free of
+lab values.
+
+Only the mesh ranges for now (admin/nixlab#319). Their other literal uses
+(sshd's Match, CrowdSec's whitelist, Samba, Traefik's trustedIPs, ...)
+move over one by one - the list is in that issue.
+
+**Optionen** (`lab.mesh`):
+
+| Option | Beschreibung |
+| --- | --- |
+| `ipv4` | IPv4 range of the mesh overlay every peer gets its address from. |
+| `ipv6` | IPv6 range of the mesh overlay; null when it has none. |
+| `networks` | Both ranges as a list, for allow lists. |
+
+[Quelltext](https://github.com/tioan/nixlab-docs/blob/main/modules/lab.nix)
+
 ## log-shipping.nix
 
 Reusable module: ship this host's journald log and nginx's access log to a
@@ -388,6 +512,8 @@ it rides the same sink as journald.
 | --- | --- |
 | `enable` | Enable: ship this host's journald log to grammi's VictoriaLogs via Vector |
 | `victoriaLogsUrl` | Base URL of the VictoriaLogs instance to ship to. Over the NetBird mesh, same reasoning as services.metricsShipping.remoteWriteUrl. |
+| `httpRetryStrategy` | Vector retry_strategy for every sink that writes to the ingest with httpAuth. |
+| `httpAuth` | Vector `auth` block for basicAuth (null without), for other sinks or http_client sources on this host that reach the same ingest. |
 
 [Quelltext](https://github.com/tioan/nixlab-docs/blob/main/modules/log-shipping.nix)
 
@@ -410,6 +536,23 @@ exactly what CrowdSec parses into ssh-bruteforce scenarios, so turning down
 the log level would blind the detection to save disk that is not scarce.
 
 [Quelltext](https://github.com/tioan/nixlab-docs/blob/main/modules/logging.nix)
+
+## loopback-v6-proxy.nix
+
+Reusable module: answer on [::1] for a service that only listens on
+127.0.0.1, so a loopback-only endpoint is dual stack like the rest of the lab.
+
+Why a proxy: most exporters (prometheus_client, node-style Go exporters)
+take exactly one listen address, and the family follows from it. Binding
+"::" would cover both families but also the mesh interface, which is
+trusted (modules/netbird.nix). systemd owns the
+[::1] socket and starts systemd-socket-proxyd on the first connection, so
+an idle endpoint costs nothing and the service itself stays untouched.
+
+Scrapers keep using 127.0.0.1 (modules/metrics-shipping.nix): one scrape per
+exporter, otherwise every series would arrive twice.
+
+[Quelltext](https://github.com/tioan/nixlab-docs/blob/main/modules/loopback-v6-proxy.nix)
 
 ## maintenance.nix
 
@@ -477,8 +620,9 @@ modules/auto-upgrade-git.nix.
 | Option | Beschreibung |
 | --- | --- |
 | `enable` | Enable: ship this host's Prometheus exporters to grammi's VictoriaMetrics via vmagent |
-| `remoteWriteUrl` | VictoriaMetrics remote_write endpoint, over the NetBird mesh. Mesh-only by design - see hosts/grammi/configuration.nix, the ingest port is not in networking.firewall.allowedTCPPorts, only reachable over the trusted mesh (and tailnet) interface. |
+| `remoteWriteUrl` | VictoriaMetrics remote_write endpoint, over the NetBird mesh. Mesh-only by design - see hosts/grammi/configuration.nix, the ingest port is not in networking.firewall.allowedTCPPorts, only reachable over the trusted mesh interface. |
 | `exporterPorts` | Local ports to scrape, named - this host's own services.prometheus.exporters.<name>.port values. The name becomes this target's `instance` label in VictoriaMetrics, so vmui shows e.g. "node"/"nginx" instead of an undifferentiated "127.0.0.1:9113". |
+| `exporterAddresses` | Loopback address to scrape per exporterPorts name, "127.0.0.1" where absent. For exporters that also answer on [::1] through modules/loopback-v6-proxy.nix: the lab prefers IPv6, so those are scraped there. IPv6 literals need their brackets. |
 | `extraScrapeConfigs` | Additional vmagent scrape_configs, for targets exporterPorts cannot express - metrics_path is per job, so anything not on /metrics needs a job of its own. Named "<host>-<service>" like the crowdsec job. |
 
 [Quelltext](https://github.com/tioan/nixlab-docs/blob/main/modules/metrics-shipping.nix)
@@ -487,14 +631,12 @@ modules/auto-upgrade-git.nix.
 
 Per-node metrics exporters.
 
-Everything here binds 0.0.0.0 and stays off the public internet through the
-firewall rather than through bind addresses: modules/firewall.nix opens only
-22/80/443 to the world and trusts tailscale0 wholesale, so an exporter that
-is not in allowedTCPPorts is reachable over the tailnet and nowhere else.
-
-Binding the Tailscale address directly would be tighter, but tailscale0 does
-not exist yet when these units start at boot, and a listener cannot bind an
-address that is not there. The firewall is the more robust guard.
+Every exporter here listens on 127.0.0.1 only (nixlab#15, decision 3b of
+2026-11-01): each host's own vmagent scrapes them locally
+(modules/metrics-shipping.nix) and no host scrapes another, so nothing
+needs them on the mesh. Until 2026-11 they bound 0.0.0.0 and the firewall
+kept them off the internet - which left them open to every mesh peer the
+NetBird policies let through.
 
 [Quelltext](https://github.com/tioan/nixlab-docs/blob/main/modules/metrics.nix)
 
@@ -532,9 +674,8 @@ routes cover them. Forwarding is not filtered by the NixOS firewall
 ## netbird.nix
 
 NetBird client, joining the homelab mesh (control plane: mesh.homelab.example,
-hosts/grammi/netbird.nix; account: terraform/netbird). Runs next to
-Tailscale, not instead of it - see modules/tailscale.nix, which stays as
-it is until individual services move over.
+hosts/grammi/netbird.nix; account: terraform/netbird). The only overlay
+since Tailscale was removed (2026-11, admin/nixlab#360).
 
 The host registers once with a single-use setup key from
 hosts/<host>/netbird.yaml, written by `just netbird-key <host>` (24 h
@@ -596,6 +737,36 @@ Nix daemon and store housekeeping, shared by every host.
 
 [Quelltext](https://github.com/tioan/nixlab-docs/blob/main/modules/nix.nix)
 
+## no-redirects.nix
+
+No ICMP redirects, in either direction (admin/nixlab#310). Imported by
+modules/base.nix for every host and by the gw-remote container
+(hosts/gw-remote/container.nix), whose network namespace has values of its
+own - the host's never reach it. Only net.* keys, so it works inside a
+container, where the rest of /proc/sys is read-only.
+
+Nothing here learns its routes from redirects: routing is static
+(ifstate, modules/networking.nix) or NetBird's. Accepting them only lets
+whoever shares a link rewrite a route; sending them tells the other side
+of a tunnel about this host's routing, and on the forwarding hosts
+(exit nodes, routing peers, gw-remote) every client sits behind a WireGuard
+or OpenVPN link where a redirect has nothing to point to.
+
+Globs, not just "all" and "default": for IPv4 the kernel combines "all"
+with the interface's own value (OR for send_redirects, and for
+accept_redirects on a host that does not forward), so an interface that
+exists before systemd-sysctl runs keeps its 1 - seen on zummi, where
+ens6/send_redirects was 1 under all=0. systemd-sysctl applies the glob to
+every existing interface, "default" covers interfaces created later (the
+tunnels, nb-mesh), and on hosts with udev its 99-systemd.rules reapplies
+the glob to every new one as well.
+
+rp_filter, forwarding and accept_ra are not set here: modules/firewall.nix,
+modules/netbird-exit-node.nix / the hosts, and modules/networking.nix own
+them.
+
+[Quelltext](https://github.com/tioan/nixlab-docs/blob/main/modules/no-redirects.nix)
+
 ## public-probes-targets.nix
 
 What every public endpoint must answer, and from where it is probed - the
@@ -611,6 +782,14 @@ not the lab's to watch.
 Each check is probed twice, over IPv4 and over IPv6, without falling back
 from one to the other: a broken AAAA record or IPv6 route shows as its own
 failure instead of hiding behind a working IPv4.
+
+Port 80 (admin/nixlab#234): it does nothing but redirect to https, for
+every name. Probed for every web endpoint the lab serves itself - public
+and mesh ones on their own host, proxy ones on the reverse proxy's host -
+by name, and once per host and kind of address also with `Host:
+localhost` and an unknown name, the two cases that once got a page
+instead (modules/web-baseline.nix has the default servers). Mesh names
+are probed from grammi, the rest as above.
 
 [Quelltext](https://github.com/tioan/nixlab-docs/blob/main/modules/public-probes-targets.nix)
 
@@ -668,7 +847,7 @@ Why filter it: the virtio channel is unauthenticated by design - whoever
 sits on the host side is root in the guest. That is no protection against
 the hoster itself, who owns our RAM either way. It protects against the
 realistic case: someone takes over the provider account and thereby has a
-root shell on every host, with no SSH key, past CrowdSec, past Tailscale -
+root shell on every host, with no SSH key, past CrowdSec, past the mesh -
 and read access to /run/secrets, where sops-nix has already decrypted
 everything. guest-exec and guest-file-* ARE that shell; the rest of the list
 below is incidental.
@@ -709,8 +888,9 @@ hosts/grammi/alerting.nix.
 Setting up a host:
 
 ```
-add the bucket to terraform/garage/buckets.tf, modules/crowdsec.nix and
-hosts/aldrin/s3-upload-metrics.nix, and deploy aldrin first
+add the bucket to terraform/garage/buckets.tf, services.crowdsecBuckets in
+hosts/aldrin/configuration.nix and hosts/aldrin/s3-upload-metrics.nix,
+and deploy aldrin first
 just garage-apply
 just data-backup-secrets <host>
 deploy the host, then once: restic-data init
@@ -848,12 +1028,77 @@ up without an alert per job.
 
 [Quelltext](https://github.com/tioan/nixlab-docs/blob/main/modules/state-metrics.nix)
 
-## tailscale.nix
+## telemetry-ingest.nix
 
-Shared Tailscale setup. Per-host `tailscale serve` definitions stay in the
-host's own configuration.nix - only the node agent itself is common.
+Reusable module: vmauth as the one way in for metrics and logs from other
+hosts, in front of a VictoriaMetrics and a VictoriaLogs that listen on
+loopback only. Every sender is a user of its own (basic auth) and may
+reach only the write paths it needs:
 
-[Quelltext](https://github.com/tioan/nixlab-docs/blob/main/modules/tailscale.nix)
+
+```
+/api/v1/write    -> VictoriaMetrics (vmagent's remote write)
+/insert/jsonline -> VictoriaLogs    (Vector's http sink)
+/api/v1/query    -> VictoriaMetrics (only for users with query = true)
+```
+
+
+Everything else - other query APIs, vmui, delete_series, /metrics, /flags -
+is answered by vmauth itself with 400 (no route) or 401 (no or wrong
+credentials); its own internal endpoints listen on loopback only.
+
+forceHost puts the sender's identity on everything it writes: extra_label
+for VictoriaMetrics, extra_fields for VictoriaLogs. For logs the stream
+fields are fixed here as well (logStreamFields): without them a sender
+could send its own `_stream` field and keep a forged `host` in the stream
+identity while only the plain field is replaced. vmauth's own query
+arguments come first and VictoriaLogs reads the first, so a sender's
+_stream_fields or extra_fields are ignored. All checked against VM
+1.156.0 / VL 1.52.1 on 2026-11-15. Leave forceHost null only for a sender
+that legitimately writes for other hosts (a scraper for devices that
+cannot ship themselves); it keeps its own stream fields.
+
+Passwords come from environmentFile, one variable per user
+(envName below); vmauth replaces %{VAR} in its config with them, so
+the config in the store holds no secret.
+
+**Optionen** (`services.telemetryIngest`):
+
+| Option | Beschreibung |
+| --- | --- |
+| `enable` | Enable: vmauth as the authenticated ingest endpoint for VictoriaMetrics and VictoriaLogs |
+| `listenAddress` | Where vmauth accepts senders (vmauth's default port). |
+| `internalListenAddress` | vmauth's own /metrics, /health and /-/reload. Kept off listenAddress so senders cannot reach them. |
+| `metricsUrl` | VictoriaMetrics to forward to. |
+| `logsUrl` | VictoriaLogs to forward to. |
+| `logStreamFields` | VictoriaLogs stream fields forced for users with forceHost - the ones the senders use themselves (modules/log-shipping.nix). |
+| `environmentFile` | KEY=VALUE file with one password per user, named TELEMETRY_<USER> (upper case, dashes as underscores). Read by systemd, so it may be root-only (a sops template). |
+| `envName` | User name -> its variable in environmentFile, for whoever writes that file. |
+| `users` | One entry per sender; the name is the basic-auth user name. |
+
+[Quelltext](https://github.com/tioan/nixlab-docs/blob/main/modules/telemetry-ingest.nix)
+
+## telemetry-sender.nix
+
+This lab's senders of metrics and logs: once hosts/<host>/telemetry.yaml
+exists (`just telemetry-credentials`), vmagent and Vector ship to grammi's
+vmauth on :8427 (hosts/grammi/telemetry-ingest.nix, nixlab#15) as the user
+named after this host, instead of to VictoriaMetrics/-Logs directly.
+Without the file nothing changes.
+
+The password comes from sops; a host without sops of its own (the gw-remote
+container, whose secrets aldrin mounts in) sets fromSops = false and
+passwordFile instead.
+
+**Optionen** (`services.telemetrySender`):
+
+| Option | Beschreibung |
+| --- | --- |
+| `url` | grammi's ingest endpoint (vmauth). |
+| `fromSops` | Take the password from hosts/<host>/telemetry.yaml via sops. |
+| `passwordFile` | This host's ingest password; null keeps shipping without one, to the old ports. |
+
+[Quelltext](https://github.com/tioan/nixlab-docs/blob/main/modules/telemetry-sender.nix)
 
 ## v64-measure.nix
 
@@ -1009,3 +1254,52 @@ watchdog.
 | `blacklistedModules` | Other watchdog drivers to keep from loading, so the host has exactly one watchdog. |
 
 [Quelltext](https://github.com/tioan/nixlab-docs/blob/main/modules/watchdog.nix)
+
+## web-baseline.nix
+
+What every web front of the lab does the same way: security headers, a
+default server for names nobody serves, and the shape of a vhost.
+admin/nixlab#308, #12, #234 and #319; docs: docs/site/*/explanation/
+web-baseline.md.
+
+Security headers (option lab.web.securityHeaders). The values are kept
+once here; nginx renders them below, Traefik on grammi reads the same
+attribute set (hosts/grammi/netbird.nix).
+
+- nginx sets them at the http level, so every server and location
+  inherits them - the vhosts of this module, the docs site, the proxy
+  listeners and whatever comes next.
+- A header the application sends itself wins: each one goes through a map
+  on $upstream_http_<name>, and an empty value makes add_header skip it.
+  OpenCloud's, paperless' and HealthLog's own (stricter) values stay as
+  they are, without a second copy next to them.
+- `always`, so the 503 maintenance page and nginx's own errors carry them
+  too.
+- nginx's add_header inheritance: a level that has an add_header of its
+  own inherits none from above. Such a location has to repeat them
+  (lab.web.nginx.headers); evaluation fails otherwise.
+
+Default servers (#12, #234 decision 4a). A request for a name no vhost
+serves used to land in the first vhost on that address - pocket-id on
+zummi, OpenCloud on aldrin, with a 200. Now:
+
+- 443: the TLS handshake is refused for an unknown or missing SNI
+  (ssl_reject_handshake, no certificate needed); a known SNI with an
+  unknown Host header is closed without an answer (444).
+- 80: every Host is redirected to https://$host - port 80 does nothing
+  else, whatever the name. What #234's port-80 probes check.
+
+The vhost helper (option lab.vhosts) for the recurring shape: certificate
+by DNS-01, forceSSL, proxy to a loopback port, websockets, mesh-only
+allow/deny, maintenance and WAF registration. Or, with proxyListener, the
+plain-HTTP listener a NetBird reverse proxy service points at. Anything
+else of the vhost goes into `nginx`, merged into services.nginx.
+virtualHosts as it is.
+
+**Optionen** (`lab.web`):
+
+| Option | Beschreibung |
+| --- | --- |
+| `securityHeaders` | Response headers every web front adds unless the application sent them itself. |
+
+[Quelltext](https://github.com/tioan/nixlab-docs/blob/main/modules/web-baseline.nix)

@@ -152,8 +152,7 @@ Hostkeys: Lab-Hosts aus `inventory.json` (`/etc/ssh/ssh_known_hosts`), GitHub fe
 | --- | --- | --- | --- | --- |
 | `aldrin`, `grammi`, `zummi`, `ursalia`, `cuckoosegg` (auch `<host>.peer.homelab.example`) | `<host>.peer.homelab.example` (NetBird) | root | `<host>.homelab.example.pub` | aus dem Inventar erzeugt: jeder verwaltete Host außer gusto |
 | `zorlock` | `zorlock.peer.homelab.example` | admin | `zorlock.homelab.example.pub` | kein root auf macOS |
-| `<host>.example-tailnet.ts.net` | Tailscale | wie oben | wie oben | Notzugang, solange Tailscale läuft; nicht für cuckoosegg. Fällt mit Tailscale weg. |
-| `aldrin.homelab.example`, `grammi.homelab.example`, `zummi.homelab.example` | öffentliche Adresse | admin | wie oben | Ausweichweg, wenn das Mesh nicht geht – root ist auf öffentlichen Adressen gesperrt (`modules/ssh.nix`) |
+| `aldrin.homelab.example`, `grammi.homelab.example`, `zummi.homelab.example` | öffentliche Adresse | admin | wie oben | Ausweichweg, wenn das Mesh nicht geht – direkte root-Anmeldung ist auf öffentlichen Adressen gesperrt (`modules/ssh.nix`); Sprunghost des root-Notzugangs zur eigenen Mesh-Adresse des Hosts |
 | `zorlock-lan` | 198.51.100.86 | admin | `zorlock.homelab.example.pub` | FileVault-Entsperren nach einem Neustart, aus dem Heimnetz |
 | `gruffi` | 198.51.100.1 | root | `gruffi.homelab.example.pub` | Heimrouter (Flint 4, GL.iNet-Firmware, Dropbear) |
 | `arkkvm`, `arkkvm01` | `arkkvm01` (DHCP-Name) | root | `arkkvm.pub` | |
@@ -165,7 +164,7 @@ Hostkeys: Lab-Hosts aus `inventory.json` (`/etc/ssh/ssh_known_hosts`), GitHub fe
 | `github.com` | | git | `github.com.pub` | ControlMaster, 60 s |
 | `github-443` | ssh.github.com:443 | git | `github.com.pub` | für Netze, die Port 22 sperren |
 
-Die zusätzlichen Namen (Tailnet, öffentlich) tragen `HostKeyAlias <host>.peer.homelab.example`, werden also alle gegen den einen Hostkey aus dem Inventar geprüft. Ein neuer verwalteter Host erscheint nach `just mac-switch` von selbst – nur seine öffentliche Schlüsseldatei muss nach `hosts/gusto/ssh/`.
+Die öffentlichen Namen tragen `HostKeyAlias <host>.peer.homelab.example`, werden also alle gegen den einen Hostkey aus dem Inventar geprüft. Ein neuer verwalteter Host erscheint nach `just mac-switch` von selbst – nur seine öffentliche Schlüsseldatei muss nach `hosts/gusto/ssh/`.
 
 ## git
 
@@ -182,8 +181,8 @@ Die Desktop-App und Claude Code starten ihre lokalen MCP-Server als stdio-Prozes
 | Server | Was | Start | Zugangsdaten in `mcp.yaml` | Desktop | Claude Code |
 | --- | --- | --- | --- | --- | --- |
 | `homeassistant` | [ha-mcp](https://github.com/homeassistant-ai/ha-mcp) als App (Add-on) auf dem Raspberry Pi, Port 9583 | `uvx fastmcp-remote <url>`, Brücke von HTTP auf stdio | `homeassistant.url`: die geheime URL der App, Host `homeassistant.peer.homelab.example` | ja | ja |
-| `feedbin` | [FeedbinMCP](https://github.com/admin/FeedbinMCP), admins Fork von [hypermoose/FeedbinMCP](https://github.com/hypermoose/FeedbinMCP) | `uv run --directory ~/Projects/personal/FeedbinMCP feedbin-mcp` | `feedbin.email`, `feedbin.password` | ja | nein |
-| `arkkvm` | [arkkvm-mcp](https://github.com/admin/arkkvm-mcp) | `uv run --directory ~/Projects/arkkvm/arkkvm-mcp arkkvm-mcp`, Host `arkkvm01`, Tastaturlayout `de` | `arkkvm.password` | ja | ja |
+| `feedbin` | [FeedbinMCP](https://github.com/admin/FeedbinMCP), admins Fork von [hypermoose/FeedbinMCP](https://github.com/hypermoose/FeedbinMCP) | `feedbin-mcp`, gebaut aus seiner `uv.lock` (`pkgs/uv-mcp.nix`, Quelle in `flake.lock` gepinnt) | `feedbin.email`, `feedbin.password` | ja | nein |
+| `arkkvm` | [arkkvm-mcp](https://github.com/admin/arkkvm-mcp) | `arkkvm-mcp`, gebaut aus seiner `uv.lock` (`pkgs/uv-mcp.nix`, Quelle in `flake.lock` gepinnt), Host `arkkvm01`, Tastaturlayout `de` | `arkkvm.password` | ja | ja |
 | `moneymoney` | [moneymoney-mcp](https://github.com/pipamann/moneymoney-mcp) von Leon Heuser, nur lesend, per AppleScript an die laufende, entsperrte App | `moneymoney-mcp`, gebaut aus dem Tag [v0.4.0](https://github.com/pipamann/moneymoney-mcp/tree/3266505c450ff92ceaa79df3d59965f8ea28f22f) (`pkgs/moneymoney-mcp.nix`) | keine | ja | nein |
 
 - **ha-mcp statt der eingebauten Integration „Model Context Protocol Server“:** Die eingebaute Integration sieht nur, was für Assist freigegeben ist, und keine Geräte-Registry. ha-mcp kann Automationen, Dashboards, Registries, Verlauf und mehr, mit Schreibrechten. Das ist bewusst so: Claude fragt vor jedem Werkzeugaufruf, und ha-mcp legt vor Änderungen ein Backup an. Die App spricht über den Supervisor mit HA, es braucht also kein Long-lived Token. Ihre geheime URL steht beim Start im Log der App.
@@ -192,6 +191,7 @@ Die Desktop-App und Claude Code starten ihre lokalen MCP-Server als stdio-Prozes
 - **Konfig:** Jeder Switch trägt die Server per `jq` in `mcpServers` von `~/Library/Application Support/Claude/claude_desktop_config.json` bzw. `~/.claude.json` ein, nach Namen. Von Hand ergänzte Server bleiben erhalten; einen hier entfernten Server musst du dort von Hand löschen. Die Apps lesen die Datei beim Start, nach einem Switch also neu starten.
 - **Zugangsdaten ändern:** `cd ~/Projects/homelab/nixlab && sops hosts/gusto/mcp.yaml`. Die Änderung gilt ab dem nächsten Serverstart, ohne Switch, denn `mcp-run` liest die Datei im Arbeitsklon. Die HA-URL lässt sich direkt aus der Zwischenablage übernehmen, dabei wird der Host durch den Mesh-Namen ersetzt:
   `cd ~/Projects/homelab/nixlab && sops set hosts/gusto/mcp.yaml '["homeassistant"]["url"]' "\"$(pbpaste | sed -E 's#^http://[^/]+#http://homeassistant.peer.homelab.example:9583#')\""`
+- **Feedbin und arkkvm aus ihrer `uv.lock` gebaut, nicht per `uv run` aus einem Checkout** (seit 2026-11-15, admin/nixlab#313): Der Code liegt schreibgeschützt im Store, jede Abhängigkeit ist genau das Wheel aus dem Lock, geprüft gegen dessen Hash. Das Passwort erreicht den Server als `FEEDBIN_PASSWORD_FILE` / `ARKKVM_PASSWORD_FILE`, das auf eine Pipe zeigt (Process Substitution): einmal beim Start gelesen, nicht in der Prozessumgebung, die andere Prozesse desselben Nutzers lesen können, und nie auf der Platte. Aktualisieren: im Repo des Servers pushen (mit `uv.lock`), dann `nix flake update arkkvm-mcp-src` bzw. `feedbin-mcp-src`, `just mac-switch`, App neu starten.
 - **MoneyMoney aus dem Tag gebaut, nicht `npx -y moneymoney-mcp`:** Das `npx` von Upstream holt bei jedem Start die neueste Version samt Abhängigkeits-Bereichen von npm. Für einen Server, der die Bankkonten liest, ist der Bau aus `package-lock.json` fest und lädt beim Start nichts. Ein Update heißt: Version und Hashes anheben (siehe Paketdatei). Bewusst nur lesend: Ohne `--enable-transfers` gibt es das Tool `create_bank_transfer` nicht. Beim ersten Zugriff fragt macOS unter Automation, ob Claude MoneyMoney steuern darf (System Settings → Privacy & Security → Automation). Fehler `DATABASE_LOCKED`: MoneyMoney entsperren.
 
 ## Sicherung

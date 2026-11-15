@@ -12,8 +12,8 @@ Services are named by function (`rezepte`, not `mealie`); new web services on gr
 
 1. One line under `local.mesh_services` in `terraform/netbird/mesh-services.tf`: name → host(s). This creates a NetBird DNS zone of its own with A record(s) on the mesh address(es); public DNS does not know the name.
 2. `just netbird-apply` – since NetBird 0.81 new zones reach the clients without a restart.
-3. On the host an nginx vhost with `enableACME`, `acmeRoot = null` (DNS-01 via deSEC) and `allow 192.0.2.0/24; deny all;`.
-4. If the service runs on ursalia or zorlock: add the name to the host's `acme_names` in `terraform/desec-tokens/main.tf` and run `just desec-apply` – their tokens may only write exactly those TXT records.
+3. On the host a vhost with `lab.vhosts.<name> = { port = …; meshOnly = true; }` – certificate via DNS-01 (deSEC), mesh-only allow list, security headers and the maintenance switch come with it ([web baseline](../explanation/web-baseline.md#the-vhost-helper)).
+4. If the service gets a certificate via DNS-01: `just desec-names` and `just desec-apply` – every deSEC token may only write the `_acme-challenge` records of its host's names (`terraform/desec-tokens/acme-names.json`, derived from `security.acme.certs`). `nix flake check` fails until the file is up to date.
 5. Deploy the host, `just topology` (new vhost).
 
 ## Public behind the reverse proxy

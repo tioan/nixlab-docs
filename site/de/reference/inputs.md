@@ -1,12 +1,12 @@
 # Inputs und ihre Pins
 
-Nur `nixpkgs`, `nixpkgs-unstable` und `sops-nix` laufen im nächtlichen Auto-Upgrade mit (`services.nixCache.prebuild.updateInputs` in `modules/deploy.nix`, aktualisiert von ursalia für alle Hosts). Alles, was bei einem kaputten Release das ganze Lab aussperren würde, ist separat gepinnt und wird von Hand gebumpt.
+Nur `nixpkgs` und `nixpkgs-unstable` laufen im nächtlichen Auto-Upgrade mit (`services.nixCache.prebuild.updateInputs` in `modules/deploy.nix`, aktualisiert von ursalia für alle Hosts). Alles, was bei einem kaputten Release das ganze Lab aussperren würde, ist separat gepinnt und wird von Hand gebumpt.
 
 | Input | Branch / Tag | Wer nutzt es | Nachts mit? |
 | --- | --- | --- | --- |
 | `nixpkgs` | nixos-26.05 | alle NixOS-Hosts | ja |
 | `nixpkgs-unstable` | nixos-unstable | grammi (Grist), ursalia (Paperless 3.x), zorlock (mactop) | ja |
-| `sops-nix` | main | alle | ja |
+| `sops-nix` | main | alle | nein – von Hand, Diff gelesen (läuft als root mit allen Secrets) |
 | `nixpkgs-netbird` | nixos-unstable | NetBird-Server und alle Clients | nein – Server zuerst, dann Clients |
 | `nixpkgs-pocketid` | nixos-26.05 | zummi (pocket-id-Paket) | nein |
 | `disko` | main | ursalia (alle Mounts) | nein |

@@ -1,7 +1,9 @@
 # Reusable module: nightly `nixos-rebuild switch --flake <flakeDir>#<flakeAttr>`
-# via system.autoUpgrade, which then commits + pushes the updated flake.lock
-# back to the git repo the flake lives in. Meant to be dropped into any
-# host's `modules` list unchanged (see hosts/zummi for the reference usage).
+# via system.autoUpgrade, optionally after fast-forwarding the checkout the
+# flake lives in to a verified upstream commit. It never commits or pushes: a
+# flake.lock changed by `updateInputs` is built and switched, then reset at
+# the next start. Meant to be dropped into any host's `modules` list
+# unchanged (see hosts/zummi for the reference usage).
 { config, lib, pkgs, ... }:
 
 let
@@ -33,7 +35,7 @@ let
 in
 {
   options.services.autoUpgradeGit = {
-    enable = lib.mkEnableOption "nightly auto-upgrade with automatic flake.lock commit + push";
+    enable = lib.mkEnableOption "nightly auto-upgrade of the flake checkout";
 
     flakeDir = lib.mkOption {
       type = lib.types.path;
@@ -61,6 +63,49 @@ in
         rebuilding. With `updateInputs = [ ]` this makes the host follow a
         flake.lock that is updated - and ideally prebuilt - elsewhere.
       '';
+    };
+
+    verifySignatures = {
+      enable = lib.mkEnableOption ''
+        signature checks before `pull` merges anything: the upstream commit
+        must be SSH-signed by `trustedSigners`, or be a lock-only commit by
+        `lockOnlySigners` on top of such a commit (rules in
+        auto-upgrade-git-pull.nix). Anything else fails the run before the
+        rebuild, and the host stays on what it runs'';
+
+      trustedSigners = lib.mkOption {
+        type = lib.types.attrsOf lib.types.str;
+        default = { };
+        example = { alice = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI..."; };
+        description = ''
+          Signer name to SSH public key. A commit signed by one of these is
+          accepted together with all history below it.
+        '';
+      };
+
+      lockOnlySigners = lib.mkOption {
+        type = lib.types.attrsOf lib.types.str;
+        default = { };
+        example = { builder = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI..."; };
+        description = ''
+          Signer name to SSH public key, for a machine that commits the
+          updated flake.lock. Accepted only for a single-parent commit that
+          changes flake.lock and nothing else, on top of an accepted commit.
+        '';
+      };
+
+      package = lib.mkOption {
+        type = lib.types.package;
+        readOnly = true;
+        default = pkgs.callPackage ./auto-upgrade-git-pull.nix { } {
+          inherit (cfg.verifySignatures) trustedSigners lockOnlySigners;
+        };
+        defaultText = lib.literalMD "`auto-upgrade-git-pull` for the signers above";
+        description = ''
+          The verifying pull (`auto-upgrade-git-pull <dir>`, or `--verify
+          <rev>`), for other units that pull the same checkout.
+        '';
+      };
     };
 
     dates = lib.mkOption {
@@ -99,8 +144,8 @@ in
       type = lib.types.str;
       default = "git_deploy_key";
       description = ''
-        Name of the sops secret holding the write-enabled SSH deploy key for
-        the flake's git repo. Declared automatically by this module
+        Name of the sops secret holding the SSH deploy key for the flake's
+        git repo. Read-only is enough: this module never pushes. Declared automatically by this module
         (mode 0400, owner root) - just put the key under this name in the
         host's secrets.yaml.
       '';
@@ -130,11 +175,32 @@ in
     gitAuthorEmail = lib.mkOption {
       type = lib.types.str;
       default = "${config.networking.hostName}@${config.networking.domain}";
-      description = "Email used for the git author/committer identity of the automated flake.lock commit.";
+      description = "Email used for the git author/committer identity of git operations run by the unit.";
     };
   };
 
   config = lib.mkIf cfg.enable {
+    assertions = [
+      {
+        assertion = cfg.verifySignatures.enable -> cfg.pull;
+        message = "services.autoUpgradeGit.verifySignatures needs pull = true - there is nothing to verify otherwise.";
+      }
+      {
+        # A verified checkout must build exactly the signed lock; updating
+        # inputs on top of it would build something no signer has seen.
+        assertion = cfg.verifySignatures.enable -> cfg.updateInputs == [ ];
+        message = "services.autoUpgradeGit.verifySignatures needs updateInputs = [ ]: the host would build a lock no signer has seen.";
+      }
+    ];
+
+    # The verifying pull for interactive use (`just sync`) and the
+    # allowed-signers file it checks against, to read or test by hand:
+    #   git -c gpg.ssh.allowedSignersFile=/etc/auto-upgrade-git/allowed-signers log --show-signature -1
+    environment.systemPackages = lib.mkIf cfg.verifySignatures.enable [ cfg.verifySignatures.package ];
+    environment.etc."auto-upgrade-git/allowed-signers" = lib.mkIf cfg.verifySignatures.enable {
+      source = cfg.verifySignatures.package.allowedSigners;
+    };
+
     sops.secrets.${cfg.deployKeySecret} = {
       mode = "0400";
       owner = "root";
@@ -236,12 +302,16 @@ in
       # reset, resetLock's own timeout) must not be built tonight or block the
       # pull below. Then, with `pull`, fast-forward to what was pushed
       # elsewhere - typically the lock another host updated and prebuilt.
+      # With verifySignatures only to a commit that passes the check; a
+      # refusal fails the run here, before anything is built or switched.
       preStart = ''
         cd ${toString cfg.flakeDir}
         git checkout -- flake.lock
-      '' + lib.optionalString cfg.pull ''
-        git pull --ff-only
-      '' + lib.optionalString (cfg.updateInputs != [ ]) ''
+      '' + lib.optionalString cfg.pull (
+        if cfg.verifySignatures.enable
+        then "${lib.getExe cfg.verifySignatures.package} .\n"
+        else "git pull --ff-only\n"
+      ) + lib.optionalString (cfg.updateInputs != [ ]) ''
         ${config.nix.package}/bin/nix flake update ${lib.escapeShellArgs cfg.updateInputs}
       '';
 
@@ -257,40 +327,8 @@ in
         GIT_AUTHOR_EMAIL = cfg.gitAuthorEmail;
         GIT_COMMITTER_NAME = "${cfg.flakeAttr} auto-upgrade";
         GIT_COMMITTER_EMAIL = cfg.gitAuthorEmail;
-        GIT_SSH_COMMAND = "ssh -i ${config.sops.secrets.${cfg.deployKeySecret}.path} -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new";
+        GIT_SSH_COMMAND = "ssh -i ${config.sops.secrets.${cfg.deployKeySecret}.path} -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes";
       };
-
-      # system.autoUpgrade defines the actual `nix flake update` +
-      # `nixos-rebuild switch` invocation via `script`. mkAfter appends this
-      # so it only runs once that has completed successfully (the script
-      # runs under `set -e`, so a failed switch never reaches this point).
-      # The push can legitimately be rejected as non-fast-forward: the checkout
-      # goes stale as soon as anything is pushed from elsewhere (a workstation
-      # deploy, or the *other* host's auto-upgrade landing its own flake.lock
-      # commit - with several hosts on this module that is the normal case, not
-      # the exception). The previous `git push || echo WARN` swallowed that, so
-      # the host quietly accumulated commits that never reached the remote.
-      # Retry once on top of whatever landed meanwhile.
-      script = lib.mkAfter ''
-        cd ${toString cfg.flakeDir}
-        if ! git diff --quiet -- flake.lock; then
-          git add flake.lock
-          git commit -m "flake.lock: auto-upgrade on ${cfg.flakeAttr} ($(date -u +%Y-%m-%dT%H:%M:%SZ))"
-          if ! git push; then
-            # -X theirs keeps this host's flake.lock if upstream touched it
-            # too. git's naming is inverted during a rebase: "theirs" is the
-            # commit being replayed, i.e. ours. Keeping ours is the right call
-            # because it is the lock we just built and activated against.
-            if git pull --rebase -X theirs && git push; then
-              echo "auto-upgrade-git: pushed after rebasing onto upstream"
-            else
-              git rebase --abort || true
-              echo "WARN: auto-upgrade-git: could not push updated flake.lock;" \
-                   "/etc/nixos on ${cfg.flakeAttr} now holds an unpushed commit"
-            fi
-          fi
-        fi
-      '';
     };
   };
 }

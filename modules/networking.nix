@@ -11,8 +11,8 @@
   # Careful when adding a host: ifstate reconciles the *entire* link and
   # routing state and removes whatever the config does not declare. Anything
   # another daemon installs behind its back gets torn down on every
-  # activation - see modules/tailscale.nix for the ignore rules that keep it
-  # off Tailscale's interface and policy rules.
+  # activation - see modules/netbird.nix for the ignore rules that keep it
+  # off NetBird's interface, routes and policy rules.
   networking.ifstate.enable = true;
   networking.useDHCP = false;
 

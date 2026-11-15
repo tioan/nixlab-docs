@@ -90,6 +90,19 @@ let
           example = [ "CAP_DAC_READ_SEARCH" ];
           description = "The only capabilities the query step keeps. Empty: none.";
         };
+
+        hostNetwork = lib.mkOption {
+          type = lib.types.bool;
+          default = false;
+          description = ''
+            Run the query in the host's network namespace with netlink
+            sockets allowed, instead of a private network: for state that
+            lives in the kernel, such as nftables counters (together with
+            `capabilities = [ "CAP_NET_ADMIN" ]`, which reading them takes).
+            No AF_INET/AF_INET6 either way, so the job still cannot open a
+            connection.
+          '';
+        };
       };
     }
   );
@@ -180,12 +193,12 @@ let
         ProtectHome = true;
         PrivateTmp = true;
         PrivateDevices = true;
-        PrivateNetwork = true;
+        PrivateNetwork = !job.hostNetwork;
         NoNewPrivileges = true;
         ProtectKernelTunables = true;
         ProtectKernelModules = true;
         ProtectControlGroups = true;
-        RestrictAddressFamilies = [ "AF_UNIX" ];
+        RestrictAddressFamilies = [ "AF_UNIX" ] ++ lib.optional job.hostNetwork "AF_NETLINK";
         RestrictNamespaces = true;
         LockPersonality = true;
         MemoryDenyWriteExecute = true;

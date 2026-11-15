@@ -25,6 +25,8 @@ let
   cfg = config.services.logShipping;
   nginx = config.services.nginx.enable;
   traefik = config.services.traefik.enable;
+  # The S3 vhost's own access log (modules/crowdsec.nix), where it exists.
+  bucketLog = lib.attrByPath [ "services" "crowdsecBuckets" "logFile" ] null config;
   # Log directories Vector reads through their group: /var/log/nginx and
   # /var/log/traefik (hosts/grammi/traefik.nix), both 0750.
   logGroups = lib.optional nginx "nginx" ++ lib.optional traefik "traefik";
@@ -41,18 +43,84 @@ in
         mesh, same reasoning as services.metricsShipping.remoteWriteUrl.
       '';
     };
+
+    httpRetryStrategy = lib.mkOption {
+      type = lib.types.attrsOf lib.types.anything;
+      readOnly = true;
+      # Vector's default set (408, 429, every 5xx but 501) plus 401: while a
+      # rotated password is on grammi and not yet on this host, vmauth says
+      # 401, and by default Vector would drop those batches. Retrying holds
+      # them until the buffer is full, then backpressure holds the journal.
+      default = {
+        type = "custom";
+        status_codes = [ 401 408 429 ] ++ lib.filter (c: c != 501) (lib.range 500 599);
+      };
+      description = "Vector retry_strategy for every sink that writes to the ingest with httpAuth.";
+    };
+
+    httpAuth = lib.mkOption {
+      type = lib.types.nullOr (lib.types.attrsOf lib.types.str);
+      readOnly = true;
+      description = ''
+        Vector `auth` block for basicAuth (null without), for other sinks or
+        http_client sources on this host that reach the same ingest.
+      '';
+    };
+
+    basicAuth = {
+      username = lib.mkOption {
+        type = lib.types.nullOr lib.types.str;
+        default = null;
+        description = ''
+          User at the receiving end (vmauth on grammi, modules/
+          telemetry-ingest.nix); null sends without credentials.
+        '';
+      };
+      passwordFile = lib.mkOption {
+        type = lib.types.nullOr lib.types.str;
+        default = null;
+        example = "/run/secrets/telemetry-ingest";
+        description = ''
+          File holding that user's password, read at start. Any owner:
+          systemd hands it to Vector as a credential.
+        '';
+      };
+    };
   };
 
-  config = lib.mkIf cfg.enable {
+  # Read-only below: the same auth block for any other Vector component on
+  # this host that talks to the ingest (hosts/ursalia/flows.nix).
+  config = lib.mkMerge [{
+    services.logShipping.httpAuth = if cfg.enable && cfg.basicAuth.username != null then {
+      strategy = "basic";
+      user = cfg.basicAuth.username;
+      password = "SECRET[credentials.ingest-password]";
+    } else null;
+  } (lib.mkIf cfg.enable {
+    assertions = [{
+      assertion = (cfg.basicAuth.username == null) == (cfg.basicAuth.passwordFile == null);
+      message = "services.logShipping.basicAuth: set username and passwordFile together.";
+    }];
+
     services.vector = {
       enable = true;
       journaldAccess = true;
       settings = {
+        # The ingest password, from the credential below: Vector reads the
+        # file at start, nothing lands in the store or the environment.
+        secret = lib.mkIf (cfg.basicAuth.passwordFile != null) {
+          credentials = {
+            type = "directory";
+            path = "/run/credentials/vector.service";
+            remove_trailing_whitespace = true;
+          };
+        };
+
         sources.journald.type = "journald";
 
         sources.nginx_access = lib.mkIf nginx {
           type = "file";
-          include = [ "/var/log/nginx/access.log" ];
+          include = [ "/var/log/nginx/access.log" ] ++ lib.optional (bucketLog != null) bucketLog;
         };
 
         # Traefik's JSON access log (grammi), same treatment: own
@@ -179,6 +247,12 @@ in
           framing.method = "newline_delimited";
           compression = "gzip";
           healthcheck.enabled = false;
+          auth = lib.mkIf (cfg.httpAuth != null) cfg.httpAuth;
+          retry_strategy = lib.mkIf (cfg.httpAuth != null) cfg.httpRetryStrategy;
+          # journald and the file sources checkpoint only what this sink has
+          # delivered, so batches still being retried survive a restart of
+          # Vector (a password change restarts it).
+          acknowledgements.enabled = true;
         };
       };
     };
@@ -197,5 +271,8 @@ in
     # the journald and file sources, which pick up again from their
     # checkpoints - delayed, not lost, as long as the journal still has it.
     systemd.services.vector.after = [ "netbird-mesh.service" ];
-  };
+
+    systemd.services.vector.serviceConfig.LoadCredential =
+      lib.mkIf (cfg.basicAuth.passwordFile != null) [ "ingest-password:${cfg.basicAuth.passwordFile}" ];
+  })];
 }
