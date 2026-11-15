@@ -1,0 +1,155 @@
+# Zensical config for the German site. Not used as is: docs/site-src.sh
+# fills in the @...@ placeholders and drops lines marked "# private" (public
+# build) or "# public" (private build). Zensical knows only one language per
+# project, so English and German are two projects - English at the root,
+# German under de/ - linked by the language selector (extra.alternate).
+[project]
+site_name = "nixlab"
+site_description = "NixOS/OpenTofu-Homelab – Projektdokumentation"
+site_url = "https://tioan.github.io/nixlab-docs/de/"
+# Repository and "view source" button (content.action.view): public site ->
+# its anonymised sources in nixlab-docs, private site -> the pages in the
+# private repo. The two generated reference pages and the install guides
+# have no file at that path - their button leads to a 404.
+repo_url = "https://github.com/tioan/nixlab-docs" # public
+repo_name = "nixlab-docs" # public
+edit_uri = "blob/main/site/de/" # public
+copyright = "Zusammen mit Claude (Anthropic) entstanden · Module unter MIT-Lizenz" # public
+docs_dir = "de"
+site_dir = "_site/de"
+# Fonts and the lightbox from the site itself, not from Google or unpkg -
+# docs/assets.nix. glightbox.min.js has to be there before the theme looks
+# for GLightbox; then it never loads its own copy from unpkg.com.
+# diagrams.css: dark scheme of the inline SVG diagrams (conventions page);
+# diagrams.js: their boxes jump to sections of the page, a click elsewhere
+# on one opens it enlarged (GLightbox, like an image). lab-map.css/.js:
+# the interactive map of reference/lab-map.md (docs/gen-lab-map.py).
+extra_css = ["assets/stylesheets/fonts.css", "assets/stylesheets/diagrams.css", "assets/stylesheets/lab-map.css", "assets/vendor/glightbox/glightbox.min.css"]
+extra_javascript = ["assets/vendor/glightbox/glightbox.min.js", "assets/javascripts/diagrams.js", "assets/javascripts/lab-map.js"]
+nav = [
+  { "Start" = "index.md" },
+  { "Erklärung" = [
+    "explanation/nixos-opentofu.md",
+    "explanation/secrets-network-access.md",
+    "explanation/site-gateway.md",
+    "explanation/deployment.md",
+    "explanation/monitoring.md",
+    "explanation/failure-modes.md",
+    "explanation/waf.md",
+    "explanation/macos-hosts.md",
+  ] },
+  { "Anleitungen" = [
+    "how-to/new-host.md",
+    "how-to/new-service.md",
+    "how-to/maintenance.md",
+    "how-to/secrets.md",
+    "how-to/key-rotation.md",
+    "how-to/software.md",
+    "how-to/hotfix.md",
+    "how-to/try-branch.md",
+    "how-to/restore-test.md",
+  ] },
+  { "Referenz" = [
+    "reference/repository.md",
+    "reference/where-to-change.md",
+    "reference/host-directory.md",
+    "reference/inputs.md",
+    "reference/hosts.md",
+    "reference/gusto.md",
+    "reference/gruffi.md",
+    "reference/inventory.md",
+    "reference/inventory-schema.md",
+    "reference/lab-map.md",
+    "reference/services.md",
+    "reference/modules.md",
+    "reference/modules-generated.md", # generated
+    "reference/recipes.md",
+    "reference/recipes-generated.md", # generated
+    "reference/troubleshooting.md",
+  ] },
+  { "Projekt" = [
+    "project/conventions.md",
+    "project/open-items.md",
+  ] },
+]
+
+[project.theme]
+language = "de"
+# Own fonts instead of Google Fonts (extra_css above).
+font = false
+features = [
+  "content.action.view",
+  "content.code.copy",
+  "content.tabs.link",
+  "content.tooltips",
+  "navigation.footer",
+  "navigation.instant",
+  "navigation.path",
+  "navigation.sections",
+  "navigation.tabs",
+  "navigation.tabs.sticky",
+  "navigation.top",
+  "navigation.tracking",
+  "search.highlight",
+  "toc.follow",
+]
+
+[[project.theme.palette]]
+media = "(prefers-color-scheme)"
+toggle.icon = "lucide/sun-moon"
+toggle.name = "Helles Design"
+
+[[project.theme.palette]]
+media = "(prefers-color-scheme: light)"
+scheme = "default"
+toggle.icon = "lucide/sun"
+toggle.name = "Dunkles Design"
+
+[[project.theme.palette]]
+media = "(prefers-color-scheme: dark)"
+scheme = "slate"
+toggle.icon = "lucide/moon"
+toggle.name = "Wie das System"
+
+[[project.extra.alternate]]
+name = "English"
+link = "/nixlab-docs/"
+lang = "en"
+
+[[project.extra.alternate]]
+name = "Deutsch"
+link = "/nixlab-docs/de/"
+lang = "de"
+
+[project.markdown_extensions]
+admonition = {}
+attr_list = {}
+def_list = {}
+footnotes = {}
+md_in_html = {}
+tables = {}
+toc.permalink = true
+pymdownx.details = {}
+pymdownx.keys = {}
+pymdownx.inlinehilite = {}
+# Code blocks: language as title, line numbers in their own column (not
+# copied along), each line its own anchor and span.
+pymdownx.highlight.pygments_lang_class = true
+pymdownx.highlight.auto_title = true
+pymdownx.highlight.linenums = true
+pymdownx.highlight.linenums_style = "pymdownx-table"
+pymdownx.highlight.anchor_linenums = true
+pymdownx.highlight.line_spans = "__span"
+# Content tabs (=== "macOS" ...), linked across the page (content.tabs.link).
+pymdownx.tabbed.alternate_style = true
+pymdownx.superfences.custom_fences = [
+  { name = "mermaid", class = "mermaid", format = "pymdownx.superfences.fence_code_format" },
+]
+pymdownx.tasklist.custom_checkbox = true
+
+# Click an image to see it full size; diagrams.js opens the inline
+# diagrams in the same lightbox. The script
+# and stylesheet come with the site (extra_javascript/extra_css above,
+# docs/assets.nix) - the theme would otherwise fetch them from unpkg.com.
+[project.plugins.glightbox]
+enabled = true

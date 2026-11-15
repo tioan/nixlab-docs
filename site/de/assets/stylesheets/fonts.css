@@ -1,0 +1,39 @@
+/* The site's own fonts instead of Google Fonts - see docs/assets.nix for
+   why. The files sit next to this sheet's directory (assets/fonts/, copied
+   in by docs/site-src.sh). Variable fonts: one file per style, all weights. */
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("../fonts/Inter.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Inter";
+  font-style: italic;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("../fonts/Inter-Italic.woff2") format("woff2");
+}
+@font-face {
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-weight: 100 800;
+  font-display: swap;
+  src: url("../fonts/JetBrainsMono.woff2") format("woff2");
+}
+@font-face {
+  font-family: "JetBrains Mono";
+  font-style: italic;
+  font-weight: 100 800;
+  font-display: swap;
+  src: url("../fonts/JetBrainsMono-Italic.woff2") format("woff2");
+}
+
+/* With font = false the theme falls back to system fonts; these two
+   variables put the same fonts back that it would otherwise load from
+   Google. */
+:root {
+  --md-text-font: "Inter";
+  --md-code-font: "JetBrains Mono";
+}

@@ -1,0 +1,14 @@
+# Hosts & roles
+
+Three rented VMs carry the public services, ursalia, tummi and zorlock sit at home, cuckoosegg in the Subraum hackerspace; gusto is the admin workstation (a MacBook). All servers are reachable in the NetBird mesh as `<host>.peer.homelab.example`; root SSH exists only there. Kind, site, uplink and disk unlock of every machine – including the routers, KVM and appliances – are in the [inventory](inventory.md), all of it at a glance on the [lab map](lab-map.md).
+
+| Host | Platform | Role | Notes |
+| --- | --- | --- | --- |
+| grammi | NixOS, rented VM | NetBird server (`mesh.homelab.example`) + reverse proxy, Traefik, monitoring (VictoriaMetrics/-Logs, Grafana, logchef), Mealie, Grist, PostgreSQL | Central sink for metrics and logs of all hosts |
+| zummi | NixOS, rented VM | Pocket ID (`auth.homelab.example`) – login for all services and NetBird | pocket-id pinned separately |
+| aldrin | NixOS, rented VM | Garage S3 (`s3.aldrin.homelab.example`), garage-ui (`s3-admin`), backup target for restic, docs site (`doku`), Immich Public Proxy (`fotos` from outside) | Forked garage-ui package with subpath support |
+| ursalia | NixOS, bare metal (ASRock NUC BOX-1260P) | Paperless-ngx 3 + paperless-gpt (`dokumente`), HealthLog (`health`), Immich (`fotos`), Bambuddy (`bambuddy`), AdGuard Home (`dns`, `adguard`), docs site (`doku`), Samba for the scanner, routing peer into the home LAN, build host for cuckoosegg, ESPHome build server for Home Assistant (home LAN only, port 6055), Claude Code bridge to the NanoKVM Go+ (on demand) | LUKS + btrfs via disko, TPM unlock, Secure Boot (lanzaboote), WLAN (Intel AX211, `home-wifi.nix`), no CrowdSec |
+| tummi | NixOS, bare metal (ASRock NUC BOX-1260P) | Copying and sorting files: 8 TB on `/data`, SMB share "Daten" on the mesh, all of `/data` backed up to Garage on aldrin | Built like ursalia (disko, TPM unlock, Secure Boot), WLAN with a wired fallback, nothing exposed |
+| cuckoosegg | NixOS, VM on the Subraum Proxmox | NetBird routing peer into the Subraum networks | Group `subraum-devices` instead of `servers`, no repo/deploy key, deployed by push |
+| zorlock | macOS + nix-darwin, Mac mini M6 | Ollama on the Apple GPU (`ollama`), used by paperless-gpt | None of the `modules/*.nix`; FileVault unlock after reboot via LAN SSH |
+| gusto | macOS + nix-darwin + home-manager, MacBook Pro | Admin workstation: deploys, secrets, Tofu, docs | Laptop, no sshd, no secrets, not monitored; apps as Homebrew casks, NetBird as the official app – see [gusto](gusto.md) and [macOS hosts](../explanation/macos-hosts.md) |

@@ -1,0 +1,38 @@
+# Services
+
+Services are named by function, not by product. There are three kinds of reachability: public directly, public behind the NetBird reverse proxy with SSO, or mesh only.
+
+| Name (`.homelab.example`) | App | Host | Reachable |
+| --- | --- | --- | --- |
+| `auth` | Pocket ID | zummi | public (nginx) |
+| `mesh` | NetBird management/dashboard | grammi | public (Traefik terminates TLS) |
+| `s3.aldrin` | Garage S3 API | aldrin | public (nginx) |
+| `cloud` | OpenCloud | aldrin | public (nginx), login via Pocket ID; not behind the reverse proxy, its SSO would stop the sync clients |
+| `tabs` | WebDAV for floccus (rclone) | aldrin | public (nginx), one account with basic auth ([why](../explanation/secrets-network-access.md#tabs)) |
+| `short.homelab.example` | URL shortener (Chhoto URL) | aldrin | public (nginx), codes without login, management at `/admin/manage/` via Pocket ID |
+| `rezepte` | Mealie | grammi | reverse proxy + SSO |
+| `grist` | Grist | grammi | reverse proxy + SSO |
+| `logs` | logchef | grammi | reverse proxy + SSO |
+| `metrics` | Grafana | grammi | reverse proxy + SSO |
+| `dash` | Grafana, public dashboards only | grammi | reverse proxy without login, Traefik passes only the public-dashboard paths ([why](../explanation/secrets-network-access.md#grafana-public-dashboards-through-dash)) |
+| `vm` / `vl` | VictoriaMetrics / VictoriaLogs UI | grammi | reverse proxy + SSO |
+| `alertmanager` / `alerts` | Alertmanager UI (alerts, silences) | grammi | reverse proxy + SSO, `homelab_admins` only ([Alerting](../explanation/monitoring.md#alerting)) |
+| `s3-admin` | garage-ui | aldrin | mesh only |
+| `dokumente` | Paperless + paperless-gpt (`/paperless-gpt/`) | ursalia | in the mesh directly; from outside, through the reverse proxy, share links via PIN and the app via SSO ([why](../explanation/secrets-network-access.md#paperless-from-outside-share-links-pin-and-the-app-sso)) |
+| `ollama` | Ollama (behind Caddy) | zorlock | mesh only |
+| `health` | [HealthLog](https://github.com/MBombeck/HealthLog) ([`0497d60`](https://github.com/MBombeck/HealthLog/tree/0497d60a893784e709899cdb6fbdf155ef29e3e3) by Marc Bombeck) | ursalia | mesh only (the iOS app needs NetBird too), login via Pocket ID only (group `healthlog_users`); its own encrypted off-host copies in Garage on aldrin (bucket `healthlog-backups`, 30 days) |
+| `bambuddy` | [Bambuddy](https://github.com/maziggy/bambuddy) ([`98ecaf5`](https://github.com/maziggy/bambuddy/tree/98ecaf5020e3a20a5de49859b8ad5a754d5ad85c) by MartinNYHC) | ursalia | through the reverse proxy with SSO (groups `bambuddy_user` / `bambuddy_admin`), then Bambuddy's own login via Pocket ID; printers by IP in LAN mode; virtual printer for Bambu Studio on ursalia's LAN address (ports in the home LAN only, from outside via the NetBird route into the home LAN) |
+| `inv` | [OpenInvento](https://github.com/openinvento/openinvento) (mrtncode), test system from upstream `main` and unreleased branches | ursalia | through the reverse proxy with SSO (groups `inventar_users` / `inventar_admins`), then login via Pocket ID without another prompt; image built locally with `just openinvento-image` |
+| `fotos` | [Immich](https://github.com/immich-app/immich) (photos and videos) | ursalia | in the mesh directly, browser and app, login via Pocket ID only (groups `immich_users` / `immich_admins`); from outside only shared links, through the reverse proxy without login to [Immich Public Proxy](https://github.com/alangrainger/immich-public-proxy) (Alan Grainger) on aldrin, with WAF and CrowdSec there; visitor uploads into shares that allow them |
+| `dns` | [AdGuard Home](https://github.com/AdguardTeam/AdGuardHome) | ursalia | DNS for the home LAN (53, DoT/DoQ 853, DoH) and people's devices in the mesh (NetBird nameserver group) ([why](../explanation/secrets-network-access.md#adguard)) |
+| `adguard` | AdGuard Home, admin UI | ursalia | through the reverse proxy with SSO (`homelab_admins`), then AdGuard's own login ([why](../explanation/secrets-network-access.md#adguard)) |
+| `mqtt` | Mosquitto (Home Assistant add-on) | Home Assistant (home LAN, NetBird peer) | port 8883, MQTT over TLS: at home straight to HA (home router (Flint 4) answers the name locally), from outside through the reverse proxy as TLS passthrough to the peer, no SSO ([why](../explanation/secrets-network-access.md#mqtt-from-outside-tls-passthrough-to-home-assistant)) |
+| `acme` | dns01proxy (DNS-01 for Home Assistant) | grammi | mesh only, port 8446; HA resolves it through the home router (Flint 4) ([why](../explanation/secrets-network-access.md#mqtt-from-outside-tls-passthrough-to-home-assistant)) |
+| `doku` | This documentation (private version) | aldrin + ursalia | in the mesh admin devices only ([why](../explanation/secrets-network-access.md#private-docs-admin-devices-home-lan-login)), one A record per host; in the home LAN through a record of the router's own to ursalia, except a deny list; from outside a redirect to the public docs through the reverse proxy, `/login` to `doku-login` |
+| `doku-login` | This documentation (private version) from the internet | aldrin | through the reverse proxy with SSO (group `docs-readers`), only with the proxy's secret header |
+
+**Reverse proxy:** Traefik on grammi owns port 443. It terminates `mesh.homelab.example` itself and hands everything else via TCP passthrough with PROXY protocol v2 to `netbird-proxy`, which does TLS and ACME (tls-alpn-01) on its own. Login at the proxy is SSO against Pocket ID, limited to the NetBird groups of the respective app; `dokumente` additionally with a PIN (share links only). The proxy reaches every service on grammi through the Traefik entrypoint `apps` (port 8090), which puts the maintenance switch and error pages in front ([maintenance mode](../how-to/maintenance.md)).
+
+**Mesh-only names:** Every name is its own NetBird DNS zone with one A record pointing at the mesh address (192.0.2.x). Public DNS does not know them; the certificate comes via DNS-01 through deSEC.
+
+**Across all Linux hosts:** vmagent ships metrics, Vector ships journald and nginx logs to grammi. CrowdSec reads the nginx/Traefik logs on the public hosts. restic backups go to Garage buckets on aldrin, for Paperless additionally append-only to BorgBase.

@@ -1,0 +1,5322 @@
+# nixlab – Projektdokumentation
+
+Stand: 19.10.2026 · [English](README.md) · [PDF](nixlab-documentation.de.pdf) · [Website](https://tioan.github.io/nixlab-docs/de/)
+
+> Diese Dokumentation beschreibt ein privates Repo. Domain und interne Adressen sind durch Beispielwerte ersetzt: die Domain durch `homelab.example` ([RFC 2606](https://www.rfc-editor.org/rfc/rfc2606)), IPv4 nach [RFC 5737](https://www.rfc-editor.org/rfc/rfc5737) (`192.0.2.0/24`, `198.51.100.0/24`, `203.0.113.0/24`), IPv6 nach [RFC 3849](https://www.rfc-editor.org/rfc/rfc3849) (`2001:db8::/32`), der Tailnet-Name durch `example-tailnet.ts.net`. Die echte Mesh-Range ist ein /22 aus RFC 1918. Module, Dokumentation und Build-Werkzeuge sind zusammen mit Claude (Anthropic) entstanden. Lizenz: [MIT](LICENSE).
+
+
+## Überblick
+
+nixlab ist das Flake-Monorepo für das Homelab **homelab.example**: fünf NixOS-Hosts, ein Mac mini mit nix-darwin und die Admin-Workstation gusto (ein MacBook, nix-darwin + home-manager), dazu drei OpenTofu-Module für den NetBird-Account, die deSEC-API-Tokens und die GitHub-Repos samt Deploy-Keys. Bedient wird alles über ein `justfile` von gusto aus; die Hosts ziehen ihre Konfiguration selbst aus dem privaten GitHub-Repo und aktualisieren sich nachts.
+
+Kurzantwort auf die Frage *„Hast du NixOS und OpenTofu irgendwie miteinander verdrahtet?“*: **Ja, aber bewusst lose – über Dateien im Repo, nicht über ein gemeinsames Tool.** OpenTofu schreibt sops-verschlüsselte Dateien in `hosts/<host>/`, die NixOS-Module beim Build lesen, und beide Seiten lesen dieselbe Dienstliste `hosts/grammi/proxy-services.json`. Kein terranix, kein Tofu-Lauf aus Nix heraus. Details unter [NixOS & OpenTofu](#nixos--opentofu).
+
+Zielgruppe: Leute, die NixOS-Flakes, sops-nix und Terraform/OpenTofu lesen können.
+
+## NixOS & OpenTofu
+
+Ja, beides ist verdrahtet – über das Repo als gemeinsame Schnittstelle. OpenTofu verwaltet das, was außerhalb der Maschinen per API existiert (NetBird-Account, deSEC-Tokens, Pocket-ID-Gruppen); NixOS verwaltet die Maschinen. Die beiden reden nie direkt miteinander: Tofu läuft nur auf dem MacBook über `just`, Nix wertet nie Tofu-State aus.
+
+<figure class="nx-diagram">
+<svg viewBox="0 0 680 452" role="img" aria-label="Tofu und NixOS teilen sich nur Dateien im Repo: OpenTofu spricht mit den APIs, seine Ergebnisse landen als Dateien im Repo, und der Nix-Flake liest diese Dateien" xmlns="http://www.w3.org/2000/svg">
+<style>.nx-t{font-family:'DejaVu Sans',sans-serif;font-size:14px;font-weight:bold;fill:#2c2c2a}.nx-ts{font-size:12px}.nx-tx{font-size:11px}.nx-s{font-family:'DejaVu Sans',sans-serif;font-size:11px;fill:#5f5e5a}.nx-line{fill:none;stroke:#888780;stroke-width:1.4}.nx-gray rect{fill:#f1efe8;stroke:#888780}.nx-gray .nx-t{fill:#2c2c2a}.nx-gray .nx-s{fill:#5f5e5a}.nx-coral rect{fill:#faece7;stroke:#993c1d}.nx-coral .nx-t{fill:#4a1b0c}.nx-coral .nx-s{fill:#993c1d}.nx-blue rect{fill:#e6f1fb;stroke:#185fa5}.nx-blue .nx-t{fill:#042c53}.nx-blue .nx-s{fill:#185fa5}</style>
+<text class="nx-t" x="16" y="24">Tofu und NixOS teilen sich nur Dateien im Repo</text>
+<text class="nx-s" x="16" y="42">Pfeile zeigen, wohin Daten fließen</text>
+<text class="nx-s" x="76" y="78" text-anchor="middle">API (per Netz)</text>
+<text class="nx-s" x="224" y="78" text-anchor="middle">OpenTofu auf dem MacBook</text>
+<text class="nx-s" x="387" y="78" text-anchor="middle">Repo-Dateien</text>
+<text class="nx-s" x="571" y="78" text-anchor="middle">Nix-Flake</text>
+<path class="nx-line" d="M152 114.0 H136"/><path class="nx-line" d="M142 110.0 L136 114.0 L142 118.0"/><path class="nx-line" d="M146 110.0 L152 114.0 L146 118.0"/>
+<path class="nx-line" d="M152 174.0 H136"/><path class="nx-line" d="M142 170.0 L136 174.0 L142 178.0"/><path class="nx-line" d="M146 170.0 L152 174.0 L146 178.0"/>
+<path class="nx-line" d="M152 234.0 H136"/><path class="nx-line" d="M142 230.0 L136 234.0 L142 238.0"/><path class="nx-line" d="M146 230.0 L152 234.0 L146 238.0"/>
+<path class="nx-line" d="M296 114.0 H312"/><path class="nx-line" d="M306 110.0 L312 114.0 L306 118.0"/>
+<path class="nx-line" d="M312 174.0 H296"/><path class="nx-line" d="M302 170.0 L296 174.0 L302 178.0"/>
+<path class="nx-line" d="M296 234.0 H312"/><path class="nx-line" d="M306 230.0 L312 234.0 L306 238.0"/>
+<path class="nx-line" d="M462 114.0 H478"/><path class="nx-line" d="M472 110.0 L478 114.0 L472 118.0"/>
+<path class="nx-line" d="M462 174.0 H478"/><path class="nx-line" d="M472 170.0 L478 174.0 L472 178.0"/>
+<path class="nx-line" d="M462 234.0 H478"/><path class="nx-line" d="M472 230.0 L478 234.0 L472 238.0"/>
+<path class="nx-line" d="M462 294.0 H478"/><path class="nx-line" d="M472 290.0 L478 294.0 L472 298.0"/>
+<path class="nx-line" d="M296 186 H304 V294.0 H312"/><path class="nx-line" d="M306 290.0 L312 294.0 L306 298.0"/>
+<a data-target="nixos-to-tofu" tabindex="0" role="link" class="nx-coral"><rect x="16" y="90" width="120" height="48" rx="8" stroke-width="1"/><text class="nx-t" x="76" y="112" text-anchor="middle">NetBird API</text><text class="nx-s" x="76" y="129" text-anchor="middle">mesh.homelab.example</text></a>
+<a data-target="nixos-to-tofu" tabindex="0" role="link" class="nx-coral"><rect x="16" y="150" width="120" height="48" rx="8" stroke-width="1"/><text class="nx-t" x="76" y="172" text-anchor="middle">Pocket ID API</text><text class="nx-s" x="76" y="189" text-anchor="middle">auth.homelab.example</text></a>
+<a data-target="desec-token" tabindex="0" role="link" class="nx-gray"><rect x="16" y="210" width="120" height="48" rx="8" stroke-width="1"/><text class="nx-t" x="76" y="232" text-anchor="middle">deSEC API</text><text class="nx-s" x="76" y="249" text-anchor="middle">Token-Verwaltung</text></a>
+<a data-target="netbird-setup-key" tabindex="0" role="link" class="nx-gray"><rect x="152" y="90" width="144" height="108" rx="8" stroke-width="1"/><text class="nx-t" x="224" y="142" text-anchor="middle">netbird</text><text class="nx-s" x="224" y="159" text-anchor="middle">terraform/netbird</text></a>
+<a data-target="desec-token" tabindex="0" role="link" class="nx-gray"><rect x="152" y="210" width="144" height="48" rx="8" stroke-width="1"/><text class="nx-t" x="224" y="232" text-anchor="middle">desec-tokens</text><text class="nx-s" x="224" y="249" text-anchor="middle">terraform/desec-tokens</text></a>
+<a data-target="netbird-setup-key" tabindex="0" role="link" class="nx-gray"><rect x="312" y="90" width="150" height="48" rx="8" stroke-width="1"/><text class="nx-t" x="387" y="112" text-anchor="middle">netbird.yaml</text><text class="nx-s" x="387" y="129" text-anchor="middle">hosts/host/, sops</text></a>
+<a data-target="proxy-services" tabindex="0" role="link" class="nx-blue"><rect x="312" y="150" width="150" height="48" rx="8" stroke-width="1"/><text class="nx-t nx-ts" x="387" y="172" text-anchor="middle">proxy-services.json</text><text class="nx-s" x="387" y="189" text-anchor="middle">hosts/grammi/, Klartext</text></a>
+<a data-target="desec-token" tabindex="0" role="link" class="nx-gray"><rect x="312" y="210" width="150" height="48" rx="8" stroke-width="1"/><text class="nx-t" x="387" y="232" text-anchor="middle">desec.yaml</text><text class="nx-s" x="387" y="249" text-anchor="middle">hosts/host/, sops</text></a>
+<a data-target="peers" tabindex="0" role="link" class="nx-gray"><rect x="312" y="270" width="150" height="48" rx="8" stroke-width="1"/><text class="nx-t nx-ts" x="387" y="292" text-anchor="middle">expected-peers.json</text><text class="nx-s" x="387" y="309" text-anchor="middle">terraform/netbird/</text></a>
+<a data-target="netbird-setup-key" tabindex="0" role="link" class="nx-gray"><rect x="478" y="90" width="186" height="48" rx="8" stroke-width="1"/><text class="nx-t" x="571" y="112" text-anchor="middle">netbird.nix</text><text class="nx-s" x="571" y="129" text-anchor="middle">modules/, Setup-Key</text></a>
+<a data-target="proxy-services" tabindex="0" role="link" class="nx-gray"><rect x="478" y="150" width="186" height="48" rx="8" stroke-width="1"/><text class="nx-t" x="571" y="172" text-anchor="middle">topology.nix</text><text class="nx-s" x="571" y="189" text-anchor="middle">Grafana-Topologie</text></a>
+<a data-target="desec-token" tabindex="0" role="link" class="nx-gray"><rect x="478" y="210" width="186" height="48" rx="8" stroke-width="1"/><text class="nx-t" x="571" y="232" text-anchor="middle">acme.nix</text><text class="nx-s" x="571" y="249" text-anchor="middle">modules/, DNS-01-Token</text></a>
+<a data-target="peers" tabindex="0" role="link" class="nx-gray"><rect x="478" y="270" width="186" height="48" rx="8" stroke-width="1"/><text class="nx-t nx-tx" x="571" y="292" text-anchor="middle">netbird-expected-peers.nix</text><text class="nx-s" x="571" y="309" text-anchor="middle">hosts/grammi/, Metrik</text></a>
+<text class="nx-s" x="16" y="346">tofu apply legt Account, Policies und Tokens an und bekommt Setup-Keys und Tokens zurück;</text>
+<text class="nx-s" x="16" y="363">just netbird-key und desec-key verschlüsseln sie per sops für den Ziel-Host ins Repo.</text>
+<a data-target="proxy-services" tabindex="0" role="link" class="nx-blue"><rect x="16" y="382" width="316" height="52" rx="8" stroke-width="1"/><text class="nx-t nx-ts" x="174" y="406" text-anchor="middle">Beide Seiten lesen proxy-services.json</text><text class="nx-s" x="174" y="423" text-anchor="middle">von Hand gepflegt, Klartext im Repo</text></a>
+<a data-target="nixos-to-tofu" tabindex="0" role="link" class="nx-coral"><rect x="348" y="382" width="316" height="52" rx="8" stroke-width="1"/><text class="nx-t nx-ts" x="506" y="406" text-anchor="middle">Läuft selbst auf NixOS (grammi, zummi)</text><text class="nx-s" x="506" y="423" text-anchor="middle">Gegenrichtung: ohne diese Hosts kein tofu apply</text></a>
+</svg>
+</figure>
+
+Tofu schreibt nie direkt auf einen Host: jedes Ergebnis landet als Datei im Repo und erreicht den Host erst mit dem nächsten Deploy.
+
+### Die Berührungspunkte
+
+#### NetBird-Setup-Key
+
+| Richtung | Datei | Erzeugt von | Gelesen von | Inhalt |
+| --- | --- | --- | --- | --- |
+| Tofu → NixOS | `hosts/<host>/netbird.yaml` | `just netbird-key <host>` (`tofu output setup_keys` → `sops encrypt`) | `modules/netbird.nix` (`sopsFile`) | Einmal-Setup-Key, 24 h gültig |
+
+Der Ablauf für einen neuen Host: Tofu legt den Setup-Key an, `just netbird-key` schreibt ihn verschlüsselt für genau diesen Host (age-Key aus seinem SSH-Host-Key) nach `hosts/<host>/netbird.yaml`, Commit, Deploy innerhalb von 24 h. Der Host registriert sich beim Start selbst; Peers selbst verwaltet Tofu nicht, es findet sie per `data "netbird_peer"` über den Namen.
+
+#### deSEC-Token
+
+| Richtung | Datei | Erzeugt von | Gelesen von | Inhalt |
+| --- | --- | --- | --- | --- |
+| Tofu → NixOS | `hosts/<host>/desec.yaml` | `just desec-key <host>` (`tofu output acme_tokens` → `sops encrypt`) | `modules/acme.nix` (`sopsFile`) | deSEC-Token nur für TXT-Records, VMs auf ihre IP gepinnt |
+
+#### Soll- und Admin-Peers
+
+| Richtung | Datei | Erzeugt von | Gelesen von | Inhalt |
+| --- | --- | --- | --- | --- |
+| Tofu → NixOS | `terraform/netbird/expected-peers.json` | `just netbird-apply` (`tofu output expected_peers`, aus den Policies in `expected-peers.tf` berechnet) | `hosts/grammi/netbird-expected-peers.nix` (`builtins.readFile`) | Soll-Anzahl NetBird-Peers je Host als Metrik `netbird_expected_peers`, im NetBird-Dashboard neben der echten Network Map (z. B. aldrin 6, grammi 8) |
+| Tofu → NixOS | `terraform/netbird/admin-peers.json` | `just netbird-apply` (`tofu output admin_peers`, aus der Gruppe `admin-workstations`, `admin-peers.tf`) | `flake.nix` (`builtins.readFile`, Option `services.docsSite.allow`) | Mesh-Adressen der Admin-Geräte (v4 und v6 je Gerät) – wer die private Doku lesen darf |
+
+#### proxy-services.json
+
+| Richtung | Datei | Erzeugt von | Gelesen von | Inhalt |
+| --- | --- | --- | --- | --- |
+| gemeinsam | `hosts/grammi/proxy-services.json` | von Hand | `terraform/netbird/reverse-proxy.tf` (`jsondecode(file(...))`) und `topology.nix` | Name → App, Port, Gruppen der Reverse-Proxy-Dienste |
+
+#### GitHub-Deploy-Key
+
+| Richtung | Datei | Erzeugt von | Gelesen von | Inhalt |
+| --- | --- | --- | --- | --- |
+| Repo → beide | `hosts/<host>/github.yaml` + `github-deploy.pub` | `just github-key <host>` (`ssh-keygen` → `sops encrypt`) | privat: `modules/deploy.nix` (`sopsFile`); öffentlich: `terraform/github` (`file(...)`) | Deploy-Key für `/etc/nixos`; Tofu sieht nur den öffentlichen Teil |
+
+#### NixOS → Tofu
+
+| Richtung | Datei | Erzeugt von | Gelesen von | Inhalt |
+| --- | --- | --- | --- | --- |
+| NixOS → Tofu | NetBird-Server auf grammi | `hosts/grammi/netbird.nix` | Provider über `https://mesh.homelab.example` | Die API, gegen die Tofu überhaupt erst läuft |
+| NixOS → Tofu | Bootstrap-Tokens | `just netbird-setup-owner`, `netbird-proxy-token` (SSH auf grammi, Server-API) | `terraform/netbird/secrets.yaml` bzw. `hosts/grammi/netbird-proxy.yaml` | Owner-PAT, Proxy-Token |
+| NixOS → Tofu | Garage-Admin-Token | `hosts/aldrin/secrets.yaml` (`garage_admin_token`), kopiert von `just garage-admin-token` (SSH auf aldrin) | `terraform/secrets.yaml`, `terraform/lib.sh` (`garage_env`) für `terraform/garage` und `just healthlog-offhost` | Volle Admin-API unter `http://aldrin.peer.homelab.example:3903` (nur Admin-Geräte im Mesh, `admin-peers.json`); nach einer Rotation das Recipe erneut ausführen |
+
+### Tofu-State
+
+Jedes Modul hat genau eine State-Datei im Haupt-Checkout (`terraform/<modul>/<name>.tfstate`), auch wenn ein Rezept aus einem Worktree läuft. Sie hält Setup-Keys und Tokens und ist deshalb mit OpenTofus State-Verschlüsselung verschlüsselt (AES-GCM, Schlüssel per PBKDF2) und **committet**. Die Passphrase ist `tf_state_passphrase` in `terraform/secrets.yaml`, per sops für den Workstation- und den Admin-Key verschlüsselt, eine für alle Module. `terraform/lib.sh` baut daraus `TF_ENCRYPTION`, die Passphrase steht nie in einer Datei. Rezepte, deren Tofu-Aufruf den State geändert hat, committen genau diese Datei sofort danach (andere gestagte Änderungen bleiben unberührt); pushen bleibt Handarbeit. Ein Klartext-State wird nie committet – `tf_init` und der Commit verweigern ihn.
+
+**Wiederherstellen** nach verlorener Workstation: Repo klonen, sops-Key einrichten (siehe [Rezepte](#just-rezepte)), fertig – die Rezepte lesen den State aus dem Checkout. Ohne Workstation-Key entschlüsselt der Admin-Recovery-Key `terraform/secrets.yaml`. `just netbird-import` braucht es nur noch, wenn auch git den State nicht hat. Seit 2026-10-24; davor war der State gitignored und lag nur auf der Workstation (am 2026-10-22 nur noch im Time-Machine-Backup des alten MacBooks).
+
+### Was bewusst nicht verdrahtet ist
+
+- **Keine gemeinsame Host-Liste.** Hosts stehen dreimal: `nixosConfigurations` in `flake.nix`, `local.hosts` in den Tofu-Modulen und `hosts :=` im `justfile`. Ein neuer Host muss an allen drei Stellen eingetragen werden.
+- **Kein terranix / kein Tofu im Nix-Build.** Tofu läuft nur auf der Workstation; der State liegt verschlüsselt im Repo ([Tofu-State](#tofu-state)), und Nix wertet ihn nie aus.
+- **Kein Provisioning der Maschinen.** Die VMs werden beim Anbieter von Hand angelegt, ursalia/cuckoosegg nach `docs/install-*.md`.
+- **Öffentliches DNS** liegt in DNSControl (eigenes Repo, nur per Symlink eingebunden), nicht in Tofu.
+
+Die Grenze ist also: Was Nix aus dem Repo heraus deterministisch bauen kann, macht Nix. Was nur einmal per API erzeugt wird und ein Geheimnis zurückgibt, macht Tofu – und übergibt es verschlüsselt als Datei.
+
+## Secrets, Netzwerk & Zugriff
+
+### Secrets (sops-nix, age)
+
+Jede Host-Datei ist für genau zwei Empfänger verschlüsselt: den age-Key aus dem SSH-Host-Key des Hosts und den Offline-Recovery-Key `admin`. Das MacBook kann Host-Secrets also nicht lesen – `just secrets <host>` editiert sie auf dem Host und holt das Ergebnis zurück. Verschlüsseln für einen Host geht dagegen überall (nur der öffentliche Key ist nötig); genau das nutzen `netbird-key` und `desec-key`.
+
+| Datei | Empfänger | Inhalt |
+| --- | --- | --- |
+| `hosts/<host>/secrets.yaml` | Host + admin | Deploy-Key, App-Passwörter, OIDC-Clients, restic |
+| `hosts/<host>/netbird.yaml` | Host + admin | NetBird-Setup-Key (von Tofu) |
+| `hosts/<host>/desec.yaml` | Host + admin | deSEC-Token (von Tofu) |
+| `hosts/<host>/github.yaml` | Host + admin | GitHub-Deploy-Key (von `just github-key`) |
+| `hosts/<host>/waf.yaml` | Host + admin | Schlüssel des WAF-Bouncers (von `just waf-key`, siehe [WAF](#web-application-firewall)) |
+| `terraform/*/secrets.yaml` | workstation + admin | API-Tokens für die Provider |
+
+Der Workstation-Key liegt in 1Password und wird über `SOPS_AGE_KEY_CMD` gelesen, nie als Datei. `env.sh` in jedem Tofu-Modul entschlüsselt die Tokens nur in die Shell des jeweiligen Rezepts.
+
+### Netzwerk
+
+- **NetBird-Mesh** (`192.0.2.0/24` und `2001:db8:203:0::/64`, Peer-Namen unter `peer.homelab.example`): Control Plane auf grammi, Login über Pocket ID. Private Range (RFC 1918) statt CGNAT, weil tailscaled Pakete aus 100.64/10 verwirft, solange beide Clients parallel laufen.
+- **Gruppen:** `servers` (alle Hosts außer cuckoosegg), `subraum-devices`, `remote-devices` (gw-remote, [Standort-Gateway](#standort-gateway-remote)), `admin-workstations` (MacBook), dazu Personengruppen aus Pocket ID.
+- **Heim-LAN** (`198.51.100.0/24`): Route über ursalia (Metrik 100), die beiden Apple TVs als Rückfall (Gruppe `home-routers`, Metrik 200, eigener Setup-Key per `just netbird-router-key`, keiner Person zugeordnet, in keiner Policy); für Gruppe `home-lan`, nicht für Geräte, die schon zu Hause sind (Posture-Check `not-at-home`). Rosenpass ist seit 2026-10-24 im ganzen Mesh aus (bis 2026-10-31, siehe [macOS-Hosts](#netbird-auf-den-beiden-macs)); „Quantum-Resistance“ in der App der Apple TVs gehört für diese Zeit ebenfalls aus.
+- **Reiserouter** (Mudi 7, GL.iNet GL-E5800): Peer `mudi7`, Gruppe `travel-routers`, eigener Setup-Key per `just netbird-key-mudi7`, keiner Person zugeordnet und vorerst in keiner Policy. Das OpenWrt-Paket liefert nur NetBird 0.24.3; das Binary wird von Hand gegen das `linux_arm64`-Release in der Mesh-Version getauscht (`terraform/netbird/travel-router.tf`).
+- **Anbindung von ursalia:** seit 2026-11-02 per 2,5G-Kabel (`enp46s0`, `hosts/ursalia/lan.nix`) ins Hauptnetz des Heim-LANs, DHCP ohne Reservierung. Das WLAN (Intel AX211, `modules/home-wifi.nix`) ist aus: Am Flint 4 scheiterte die Anmeldung, weil das 5-GHz-Netz SAE H2E ankündigt und wpa_supplicant dafür die Passphrase in der eigenen Konfiguration braucht, die per `ext_password` aber nicht dort steht („SAE: Could not find PT for group 19“). Ein WLAN als Reserve neben dem Kabel ist bewusst weggelassen: Beide Verbindungen gleichzeitig aktiv hat NetBird auf der M720q schlecht vertragen.
+- **Anbindung von zorlock:** ebenfalls WLAN (`en1`, Broadcom); `hosts/zorlock/wifi.nix` stellt sicher, dass `homelab` als bevorzugtes Netz eingetragen ist (`networksetup`, fügt nur hinzu, Passwort per sops in `hosts/zorlock/wifi.yaml`). nix-darwin hat kein WLAN-Modul; die Bandwahl bleibt bei macOS.
+- **Exit-Nodes und IPv6:** aldrin und zummi als Exit-Nodes für die Gruppe `exit-nodes`; das Mesh ist Dualstack (`2001:db8:203:0::/64`) – siehe [Exit-Nodes & IPv6](#exit-nodes--ipv6).
+- **Subraum:** Route über cuckoosegg für `subraum-access`. cuckoosegg selbst darf nur grammis Ingest (TCP 8428/9428) erreichen und nur vom MacBook per SSH erreicht werden.
+- **Subraum-Namen pro Gerät:** Die Domain-Resource `subraum-names` (`*.subraum.hackspace.example`, seit 2026-11-13) gibt `subraum-access`-Geräten außerhalb des Subraums die interne Sicht des Subraum-Routers: A-Records und ULAs statt nur öffentlicher GUAs. Der NetBird-Client schickt die Anfragen an den DNS-Forwarder auf cuckoosegg und routet jede Antwort-Adresse, IPv4 wie IPv6, über cuckoosegg. Standardmäßig ausgewählt; abschalten im Networks-Menü oder mit `netbird networks deselect subraum-names`, dann gilt wieder die öffentliche Sicht. Im Subraum selbst greift der Posture-Check `not-in-subraum`. Die Apex `subraum.hackspace.example` bleibt öffentlich. cuckoosegg nimmt DNS nur per DHCPv4 vom Subraum-Router an, nicht aus Router Advertisements – ein zweites Gerät in VLAN 10 kündigt sich dort als DNS-Server an und liefert keine A-Records.
+- **Tailscale** läuft während der Migration noch parallel und dient als Break-Glass: `NIXLAB_DOMAIN=example-tailnet.ts.net just deploy zummi`.
+
+#### Exit-Nodes & IPv6
+
+aldrin und zummi sind Exit-Nodes: Ein Client kann seinen gesamten Verkehr, IPv4 und IPv6, durch einen der beiden schicken und erscheint im Internet dann mit dessen öffentlicher Adresse. Die beiden stehen bei verschiedenen Providern (realtox in Düsseldorf, IONOS in Berlin), daher zwei getrennte Routen statt einer HA-Route – der Client wählt den Ausgang. Konfiguration: `terraform/netbird/exit-nodes.tf` (Routen, Policy) und `modules/netbird-exit-node.nix` (Hosts).
+
+<figure class="nx-diagram">
+<svg viewBox="0 0 680 420" role="img" aria-label="Ein Client der Gruppe exit-nodes schickt seinen gesamten IPv4- und IPv6-Verkehr durch den NetBird-Tunnel entweder an aldrin oder an zummi; der Exit-Node maskiert ihn auf seine öffentlichen Adressen bei realtox bzw. IONOS" xmlns="http://www.w3.org/2000/svg">
+<style>.nx-t{font-family:'DejaVu Sans',sans-serif;font-size:14px;font-weight:bold;fill:#2c2c2a}.nx-s{font-family:'DejaVu Sans',sans-serif;font-size:11px;fill:#5f5e5a}.nx-line{fill:none;stroke:#888780;stroke-width:1.4}.nx-gray rect{fill:#f1efe8;stroke:#888780}.nx-gray .nx-t{fill:#2c2c2a}.nx-gray .nx-s{fill:#5f5e5a}.nx-teal rect{fill:#e1f5ee;stroke:#0f6e56}.nx-teal .nx-t{fill:#04342c}.nx-teal .nx-s{fill:#0f6e56}.nx-blue rect{fill:#e6f1fb;stroke:#185fa5}.nx-blue .nx-t{fill:#042c53}.nx-blue .nx-s{fill:#185fa5}.nx-coral rect{fill:#faece7;stroke:#993c1d}.nx-coral .nx-t{fill:#4a1b0c}.nx-coral .nx-s{fill:#993c1d}</style>
+<text class="nx-t" x="16" y="24">Exit-Nodes: ein Client, zwei Ausgänge</text>
+<text class="nx-s" x="16" y="42">Der Client wählt einen der beiden, v4 und v6 immer zusammen</text>
+<text class="nx-s" x="86" y="72" text-anchor="middle">Client</text>
+<text class="nx-s" x="266" y="72" text-anchor="middle">NetBird-Mesh</text>
+<text class="nx-s" x="446" y="72" text-anchor="middle">Exit-Node</text>
+<text class="nx-s" x="596" y="72" text-anchor="middle">Internet als</text>
+<path class="nx-line" d="M156 180 H176"/><path class="nx-line" d="M170 176 L176 180 L170 184"/>
+<path class="nx-line" d="M356 180 H366 V120 H376"/><path class="nx-line" d="M370 116 L376 120 L370 124"/>
+<path class="nx-line" d="M366 180 V240 H376"/><path class="nx-line" d="M370 236 L376 240 L370 244"/>
+<path class="nx-line" d="M516 120 H528"/><path class="nx-line" d="M522 116 L528 120 L522 124"/>
+<path class="nx-line" d="M516 240 H528"/><path class="nx-line" d="M522 236 L528 240 L522 244"/>
+<a data-target="exit-nodes-use" tabindex="0" role="link" class="nx-teal"><rect x="16" y="145" width="140" height="70" rx="8" stroke-width="1"/><text class="nx-t" x="86" y="168" text-anchor="middle">Client</text><text class="nx-s" x="86" y="185" text-anchor="middle">Gruppe exit-nodes</text><text class="nx-s" x="86" y="202" text-anchor="middle">App oder CLI</text></a>
+<a data-target="mesh-ipv6" tabindex="0" role="link" class="nx-gray"><rect x="176" y="135" width="180" height="90" rx="8" stroke-width="1"/><text class="nx-t" x="266" y="159.5" text-anchor="middle">WireGuard-Tunnel</text><text class="nx-s" x="266" y="176.5" text-anchor="middle">192.0.2.0/24</text><text class="nx-s" x="266" y="193.5" text-anchor="middle">2001:db8:203:0::/64</text><text class="nx-s" x="266" y="210.5" text-anchor="middle">0.0.0.0/0 + ::/0</text></a>
+<a data-target="exit-nodes-hosts" tabindex="0" role="link" class="nx-blue"><rect x="376" y="90" width="140" height="60" rx="8" stroke-width="1"/><text class="nx-t" x="446" y="108" text-anchor="middle">aldrin</text><text class="nx-s" x="446" y="125" text-anchor="middle">exit-aldrin</text><text class="nx-s" x="446" y="142" text-anchor="middle">NAT44 + NAT66</text></a>
+<a data-target="exit-nodes-hosts" tabindex="0" role="link" class="nx-blue"><rect x="376" y="210" width="140" height="60" rx="8" stroke-width="1"/><text class="nx-t" x="446" y="228" text-anchor="middle">zummi</text><text class="nx-s" x="446" y="245" text-anchor="middle">exit-zummi</text><text class="nx-s" x="446" y="262" text-anchor="middle">NAT44 + NAT66</text></a>
+<a data-target="exit-nodes-hosts" tabindex="0" role="link" class="nx-coral"><rect x="528" y="90" width="136" height="60" rx="8" stroke-width="1"/><text class="nx-t" x="596" y="108" text-anchor="middle">realtox</text><text class="nx-s" x="596" y="125" text-anchor="middle">203.0.113.11</text><text class="nx-s" x="596" y="142" text-anchor="middle">2001:db8:11::2</text></a>
+<a data-target="exit-nodes-hosts" tabindex="0" role="link" class="nx-coral"><rect x="528" y="210" width="136" height="60" rx="8" stroke-width="1"/><text class="nx-t" x="596" y="228" text-anchor="middle">IONOS</text><text class="nx-s" x="596" y="245" text-anchor="middle">203.0.113.10</text><text class="nx-s" x="596" y="262" text-anchor="middle">2001:db8:10::1</text></a>
+<a data-target="exit-nodes-who" tabindex="0" role="link" class="nx-gray"><rect x="16" y="300" width="204" height="60" rx="8" stroke-width="1"/><text class="nx-t" x="118" y="318" text-anchor="middle">Wer darf</text><text class="nx-s" x="118" y="335" text-anchor="middle">Pocket-ID-Gruppe exit-nodes</text><text class="nx-s" x="118" y="352" text-anchor="middle">Policy → exit-node-access</text></a>
+<a data-target="exit-nodes-use" tabindex="0" role="link" class="nx-gray"><rect x="238" y="300" width="204" height="60" rx="8" stroke-width="1"/><text class="nx-t" x="340" y="318" text-anchor="middle">Auswahl im Client</text><text class="nx-s" x="340" y="335" text-anchor="middle">skip_auto_apply: aus, bis gewählt</text><text class="nx-s" x="340" y="352" text-anchor="middle">ein Schalter für v4 und v6</text></a>
+<a data-target="exit-nodes-monitoring" tabindex="0" role="link" class="nx-gray"><rect x="460" y="300" width="204" height="60" rx="8" stroke-width="1"/><text class="nx-t" x="562" y="318" text-anchor="middle">Zähler → Grafana</text><text class="nx-s" x="562" y="335" text-anchor="middle">nftables, postrouting</text><text class="nx-s" x="562" y="352" text-anchor="middle">Homelab / NetBird</text></a>
+<text class="nx-s" x="16" y="390">Ohne Auswahl ändert sich nichts: der Client geht wie bisher über seinen eigenen Anschluss ins Internet.</text>
+<text class="nx-s" x="16" y="406">Das Overlay ist ULA; die öffentlichen Adressen kommen erst per Masquerade auf dem Exit-Node dazu.</text>
+</svg>
+</figure>
+
+##### Wer darf
+
+Die Pocket-ID-Gruppe `exit-nodes`. Jemand kommt dazu, indem man ihn in Pocket ID (auth.homelab.example) in die Gruppe aufnimmt; der [Gruppensync](#pocket-id--netbird-gruppensync) überträgt die Mitgliedschaft innerhalb einer Minute auf die NetBird-Gruppe gleichen Namens und damit auf alle Geräte der Person. Die Policy `exit-nodes` erlaubt nur dieser Gruppe den Weg in die Zugriffsgruppe `exit-node-access` der Routen. Bewusst nicht alle: Wer den Exit-Node nutzt, tritt mit der Adresse des Servers auf.
+
+##### Benutzen
+
+Die Routen sind auf jedem Gerät der Gruppe vorhanden, aber aus (`skip_auto_apply`), bis man eine auswählt – in der NetBird-App unter „Exit Node“ bzw. „Networks“, oder per CLI:
+
+```bash
+netbird networks select exit-aldrin
+```
+
+```bash
+netbird networks deselect exit-aldrin
+```
+
+Pro Exit-Node gibt es zwei Routen, `exit-aldrin` (`0.0.0.0/0`) und `exit-aldrin-v6` (`::/0`). Ein Client ab 0.81 koppelt sie über den Namen und zeigt sie als einen Eintrag „0.0.0.0/0, ::/0“: Ein Schalter verlegt v4 und v6, kein IPv6 läuft am Exit-Node vorbei über den eigenen Anschluss. Prüfen lässt sich das mit `curl -4 ifconfig.co` und `curl -6 ifconfig.co`.
+
+##### Auf den Hosts
+
+Routing und NAT richtet der NetBird-Client selbst ein: Masquerade für v4 (NAT44) und v6 (NAT66) auf die öffentlichen Adressen des Hosts, die ACL der Policy in seiner eigenen nftables-Tabelle. `modules/netbird-exit-node.nix` schaltet zusätzlich das Forwarding für beide Familien ein, damit es nicht vom Client abhängt. Reverse-Path-Filter bleibt „strict“, die NixOS-Firewall filtert Forwarding nicht (`filterForward` aus, wie überall).
+
+Warum NAT66 und keine öffentlichen Adressen für die Clients: Die Overlay-Adresse eines Clients gilt im ganzen Mesh, unabhängig vom Exit-Node – eine GUA aus aldrins Netz würde über zummi mit fremder Absenderadresse hinausgehen. Außerdem hat keiner der beiden ein geroutetes Präfix: aldrins /64 ist on-link, zummi hat eine /128.
+
+##### Dualstack im Mesh
+
+Seit 2026-10-25 ist das ganze Mesh Dualstack. Jeder Peer bekommt neben seiner Adresse aus `192.0.2.0/24` eine aus der ULA `2001:db8:203:0::/64` (`ipv6_enabled_groups` = All, `terraform/netbird/main.tf`). Peer-Namen unter `peer.homelab.example` und die Dienstnamen (`s3-admin`, `dokumente`, `doku`, `ollama`, `acme`, `terraform/netbird/mesh-services.tf`) haben AAAA neben A; NetBird liefert AAAA nur an Peers, die selbst v6 haben. Die Apple TVs (Client 0.66) bleiben bei v4.
+
+Die Range steht überall neben `192.0.2.0/24`: root-SSH (`modules/ssh.nix`), CrowdSec-Whitelist, Doku-Site, garage-ui auf aldrin, Paperless und Samba auf ursalia, Traefiks `trustedIPs` auf grammi, Caddy auf zorlock. `admin-peers.json` führt pro Gerät v4 und v6. Wer eine neue Allowlist für das Mesh anlegt, trägt beide Ranges ein.
+
+Wechseln die Gruppen in `ipv6_enabled_groups`, vergibt NetBird neue v6-Adressen. Die AAAA-Einträge der Dienste liest Tofu beim Plan; nach so einem Wechsel oder für einen neu registrierten Peer braucht es deshalb ein zweites `just netbird-apply`.
+
+##### Monitoring
+
+Jeder Exit-Node zählt den weitergeleiteten Verkehr je Familie und Richtung in einer eigenen nftables-Tabelle und gibt ihn als `netbird_exit_node_bytes_total` / `netbird_exit_node_packets_total` an den node_exporter. Im Dashboard „Homelab / NetBird“ zeigt der Abschnitt „Exit nodes“ Durchsatz und Volumen. Die Zähler hängen an `postrouting`, nicht an `forward`: Der NetBird-Client setzt `iifname nb-mesh accept` an den Anfang jeder fremden Forward-Chain, Zähler dahinter würden nie erreicht.
+
+##### Provider aus PR #215
+
+Der veröffentlichte NetBird-Provider (v0.0.10) kennt `ipv6_enabled_groups` und `network_range_v6` nicht und setzt sie bei jedem Apply der Account-Settings zurück ([#243](https://github.com/netbirdio/terraform-provider-netbird/issues/243)). Bis [PR #215](https://github.com/netbirdio/terraform-provider-netbird/pull/215) veröffentlicht ist, baut `pkgs/terraform-provider-netbird.nix` den Provider aus diesem PR, und `terraform/netbird/env.sh` setzt ihn per `dev_overrides` ein; Tofu warnt deshalb bei jedem Lauf. Rückbau: Paket, Flake-Output und Block in `env.sh` entfernen, `tofu init -upgrade` ([offener Punkt](#offene-punkte)).
+
+#### DNS mit AdGuard Home
+
+AdGuard Home auf ursalia (`hosts/ursalia/adguardhome.nix`, seit 2026-11-01) filtert DNS für das Heim-LAN und für alle Personengeräte im Mesh. Upstream ist dieselbe DoT-Verbindung zu Freifunk München wie auf allen Hosts. Ausgewählt gegen Pi-hole (kann kein DoT zum Upstream ohne Zusatzdienst) und Technitium (Konfiguration nur über UI/API, liegt in `/var/lib` statt in der Flake).
+
+| Wer | Wie | Protokoll |
+| --- | --- | --- |
+| Heim-LAN | Der Flint 4 verteilt ursalia per DHCP als DNS-Server | DNS auf 53 (per nftables auf 5354 umgeleitet), DoT/DoQ auf 853 (`dns.homelab.example`), DoH über nginx (`https://dns.homelab.example/dns-query`) |
+| Personengeräte im Mesh (`homelab`, `homelab_admins`) | NetBird-Nameserver-Gruppe `adguard`, primär (`terraform/netbird/nameservers.tf`) | DNS auf 5354 über die Mesh-Adresse (Policies `to-dns-udp`/`to-dns-tcp`, nur ursalia); die Strecke läuft in WireGuard |
+| Server, Apple TVs, cuckoosegg, Home Assistant | gar nicht – eigene Resolver-Policy bzw. der Router | – |
+
+- **Port 5354 statt 53:** resolveds Stub belegt `127.0.0.53:53`, AdGuard kann daneben kein TCP auf `0.0.0.0:53` öffnen. Den Stub abschalten geht nicht (NixOS lässt `/etc/resolv.conf` auf ihn zeigen), feste Adressen bräuchten die Mesh-IP im Repo und `ip_nonlocal_bind` für den ganzen Host. Darum: AdGuard auf 5354, im LAN leitet nftables 53 dorthin um, die NetBird-Gruppe nutzt 5354 direkt. Auf ursalia selbst testen mit `dig @127.0.0.1 -p 5354`.
+- **Mesh-Namen** (`peer.homelab.example`, die Zonen aus `mesh-services.tf`) beantwortet der NetBird-Client selbst, sie erreichen AdGuard nie.
+- **Subraum-Namen** (`*.subraum.hackspace.example`) gehen, solange die Resource `subraum-names` ausgewählt ist, an den Forwarder auf cuckoosegg statt an AdGuard – siehe oben.
+- **Namen des Routers:** `doku.homelab.example`, `mqtt.homelab.example` und `.lan` gibt AdGuard an den Flint 4 weiter, nur für das LAN – siehe [unten](#namen-des-routers-bedingte-weiterleitung).
+- **ursalia selbst** löst nicht über AdGuard auf, sondern direkt über den Router (DHCP-DNS ignoriert): ein Ausfall von AdGuard darf ursalias NetBird und die Route ins Heim-LAN nicht mitnehmen.
+- **Konfiguration nur aus Nix** (`mutableSettings = false`): Änderungen in der UI sind nach einem Neustart weg. Die UI ist für Abfrageprotokoll (7 Tage), Statistik und kurzfristiges Freischalten.
+- **Admin-UI** über `adguard.homelab.example`: Reverse Proxy mit SSO für `homelab_admins`, danach AdGuards eigener Login (Benutzer `admin`). Beides: Den Listener auf ursalia (Port 8096) erreichen außer dem Proxy auch die Admin-Workstations (alle Ports), und AdGuard soll nicht davon abhängen, dass die Policies so eng bleiben – ohne eigenen Login stünde es jedem offen, der den Port direkt anspricht.
+- **Passwort:** Klartext nur in 1Password, ursalia bekommt nur den bcrypt-Hash (`hosts/ursalia/adguardhome.yaml`), den AdGuard beim Start in seine Konfiguration einsetzt. Neues Passwort: `just adguardhome-password`, in 1Password ablegen, committen, ursalia deployen.
+- **Break-Glass** ohne Pocket ID und Proxy: `ssh -L 3020:127.0.0.1:3020 root@ursalia.peer.homelab.example`, dann `http://127.0.0.1:3020` mit dem Passwort aus 1Password.
+- **Ausfall von ursalia im Mesh:** NetBird versucht AdGuard noch etwa eine Minute lang, weicht dann auf das DNS des Geräts aus und kehrt von selbst zurück, sobald AdGuard wieder antwortet (getestet 2026-11-01 mit dem iPhone: AdGuard 2 min gestoppt, Seiten luden weiter, gut 20 s nach dem Neustart wieder bei AdGuard). Ein Ausfall kostet also das Filtern, nicht die Namensauflösung. Im LAN gibt es keinen solchen Rückfall, solange der Flint 4 nur ursalia verteilt.
+- **Am Flint 4 von Hand:** DHCP-Option DNS auf ursalias LAN-Adresse; IPv6-DNS (RA/DHCPv6) prüfen – solange der Router sich dort selbst ankündigt, fragen Dualstack-Geräte teils an AdGuard vorbei. Für IPv6 hat ursalia eine feste Adresse im ULA des Heimnetzes, `<ULA-/64>::53` auf dem Kabel (aus `sites.home.ipv6Ula` und `ipv6SubnetId` abgeleitet, `hosts/ursalia/adguardhome.nix`); das OpenWrt-Image von gruffi (`openwrt/gruffi/`) soll genau diese ankündigen. ursalia selbst übernimmt angekündigte DNS-Server weder per DHCPv4 noch per RA/DHCPv6. Home Assistant behält den Router als DNS.
+
+##### Namen des Routers: bedingte Weiterleitung
+
+Manche Namen beantwortet der Router selbst mit einer LAN-Adresse (lokaler Eintrag), damit sie zu Hause direkt und auch ohne Internet funktionieren – etwa `mqtt.homelab.example` → Home Assistant. Seit AdGuard der DNS-Server im LAN ist, fragt kein Gerät mehr den Router direkt. AdGuard reicht diese Namen deshalb an den Router weiter (*Conditional Forwarding*), statt die Adressen selbst zu kennen:
+
+```nix
+upstream_dns = [
+  "tls://dot.ffmuc.net"                                   # alles andere
+  "[/doku.homelab.example/mqtt.homelab.example/lan/]198.51.100.1"  # diese Namen: der Router
+];
+```
+
+- **Syntax:** `[/name1/name2/]server` gilt für die genannten Namen *und alle Unternamen*; der spezifischste Treffer gewinnt. `[/sub.name/]#` nimmt einen Unternamen wieder aus (zurück zum normalen Upstream).
+- **Reihenfolge einer Anfrage:** Rewrites in AdGuard (hier nur `dns.homelab.example`) → Blocklisten → Cache → passender Upstream. Gefiltert wird also auch, was zum Router geht.
+- **Warum Weiterleiten statt Rewrite:** Die Einträge bleiben an *einer* Stelle, im Router. Keine IP doppelt im Repo, Änderungen am Router wirken sofort – bis auf den Cache: AdGuard hält die Antwort für ihre TTL; ungeduldig: UI → Settings → DNS settings → Clear cache.
+- **Nur fürs LAN:** Für die Mesh-Bereiche (`192.0.2.0/24`, `2001:db8:203:0::/64`) gibt es in AdGuard einen festen Client „NetBird mesh“ mit eigenen Upstreams – nur ffmuc. Eigene Upstreams eines Clients *ersetzen* die globale Liste ganz, die Weiterleitungszeile fehlt dort also. Ein Handy unterwegs bekommt für `mqtt.homelab.example` die öffentliche Antwort (Reverse Proxy) statt 198.51.100.168, das es dort nicht erreicht.
+- **Reverse-Lookups** (PTR für private Adressen) gehen per `local_ptr_upstreams` ebenfalls an den Router, der die DHCP-Namen kennt; private PTR-Anfragen verlassen das Haus nie.
+
+**Einen neuen lokalen Namen anlegen:**
+
+1. Eintrag am Router (Flint 4) anlegen.
+2. Den Namen in die Weiterleitungszeile in `hosts/ursalia/adguardhome.nix` aufnehmen, ursalia deployen. AdGuard weiß nicht von selbst, welche Namen der Router überschreibt – ohne diesen Schritt kommt im LAN die öffentliche Antwort.
+3. Prüfen, im LAN und im Mesh:
+
+```bash
+dig +short mqtt.homelab.example @ursalia.peer.homelab.example -p 5354
+```
+
+Das Gegenstück in NetBird sind Nameserver-Gruppen mit `domains` (Match-Domains): dieselbe Idee eine Ebene höher, pro Peer-Gruppe statt pro Client-Adresse.
+
+### Zugriff
+
+Öffentlich offen sind nur 22/80/443. root-SSH lässt `modules/ssh.nix` nur von Mesh- oder Tailscale-Adressen zu; jeder Host hat ein eigenes Login-Keypair. Mesh heißt dabei beide Ranges, `192.0.2.0/24` und `2001:db8:203:0::/64` ([Dualstack](#dualstack-im-mesh)).
+
+#### Wer erreicht die Server
+
+`nb-mesh` ist auf jedem Host eine vertrauenswürdige Schnittstelle; was über das Mesh an einen Server darf, entscheiden allein die NetBird-Policies (`terraform/netbird/main.tf`). Seit 2026-11-01 (Risikoregister R9) sind sie nach Herkunft aufgeteilt – Policies können nur erlauben, also aufteilen statt abziehen:
+
+| Policy | von | an | erlaubt |
+|---|---|---|---|
+| `to-servers` | Personen-Geräte (`homelab`, `homelab_admins`) | alle Server | TCP 80, 443 |
+| `to-smb` | Personen-Geräte | ursalia (Gruppe `smb-servers`) | TCP 445 |
+| `to-servers-icmp` | Personen-Geräte | alle Server | ICMP |
+| `admin-to-servers` | `admin-workstations` (gusto) | alle Server | alles |
+| `servers-to-servers` | `servers` | alle Server | alles |
+
+Personen-Geräte erreichen damit nur die Web-Eingänge (nginx, Traefik, Caddy mit ihren eigenen Regeln) und die Samba-Freigabe – nicht mehr SSH, Exporter, Garages Admin-API, VictoriaMetrics/-Logs oder Traefiks `apps`-Entrypoint. `homelab_admins` bekommt nicht mehr als `homelab`: Admin ist ein in `admin-workstations` benanntes Gerät, kein Login. ICMP ganz statt nur Ping, weil eine NetBird-Regel nicht nach ICMP-Typ filtern kann.
+
+Der Reverse Proxy braucht keine dieser Policies: NetBird erlaubt seinen Peers den Port jedes Dienst-Ziels von selbst (`management/server/types/legacynmap/proxy_policies.go`, 0.81.0). Eigene Policies haben weiter cuckoosegg (nur 8428/9428 auf grammi), Home Assistant und die Exit-Nodes. `servers-to-servers` auf die genutzten Ports einzuschränken, ist geparkt ([offener Punkt](#offene-punkte)).
+
+Prüfen von einem Gerät nur in `homelab` (MacBook Pro, iPhone): `nc -zv grammi.peer.homelab.example 443` verbindet, `nc -zv grammi.peer.homelab.example 8090` und `… 8428` laufen in den Timeout.
+
+#### Apps auf grammi: nur über Traefik `:8090`
+
+Mealie, Grist, logchef und Grafana lauschen auf grammi nur auf `127.0.0.1`. Der Reverse Proxy erreicht sie über den Traefik-Entrypoint `apps` (Port 8090), der vor jede App Wartungsschalter und Fehlerseiten setzt ([Wartungsmodus](#wartungsmodus)). VictoriaMetrics (8428) und VictoriaLogs (9428) lauschen weiter auf allen Adressen, weil die anderen Hosts ihre Metriken und Logs über das Mesh dorthin schicken.
+
+**Restlücke:** `:8090` selbst hat keine SSO. Von 2026-10-23 bis 2026-11-01 war das für jeden Mesh-Peer offen, auch für die Geräte aller Personen; seit [`to-servers`](#wer-erreicht-die-server) auf 80/443 eingeschränkt ist, erreichen den Port nur noch der Proxy, die Admin-Geräte und die anderen Server. Ganz zu wird er erst, wenn der Proxy per `direct_upstream` auf Loopback zugreifen kann ([offener Punkt](#offene-punkte)).
+
+#### Private Doku: Admin-Geräte, Heimnetz, Login
+
+Die private Fassung dieser Doku (`doku.homelab.example`, auf aldrin und ursalia) enthält jede interne Adresse und beschreibt, wie das Lab betrieben wird. Das ist mehr, als jedes Gerät im Mesh sehen muss. Deshalb liefert nginx sie nur an die Mesh-Adressen der Admin-Geräte aus; alle anderen bekommen 403 – mit einer eigenen Seite, die sagt, warum, von welcher Adresse die Anfrage kam und wie man ein Gerät freischaltet (ohne Navigation, damit die Seitentitel nicht sichtbar werden). Der Name selbst löst für alle Peers auf.
+
+**Von außen** führt derselbe Name auf die öffentliche, anonymisierte Doku (GitHub Pages): Öffentlich ist `doku` ein CNAME auf den Reverse Proxy, dessen Dienst `doku` ohne Login an einen Listener auf aldrin (Port 8091, nur Mesh) weiterreicht, der nur eine Weiterleitung kennt. Wer im Mesh ist, kommt über die NetBird-Zone direkt zu aldrin und ursalia.
+
+| Wer | Weg | Ergebnis |
+| --- | --- | --- |
+| Extern oder NetBird aus | Reverse Proxy (grammi) → aldrin:8091 | 301 auf die öffentliche Doku |
+| Im Mesh, Gerät in `admin-workstations` | direkt aldrin/ursalia | private Doku |
+| Im Mesh, anderes Gerät | direkt aldrin/ursalia | 403-Seite |
+| Extern, `doku.homelab.example/login` | aldrin:8091 → 302 auf `doku-login.homelab.example` → Reverse Proxy mit SSO (`docs-readers`) → aldrin:8094 | private Doku |
+| Heimnetz, über den eigenen Eintrag des Routers | direkt ursalias LAN-Adresse | private Doku, außer Geräten auf der Deny-Liste |
+
+**Login aus dem Internet** (entschieden 2026-10-23): für ein Gerät ohne NetBird, etwa einen Firmenlaptop. `doku.homelab.example/login` führt auf `doku-login.homelab.example`, einen eigenen Dienst im Reverse Proxy mit SSO für die Pocket-ID-Gruppe `docs-readers` – ein eigener Name, weil der Proxy die Anmeldung je Dienst kennt, nicht je Pfad, und SSO auf `doku` selbst die öffentliche Doku dahinter stellen würde. Sein Ziel ist ein Listener auf aldrin (Port 8094), der die private Seite ausliefert. Weil die Admin-Geräte und die anderen Server diesen Port über das Mesh ebenfalls erreichen (bis 2026-11-01 auch die Geräte aller Personen, siehe [`to-servers`](#wer-erreicht-die-server)), schickt der Proxy einen geheimen Header (`X-Nixlab-Docs-Key`) mit, und aldrin liefert nur an Anfragen, die ihn tragen; neuer Schlüssel: `just docs-login-key`. Dieser Weg hängt an grammi und zummi – er ist eine Ergänzung, wenn das Mesh nicht zur Hand ist, kein Ersatz dafür.
+
+**Heimnetz** (entschieden 2026-10-23): Der Router zu Hause beantwortet `doku.homelab.example` mit ursalias LAN-Adresse (ein eigener Eintrag, wie bei `mqtt.homelab.example`), und ursalia liefert die private Doku an das ganze Hauptnetz – außer an die Adressen auf einer bewussten Deny-Liste (`services.docsSite.lan` in `hosts/ursalia/configuration.nix`, Inventar-Geräte mit fester Adresse). Eine Deny-Liste nach Adresse erwischt nur Geräte mit reservierter Adresse; Gäste und alles mit wechselnder Adresse kommen hinein. Die Apple TVs gehören darauf, sobald sie eine Reservierung haben: Als NetBird-Ausweichrouter ins LAN maskieren sie Mesh-Peers auf ihre eigene Adresse. Mesh-Geräte betrifft das nicht – für sie löst der Name weiter auf die Mesh-Adressen auf.
+
+**Warum über den Proxy:** So steht `doku` mit den anderen öffentlichen Namen im NetBird-Dashboard, statt als eigener öffentlicher vHost auf aldrin. Der Proxy selbst kann nicht umleiten, nur weiterreichen – daher der Weiterleitungs-Listener. Er hat einen eigenen Port, statt dass der Doku-vHost den Proxy an seiner Adresse erkennt: Der Proxy ist ein eigener Peer, dessen Mesh-Adresse Tofu nicht kennt. Die Verknüpfung von `homelab.example` mit der öffentlichen Doku ist dabei bewusst in Kauf genommen; die echten Adressen bleiben dort weiter ersetzt.
+
+**Wer als Admin-Gerät zählt:** die Geräte der Gruppe `admin-workstations` (`terraform/netbird/subraum.tf`), heute das MacBook – dasselbe Gerät, das auch per SSH an die Subraum-Geräte darf. Bewusst nicht die Personengruppe `homelab_admins`: die füllt sich aus Pocket ID mit *allen* Geräten eines Admin-Users. Heute wären das keine (Calla hat keine eigenen Geräte), und ein Telefon, das sich unter einem Admin-User anmeldet, wäre sofort drin. Admin ist hier ein Gerät, das in Tofu mit Namen steht, nicht eine Anmeldung. Ein weiteres Gerät in `admin-workstations` bekommt damit auch SSH auf die Subraum-Geräte – dasselbe Vertrauen. Tofu liest die Mitglieder bei jedem `just netbird-apply` und schreibt Name → Adresse nach `terraform/netbird/admin-peers.json`; `flake.nix` übergibt die Adressen an `services.docsSite.allow`. Ein neues Admin-Gerät kommt also nach `just netbird-apply`, Commit und Deploy von aldrin und ursalia hinein.
+
+**Warum in nginx und nicht in einer NetBird-Policy:** [`to-servers`](#wer-erreicht-die-server) erlaubt den Geräten aller Personen (`homelab` und `homelab_admins`) Port 443 auf allen Servern, und die Doku teilt sich 443 mit allem anderen, was nginx dort ausliefert. Eine Policy wirkt je Port, nicht je vhost. Die Policy entscheidet also, welche Ports ein Gerät erreicht, und nginx, wer die Doku bekommt.
+
+**Warum keine Anmeldung im Mesh (Pocket ID):** Die Doku liest man, wenn etwas kaputt ist. Ein Login hinge sie an zummi (Pocket ID) und, über den Reverse Proxy, an grammi – genau die Hosts, von denen sie unabhängig sein soll. Eine Adressliste braucht zur Laufzeit nichts außer nginx auf dem Host selbst. Der Login aus dem Internet oben ändert daran nichts: Mesh und Heimnetz funktionieren ohne ihn weiter.
+
+**Was das bewusst in Kauf nimmt:**
+
+- Die Liste ist so aktuell wie das letzte `just netbird-apply` mit anschließendem Deploy. Ein neues Admin-Gerät sieht bis dahin 403, ein entferntes Gerät kommt bis dahin noch hinein.
+- Die Adresse steht für das Gerät, nicht für die Person: Wer ein Admin-Gerät benutzt, liest die Doku.
+- Leer darf die Liste nicht werden – `just netbird-admin-peers` verweigert eine leere Ausgabe, und das Modul bricht den Build mit einer Assertion ab, statt still allen 403 zu geben.
+- v4 und v6 je Gerät, wie das Mesh ([Dualstack](#dualstack-im-mesh)). Die v6-Adresse vergibt NetBird neu, wenn sich die Gruppen in `ipv6_enabled_groups` ändern – dann `just netbird-apply` und Deploy von aldrin und ursalia, sonst sieht das Gerät über v6 ein 403.
+
+#### Pocket ID: Admin-Bereich nur von Admin-Geräten
+
+Seit 2026-10-25 beantwortet nginx auf zummi die Admin-Pfade von Pocket ID mit 403, außer die Anfrage kommt von einer Adresse aus `admin-peers.json` – derselben Liste wie bei der privaten Doku. Gesperrt ist alles, was eine Admin-Sitzung oder ein Admin-API-Key kann: `/settings/admin`, Nutzer, Gruppen, OIDC-Clients, APIs, API-Keys, Einstellungen, Audit-Log, Signup-Tokens, SCIM (Liste: `$pocketid_admin_path` in `hosts/zummi/configuration.nix`, nach den Berechtigungen der Routen in Pocket ID 2.19.2 – bei jedem Minor-Update prüfen). Login, Konto-Seiten (`/api/users/me…`), OIDC-Endpunkte und Logos bleiben öffentlich. Einzige weitere Ausnahme: lesende Zugriffe des [Gruppensyncs](#pocket-id--netbird-gruppensync) von grammi.
+
+Damit die Admin-Geräte mit ihrer Mesh-Adresse ankommen, zeigt eine NetBird-DNS-Zone `auth.homelab.example` nur für `admin-workstations` auf zummis Mesh-Adressen (`terraform/netbird/pocket-id-admin.tf`); der vhost lauscht dafür auf der Wildcard. Alle anderen Peers, auch NetBirds Server auf grammi, behalten den öffentlichen Eintrag.
+
+- Ohne NetBird auf dem Gerät gilt der öffentliche Eintrag: Login geht, der Admin-Bereich antwortet 403. Ein Browser mit eigenem DNS-over-HTTPS umgeht NetBirds DNS ebenso.
+- `just pocketid-plan`/`-apply` brauchen deshalb NetBird auf dem MacBook.
+- Ein neues Admin-Gerät: in `admin-workstations`, `just netbird-apply`, dann zummi deployen (wie bei der Doku auch aldrin und ursalia).
+
+#### Pocket ID → NetBird: Gruppensync
+
+Wer in welcher Personengruppe ist, steht nur in Pocket ID (`terraform/netbird/people.tf`). Bis 2026-11-01 kam eine Änderung erst mit dem nächsten `just netbird-apply` in NetBird an – und damit auch erst dann bei den SSO-Gruppenprüfungen des Reverse Proxys. Seitdem gleicht ein Timer auf grammi jede Minute ab (`hosts/grammi/netbird-group-sync.nix`): Für jede Person aus `local.people` setzt er `auto_groups` und `is_blocked` genau so, wie `netbird_user.person` sie berechnet (Personengruppen in Tofus Reihenfolge, in Pocket ID deaktiviert = in NetBird gesperrt). Der nächste Plan zeigt dafür also keine Drift. Andere Gruppen in `auto_groups` bleiben unangetastet. Wer in Pocket ID weder in `homelab` noch in `homelab_admins` ist, wird nicht angefasst, und der Lauf schlägt fehl (dieselbe Prüfung wie die Precondition in Tofu). Jede Änderung steht als Zeile im Journal (`naddi: +home-lan`); sofort statt nach bis zu einer Minute: `just netbird-group-sync`.
+
+Entschieden 2026-11-01 (1b) gegen ein unbeaufsichtigtes `tofu apply` (wendet alles an, der State liegt auf der Workstation) und gegen bloße Drift-Erkennung. NetBirds eigener JWT-Gruppensync bleibt aus (Begründung im Kopf von `people.tf`). Ein SCIM-Empfänger, dem Pocket ID Änderungen sofort schickt, ist für später notiert.
+
+**Zugangsdaten**, je eine eigene sops-Datei, damit sich jede einzeln erneuern lässt:
+
+- **NetBird:** Token des Service-Users `group-sync` (`terraform/netbird/group-sync.tf`), Rolle admin – weniger erlaubt NetBird 0.81 für das Ändern von Nutzern nicht (`network_admin` darf Nutzer nur lesen). Wer grammi übernimmt, hat NetBirds Datenbank ohnehin. Ablegen: `just netbird-group-sync-token`, jährlich erneuern: `just netbird-group-sync-token renew`.
+- **Pocket ID:** API-Key des eigenen Admin-Users `netbird-group-sync` (ohne Passkey, nur für diesen Key; im Audit-Log getrennt sichtbar, Deaktivieren des Users sperrt den Key sofort). Pocket ID 2.19.2 kann API-Keys nicht einschränken: Der Key kann alles, was ein Admin kann. Eingehegt wird er auf zummi: Von grammis Mesh-Adressen lässt nginx nur `GET` auf die Nutzerliste, einzelne Nutzer und die eigene Key-Liste durch (`$pocketid_sync_allowed`), aus dem Internet ist jeder Admin-Pfad 403. Voll nutzbar wäre der Key also nur von den Admin-Geräten. Deshalb spricht der Sync Pocket ID über zummis Mesh-Namen an (TLS weiter für `auth.homelab.example`). Key anlegen: als `netbird-group-sync` per Login-Code aus der Admin-Oberfläche anmelden, API-Key „netbird-group-sync“ mit einem Jahr Laufzeit erzeugen, alte Keys dieses Users löschen, dann `just netbird-group-sync-pocketid-key`.
+
+Danach jeweils Commit und Deploy von grammi. **Alarme** (`hosts/grammi/alerting.nix`): NetbirdGroupSyncStale (eine Stunde ohne fehlerfreien Lauf), SyncCredentialExpiring (Token oder Key laufen in weniger als 30 Tagen ab), PersonNotManaged (jemand ist in Pocket ID in `homelab`/`homelab_admins`, steht aber nicht in `people.tf`); jeder Fehlschlag löst außerdem UnitFailed aus.
+
+- Neue Person: nach `just netbird-apply` die neue `terraform/netbird/group-sync.json` committen und grammi deployen.
+- `group-sync.json` enthält auch grammis Mesh-Adressen; ändern die sich (neue v6-Adresse), zummi deployen.
+
+#### Paperless: von außen Freigabelinks (PIN) und App (SSO)
+
+Im Mesh löst `dokumente.homelab.example` über die NetBird-Zone direkt zu ursalia auf (volle App, Login per Pocket ID).
+
+**Von außen** ist `dokumente` ein CNAME auf den Reverse Proxy. Dessen Dienst `dokumente` bietet zwei Anmeldungen und reicht beide an einen Listener auf ursalia weiter (Port 8092, nur Mesh, HTTP durch den Tunnel):
+
+- **PIN**, für Dritte mit einem Freigabelink: nur `share/<slug>` (Dokumente und Bündel, beides `SharedLinkView` in Paperless), sonst 404. Ein abgelaufener oder unbekannter Link führt in Paperless auf die Login-Seite; der Listener beantwortet das mit einem kurzen Hinweistext.
+- **SSO** über Pocket ID (Gruppen `paperless-users`/`paperless-admins`): die volle App samt paperless-gpt wie im Mesh. Danach folgt noch der Pocket-ID-Login von Paperless selbst, meist ohne Eingabe.
+
+| Wer | Weg | Ergebnis |
+| --- | --- | --- |
+| Extern mit PIN | Reverse Proxy (grammi) → ursalia:8092 | nur `/share/<slug>`, sonst 404 |
+| Extern mit SSO | Reverse Proxy (grammi) → ursalia:8092 | volle App |
+| Im Mesh | direkt ursalia:443 | volle App, Freigabelinks ohne PIN |
+
+**Woran der Listener SSO erkennt:** am Header `X-NetBird-User`. Der Proxy löscht bei jeder Anfrage, was der Client unter diesem Namen schickt, und setzt ihn nur bei SSO-Sitzungen auf die E-Mail-Adresse (`stampNetBirdIdentity` in NetBird, geprüft mit 0.81.0 – bei NetBird-Updates erneut prüfen). Der Header wählt nur die Pfade, er meldet niemanden an: Paperless verlangt weiter seinen eigenen Login. Ein Mesh-Peer, der den Header direkt an Port 8092 schickt, bekommt nichts, was er über 443 nicht ohnehin bekäme.
+
+**Warum derselbe Name:** Paperless baut den Freigabelink aus dem Origin der Oberfläche. Ein Link `https://dokumente.homelab.example/share/<slug>` funktioniert so für Dritte ohne Umschreiben – egal ob im Mesh oder per SSO erzeugt. Ein eigener Name für eine der beiden Anmeldungen hieße, Links von Hand anzupassen.
+
+**Warum der Listener filtert und nicht die PIN:** Die PIN ist eine zweite Hürde vor dem nicht ratbaren Slug, kein Ersatz. Dass PIN-Besucher die App nicht sehen, hängt allein an nginx auf ursalia. Der Proxy-Dienst hat keinen Pfadfilter (Ziel-`path`), sonst käme die Weiterleitung auf `/accounts/login/` bei abgelaufenen Links nicht mehr beim Listener an.
+
+**PIN:** genau 6 Ziffern (mehr nimmt die NetBird-API nicht an), eine für alle Freigaben. Neu: `just dokumente-share-pin` (zufällig, nach `terraform/netbird/secrets.yaml`), dann `just netbird-apply`; anzeigen: `just dokumente-share-pin-show`. Der Proxy sperrt eine Client-Adresse nach 5 falschen PINs in 5 Minuten für 15 Minuten.
+
+**Was das bewusst in Kauf nimmt:**
+
+- Eine noch gültige PIN-Sitzung (Cookie des Proxys) überspringt die Anmeldeseite. Wer dann per SSO in die App will, landet auf einer Hinweisseite und muss erst die Website-Daten löschen oder ein privates Fenster nehmen.
+- Wer die PIN kennt, kommt an jeden Link, dessen Slug er kennt – nicht an andere. Freigaben in Paperless deshalb mit Ablaufdatum anlegen.
+- Die Unterscheidung PIN/SSO hängt an einem Verhalten des Proxys, nicht an einer dokumentierten Schnittstelle.
+- CrowdSec sieht weder PIN-Versuche noch Anfragen an die App (TCP-Passthrough, kein HTTP-Log auf grammi), wie bei allen Proxy-Namen; es bleiben die Sperre des Proxys und der Login von Paperless.
+- ursalias nginx loggt als Absender die Mesh-Adresse des Proxys, nicht die des Besuchers (kein `realip`: es würde die Adresse vor `allow`/`deny` umschreiben).
+
+#### Grafana: öffentliche Dashboards über `dash`
+
+Seit 2026-10-23 lassen sich Dashboards nach außen teilen („Share externally“, in Grafana „öffentliche Dashboards“). Das Recht dazu hat nur die Grafana-Rolle Admin. Die vergibt der SSO-Login an die Pocket-ID-Gruppe `grafana_admins` (eigens dafür, `terraform/netbird/people.tf`; Mitglieder in Pocket ID pflegen, wirksam beim nächsten Grafana-Login), alle anderen bleiben Editor.
+
+**Der Weg:** `dash.homelab.example` ist ein eigener Dienst im Reverse Proxy, **ohne Login**. Sein Ziel ist derselbe Entrypoint `apps` von Traefik auf grammi wie bei `metrics`, aber für diesen Namen lässt Traefik nur `/public-dashboards/`, `/api/public/` und `/public/` (Assets) zu Grafana durch. Alles andere beantwortet Traefik mit 404. Dieser Router hält die App von anonymen Besuchern fern, nicht der Proxy.
+
+| Wer | Weg | Ergebnis |
+| --- | --- | --- |
+| Jeder mit Link | Reverse Proxy → Traefik `apps` (Host `dash`) → Grafana | nur das freigegebene Dashboard, lesend |
+| SSO | `metrics.homelab.example` | volle App |
+
+**Link weitergeben:** Grafana baut den Link aus `root_url`, er lautet also `https://metrics.homelab.example/public-dashboards/<token>` – unter `metrics` landet ein Gast beim SSO-Login. Den Link für Gäste zeigt das Dashboard „Homelab / Shared dashboards“: ein Timer auf grammi fragt alle 10 Sekunden die Grafana-API ab und schreibt jede Freigabe mit ihrer `dash`-Adresse und den genutzten Template-Variablen als Metrik `grafana_public_dashboard_info` (`hosts/grammi/grafana-shares.nix`). Jedes Dashboard verlinkt oben rechts dorthin („Share externally“). Die Spalte „Manage“ öffnet den Freigabe-Dialog des jeweiligen Dashboards zum Pausieren und Widerrufen – ein Schalter direkt in der Tabelle geht nicht, weil Grafana Panel-Actions seine eigene API nur per POST/PUT aufrufen lässt und das Pausieren PATCH braucht. Die Tokens liegen damit in VictoriaMetrics, sichtbar für alle, die Grafana öffnen können.
+
+**Was das bewusst in Kauf nimmt:**
+
+- Der Token im Link ist das einzige Geheimnis, keine PIN davor. Ein öffentliches Dashboard ist nur lesbar, und in Grafana lässt es sich jederzeit pausieren oder löschen.
+- Dashboards mit Template-Variablen teilt Grafana zwar, aber Panels, die eine Variable nutzen (etwa `$job` in Hosts Overview), bleiben für Gäste leer; dafür braucht es eine Kopie ohne Variablen. Die Spalte „Variables“ in „Homelab / Shared dashboards“ zeigt, welche Freigabe das betrifft. Außerdem braucht jedes Panel die UID seiner Datenquelle; die UIDs sind deshalb in der Provisionierung festgelegt und in allen Dashboards eingetragen (`hosts/grammi/configuration.nix`).
+- Wie bei allen Proxy-Namen sieht CrowdSec auf grammi nur, was Traefik im Entrypoint `apps` loggt, nicht den TLS-Teil davor.
+
+#### MQTT von außen: TLS-Passthrough zu Home Assistant
+
+`mqtt.homelab.example:8883` ist das Mosquitto-Add-on auf Home Assistant, für MQTT-Geräte, die auch außerhalb der Wohnung laufen (AWTRIX NG auf einem Ulanzi TC002). Überall derselbe Name, derselbe Port und dasselbe Zertifikat, ein Gerät wird also einmal eingerichtet:
+
+| Wo | Weg |
+| --- | --- |
+| Zu Hause | der Heimrouter (Flint 4) beantwortet `mqtt.homelab.example` mit HAs LAN-Adresse (lokaler DNS-Eintrag) → HA:8883 direkt, auch ohne Internet |
+| Außen | öffentlicher CNAME auf den Reverse Proxy → `netbird-proxy` auf grammi, Port 8883 → durchs Mesh zu HA:8883 |
+
+**HA ist ein NetBird-Peer** (NetBird-Add-on, `terraform/netbird/home-assistant.tf`), in einer eigenen Gruppe `home-assistant` – nicht in `servers`, es erreicht also genau zwei Dinge, und außer dem Proxy erreicht nichts HA. Die DNS-Verwaltung durch NetBird ist für die Gruppe aus: HA löst weiter über den Heimrouter (Flint 4) auf, auch wenn das Internet weg ist.
+
+**TLS endet in Mosquitto, nicht am Proxy.** Der Service `mqtt` (`terraform/netbird/reverse-proxy.tf`) läuft im L4-Modus `tls` mit dem Peer HA als Ziel: Der Proxy liest nur die SNI und reicht die Verbindung unverändert durch. Für einen L4-Service mit eigenem Port bindet der Proxy diesen Port selbst auf allen Adressen (einen PROXY-Header muss dort nur 127.0.0.1 schicken); grammis Firewall öffnet 8883 in `hosts/grammi/netbird-proxy.nix`.
+
+**Das Zertifikat** gilt für `homeassistant.homelab.example` und `mqtt.homelab.example`. HAs Let's-Encrypt-Add-on holt es per DNS-01 – aber ohne eigenen deSEC-Token (der ließe sich an keine Adresse binden, die Heimadresse wechselt). Es fragt stattdessen dns01proxy auf grammi (`hosts/grammi/dns01proxy.nix`, Provider `dns-httpreq`), unter `https://acme.homelab.example:8446`:
+
+- Der Port ist nur im Mesh offen, und die Policy `home-assistant-acme` lässt nur HA hin. HA löst den Namen über den Heimrouter (Flint 4) auf (lokaler Eintrag auf grammis Mesh-Adresse, `tofu output acme_proxy_address`), alle anderen Peers über die NetBird-Zone.
+- Der Proxy schreibt die TXT-Records mit grammis an die Adresse gebundenem Token. HAs Account (Passwort im Add-on, bcrypt-Hash in `hosts/grammi/dns01proxy.yaml`, `just dns01proxy-key-homeassistant`) darf nur Challenges für die beiden Namen oben beantworten.
+- dns01proxy spricht selbst HTTPS und holt sein eigenes Zertifikat für `acme.homelab.example` auf demselben Weg.
+
+**Die beiden lokalen DNS-Einträge** sind `domain`-Einträge in dnsmasq auf gruffi, von Hand per SSH gesetzt (`uci add dhcp domain`, dann `name` und `ip`, `uci commit dhcp`, dnsmasq neu starten). Die Seite „Hostnames“ fehlt in GL.iNets LuCI (404 auf `view/network/hosts.js`):
+
+| Name | Adresse | Wozu |
+| --- | --- | --- |
+| `mqtt.homelab.example` | 198.51.100.168 (HAs LAN-Adresse) | MQTT bleibt im Heimnetz und läuft auch ohne Internet |
+| `acme.homelab.example` | 192.0.2.122 (grammis Mesh-Adresse, `tofu output acme_proxy_address`) | HA erreicht dns01proxy; NetBird verwaltet HAs DNS nicht |
+
+Ändert sich HAs Adresse oder grammis Mesh-Adresse (neue Lease, NetBird-Neuregistrierung), muss der Eintrag von Hand nachgezogen werden.
+
+Das Add-on erneuert nicht von selbst: Eine HA-Automation startet es täglich und startet Mosquitto wöchentlich neu, damit das erneuerte Zertifikat geladen wird.
+
+**Was das bewusst in Kauf nimmt:**
+
+- Kein Login am Proxy – L4 hat keinen. Einzige Hürde sind die Benutzer von Mosquitto, und dazu gehört jeder Login, den das Add-on annimmt (seine eigene Liste und die Home-Assistant-Benutzer).
+- Mosquitto sieht für jede Verbindung von außen die Mesh-Adresse des Proxys als Absender (das Add-on kann keinen PROXY-Header annehmen) – weder HA noch CrowdSec können also einzelne Clients per Adresse sperren. Der Proxy kann nach Land oder Adressbereich filtern (`access_restrictions`), vorerst nicht gesetzt.
+- Die Erneuerung des Zertifikats braucht grammi und das Mesh – mit 30 Tagen Puffer vor Ablauf.
+- Ein Gerät, das bei ausgefallenem Internet neu startet, braucht die Uhrzeit von woanders als aus dem Internet, um das Zertifikat zu prüfen.
+
+#### floccus: Tabs und Lesezeichen über `tabs`
+
+floccus synchronisiert Lesezeichen und offene Tabs zwischen Browsern, auch zwischen Profilen auf Geräten außerhalb des Mesh. Ziel ist ein eigener WebDAV-Server auf aldrin (`hosts/aldrin/floccus.nix`): `rclone serve webdav` auf Loopback, davor nginx unter `tabs.homelab.example`, öffentlich.
+
+- **Nicht OpenCloud:** floccus kann nur Basic Auth. OpenCloud bräuchte dafür ein App-Token, und das hätte Zugriff auf alle Dateien des Accounts – in einem Browser auf einem Gerät, das jemand anderes verwaltet. Das Passwort hier erreicht nur ein Verzeichnis mit Tab-Listen.
+- **Nicht nginx-DAV:** floccus fragt die Dateigröße per PROPFIND ab, das kann nginx nur mit dem Modul `dav_ext`, und damit müsste nginx bei jedem Update aus dem Quellcode gebaut werden. rclone kommt aus dem Cache und kann alles, was floccus schickt: GET, PUT, DELETE, MOVE, PROPFIND.
+- **Account:** einer (`floccus`). `just floccus-password` legt ein zufälliges Passwort in die Zwischenablage und den bcrypt-Hash in `hosts/aldrin/floccus.yaml`; ohne diese Datei tut das Modul nichts. Das alte Passwort gilt bis zum nächsten Deploy von aldrin.
+- **Inhalt:** In floccus ist eine Passphrase gesetzt, der Server sieht nur die verschlüsselte Datei.
+- **Backup:** `/data/floccus` ist ein eigenes btrfs-Subvolume und bekommt dieselben btrbk-Snapshots wie OpenCloud – lokal, auf demselben Volume.
+
+**In floccus:** Profil mit Sync-Methode WebDAV, URL `https://tabs.homelab.example/`, Benutzer `floccus`, Passwort aus dem Rezept, dieselbe Passphrase auf jedem Gerät. Für Tabs ein Profil vom Typ „Tabs“, für Lesezeichen ein eigenes mit einem anderen Dateinamen – zwei Profile dürfen nie dieselbe Datei teilen. Auf Geräten mit getrennten Browser-Profilen (dienstlich/privat) floccus nur im privaten Profil einrichten.
+
+## Standort-Gateway: Remote
+
+Der Remote-Standort (ein Verein, dessen Omada-Netz von hier aus mitbetreut wird) hängt über **gw-remote** am Lab: einen NixOS-Container auf aldrin, der OpenVPN-Server für den Router des Standorts und im Mesh der Routing-Peer in dessen vier VLANs ist. Nur das Admin-Gerät erreicht die Geräte dort, nichts hinter dem Router erreicht das Lab. Ein Klick auf einen Kasten springt zum passenden Abschnitt.
+
+### Aufbau
+
+<figure class="nx-diagram">
+<svg viewBox="0 0 680 490" role="img" aria-labelledby="gw-remote-title gw-remote-desc" xmlns="http://www.w3.org/2000/svg">
+<title id="gw-remote-title">Anbindung des Remote-Standorts über gw-remote</title>
+<desc id="gw-remote-desc">gusto erreicht über NetBird den Container gw-remote auf aldrin. Der ER7206 am Remote-Standort baut zwei OpenVPN-Tunnel dorthin auf, einen pro Uplink. Andere Peers haben keinen Zugriff, aus dem Standort kommen nur Antworten.</desc>
+<style>
+.nx-t { font-size: 14px; font-weight: 500; fill: #1f1e1d; }
+.nx-s { font-size: 12px; fill: #6b6965; }
+.nx-line { stroke: #b4b2a9; stroke-width: 0.75; fill: none; }
+.nx-frame { fill: none; stroke: #b4b2a9; stroke-width: 0.75; stroke-dasharray: 4 4; }
+.nx-box { fill: #fbfaf7; stroke: #b4b2a9; stroke-width: 0.75; }
+.nx-gray rect { fill: #f1efe8; stroke: #5f5e5a; stroke-width: 0.75; }
+.nx-gray .nx-t { fill: #444441; } .nx-gray .nx-s { fill: #5f5e5a; }
+.nx-purple rect { fill: #eeedfe; stroke: #534ab7; stroke-width: 0.75; }
+.nx-purple .nx-t { fill: #3c3489; } .nx-purple .nx-s { fill: #534ab7; }
+.nx-coral rect { fill: #faece7; stroke: #993c1d; stroke-width: 0.75; }
+.nx-coral .nx-t { fill: #712b13; } .nx-coral .nx-s { fill: #993c1d; }
+</style>
+<g class="nx-gray"><rect x="40" y="60" width="120" height="56" rx="8"/><text class="nx-t" x="100" y="83" text-anchor="middle">grammi</text><text class="nx-s" x="100" y="102" text-anchor="middle">NetBird-Mgmt</text></g>
+<a href="#access"><g class="nx-purple"><rect x="40" y="158" width="120" height="56" rx="8"/><text class="nx-t" x="100" y="181" text-anchor="middle">gusto</text><text class="nx-s" x="100" y="200" text-anchor="middle">MacBook, Mesh</text></g></a>
+<a href="#access"><g class="nx-gray"><rect x="40" y="290" width="120" height="56" rx="8"/><text class="nx-t" x="100" y="313" text-anchor="middle">Andere Peers</text><text class="nx-s" x="100" y="332" text-anchor="middle">keine Policy</text></g></a>
+<rect class="nx-frame" x="190" y="60" width="260" height="380" rx="16"/>
+<text class="nx-t" x="210" y="88">aldrin</text><text class="nx-s" x="210" y="106">Realtox DUS, feste IPv4</text>
+<rect class="nx-box" x="210" y="120" width="220" height="300" rx="12"/>
+<text class="nx-t" x="225" y="144">gw-remote (Container)</text>
+<a href="#access"><g class="nx-purple"><rect x="230" y="158" width="180" height="56" rx="8"/><text class="nx-t" x="320" y="181" text-anchor="middle">NetBird-Router</text><text class="nx-s" x="320" y="200" text-anchor="middle">Policy: nur gusto</text></g></a>
+<a href="#isolation"><g class="nx-gray"><rect x="230" y="224" width="180" height="56" rx="8"/><text class="nx-t" x="320" y="247" text-anchor="middle">nftables</text><text class="nx-s" x="320" y="266" text-anchor="middle">vom Standort: nur Antworten</text></g></a>
+<a href="#failover"><g class="nx-coral"><rect x="230" y="290" width="180" height="56" rx="8"/><text class="nx-t" x="320" y="313" text-anchor="middle">tun-remote-uplink1</text><text class="nx-s" x="320" y="332" text-anchor="middle">udp/1194</text></g></a>
+<a href="#failover"><g class="nx-coral"><rect x="230" y="356" width="180" height="56" rx="8"/><text class="nx-t" x="320" y="379" text-anchor="middle">tun-remote-uplink2</text><text class="nx-s" x="320" y="398" text-anchor="middle">udp/1195</text></g></a>
+<rect class="nx-frame" x="475" y="60" width="165" height="360" rx="16"/>
+<text class="nx-t" x="490" y="88">Remote-Standort</text>
+<g class="nx-coral"><rect x="485" y="100" width="145" height="56" rx="8"/><text class="nx-t" x="557" y="123" text-anchor="middle">LAN</text><text class="nx-s" x="557" y="142" text-anchor="middle">VLANs 1, 79, 80, 81</text></g>
+<line class="nx-line" x1="557" y1="156" x2="557" y2="176"/>
+<a href="#profiles"><g class="nx-coral"><rect x="485" y="176" width="145" height="56" rx="8"/><text class="nx-t" x="557" y="199" text-anchor="middle">ER7206</text><text class="nx-s" x="557" y="218" text-anchor="middle">OpenVPN-Client 2.3.8</text></g></a>
+<g class="nx-coral"><rect x="485" y="296" width="122" height="44" rx="8"/><text class="nx-t" x="546" y="323" text-anchor="middle">SFP WAN</text></g>
+<g class="nx-coral"><rect x="485" y="362" width="122" height="44" rx="8"/><text class="nx-t" x="546" y="389" text-anchor="middle">WAN (CGNAT)</text></g>
+<path class="nx-line" d="M622 232 L622 384 L609 384"/>
+<path class="nx-line" d="M622 318 L609 318"/>
+<line x1="160" y1="186" x2="227" y2="186" stroke="#7F77DD" stroke-width="1.5"/><path d="M222 182 L228 186 L222 190" stroke="#7F77DD" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+<line x1="485" y1="318" x2="413" y2="318" stroke="#D85A30" stroke-width="1.5"/><path d="M418 314 L412 318 L418 322" stroke="#D85A30" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+<line x1="485" y1="384" x2="413" y2="384" stroke="#D85A30" stroke-width="1.5" stroke-dasharray="5 4"/><path d="M418 380 L412 384 L418 388" stroke="#D85A30" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+<line x1="40" y1="462" x2="80" y2="462" stroke="#D85A30" stroke-width="1.5"/>
+<text class="nx-s" x="90" y="466">Tunnel aktiv, Metrik 100</text>
+<line x1="270" y1="462" x2="310" y2="462" stroke="#D85A30" stroke-width="1.5" stroke-dasharray="5 4"/>
+<text class="nx-s" x="320" y="466">Reserve, Metrik 200</text>
+<text class="nx-s" x="40" y="486">Pfeil = Richtung des Verbindungsaufbaus</text>
+</svg>
+</figure>
+
+### Wer darf rein
+
+Nur das Admin-Gerät: Die vier NetBird-Policies `remote-*` (`terraform/netbird/remote.tf`, eine je VLAN) haben `admin-workstations` als Quelle, also gusto, und keine Personengruppe. Alle anderen Peers bekommen die Route gar nicht erst. Ist gusto selbst am Standort, fällt die Route weg (Posture-Check `not-at-remote`), dann geht der Verkehr direkt.
+
+gw-remote selbst steckt in der Gruppe `remote-devices`, nicht in `servers`: Es beendet Tunnel aus einem Netz, das andere betreiben, und erreicht deshalb nur, was ihm ausdrücklich erlaubt ist, nämlich grammis Metrik- und Log-Eingang (`remote-devices-telemetry`, TCP 8428/9428), wie cuckoosegg.
+
+### Abschottung
+
+Aus dem Standort kommt nichts ins Lab. Dafür sorgen drei Schichten:
+
+- **Container mit eigenem Netz-Namespace** auf aldrin: `tun-remote-*` und ein eigenes `nb-mesh` treffen nie auf aldrins vertrauenswürdiges Mesh-Interface. Kein eigener Kernel – das war die bewusste Abwägung gegenüber einer VM (2026-10-22).
+- **nftables im Container** (`hosts/gw-remote/container.nix`): Die Tunnel sind nicht trusted. In den Tunnel dürfen neue Verbindungen nur von den Mesh-Adressen der Admin-Geräte (`admin-peers.json`), aus dem Tunnel kommen nur Antworten (`established,related`), an den Container selbst gar nichts. Masquerade je Tunnel: Der Standort sieht nur die Tunneladresse von gw-remote und braucht keine Route zurück.
+- **nftables auf aldrin** (`hosts/aldrin/gw-remote.nix`): Die OpenVPN-Ports werden nur von den Adressen der beiden Anschlüsse an den Container weitergeleitet, der Container erreicht nur das Internet, weder aldrin noch dessen Mesh.
+
+Kein CrowdSec auf den Ports: Der Bouncer hängt nur am Input-Hook, die Ports werden aber weitergeleitet, und Community-Blocklisten führen CGNAT-Adressen. Schutz sind der Quellfilter und `tls-auth`.
+
+Getestet am 2026-11-02: gusto erreicht die Geräte, ursalia und aldrin nicht; vom ER7206 aus bleiben gw-remote, aldrins Seite des Containers und Mesh-Adressen ohne Antwort.
+
+### Tunnel und Failover
+
+Ein OpenVPN-Server je Uplink, nicht einer für beide Clients: Mit einem Server würden beide Clients dieselben Netze per `iroute` anmelden, und OpenVPN statt des Kernels wählte, wer den Verkehr bekommt – ohne sauberen Rückweg, wenn der aktive wegfällt. Mit zwei Servern sind es zwei tun-Interfaces, und der Kernel wählt per Routen-Metrik.
+
+| Uplink | Leitung am ER7206 | Port | Interface | Metrik |
+| --- | --- | --- | --- | --- |
+| uplink1 | SFP WAN, Vodafone, feste IPv4 | udp/1194 | `tun-remote-uplink1` | 100 |
+| uplink2 | WAN, CGNAT | udp/1195 | `tun-remote-uplink2` | 200 |
+
+`client-connect` setzt die Routen zu den VLANs, sobald der Client eines Uplinks verbunden ist, `client-disconnect` nimmt sie wieder heraus. OpenVPN läuft dafür ohne root, nur mit `CAP_NET_ADMIN`. Die VLANs kommen aus dem Inventar (Netze mit `site: "remote"`), die Ports, Transfernetze und Metriken aus `hosts/gw-remote/site.json`.
+
+`keepalive 2 10`: Fällt ein Uplink aus, merkt gw-remote das nach 20 s. Im Test mit dem vorherigen `keepalive 10 60` war der Standort genau 120 s nicht erreichbar, das Zurückwechseln kostete 3 s. Verbindungen, die während des Ausfalls über uplink2 aufgebaut wurden, behalten nach dem Zurückwechseln dessen Masquerade-Adresse und können abbrechen.
+
+### Profile am ER7206
+
+Der ER7206 (Firmware 1.4.3) bringt **OpenVPN 2.3.8** mit. Daraus folgt:
+
+- kein `tls-crypt`: Ein Profil damit verwirft er stillschweigend – kein Paket, kein Log, keine Sitzung. Deshalb `tls-auth`.
+- kein Aushandeln des Ciphers: Der Server bietet GCM zuerst an und fällt für ihn auf `AES-256-CBC` mit `auth SHA256` zurück.
+- Der Controller nimmt als Server nur eine IP, keinen Namen. `just gw-remote-ovpn` schreibt aldrins Adresse ins Profil.
+- Die VPN-Statusseite des Controllers bleibt für diese Clients leer, auch wenn der Tunnel steht. Den Zustand zeigen die Metriken von gw-remote.
+
+Neues Profil (braucht den Workstation-Key):
+
+```bash
+just gw-remote-ovpn uplink1 ~/Downloads/remote-uplink1.ovpn
+```
+
+Im Controller als VPN-Client vom Typ OpenVPN anlegen (Name `remote_uplink1`, Bindestriche nimmt er nicht), Modus Certificate, Interface SFP WAN (uplink1) bzw. WAN (uplink2), alle vier VLANs als lokale Netze. Danach die Datei löschen. `just gw-remote-pki` legt die CA, das Server- und die beiden Client-Zertifikate an; der CA-Schlüssel wird verworfen, ein neuer Client heißt neue CA und neue Profile.
+
+### Überwachung
+
+gw-remote schickt Metriken und Logs an grammi wie jeder Host. Dazu kommen je Uplink `nixlab_remote_uplink_connected`, `…_connected_since_seconds` und die Bytes der laufenden Sitzung (`hosts/gw-remote/uplink-metrics.nix`, aus der Status-Datei von OpenVPN). Alarme: **RemoteUplinkDown** (ein Uplink seit 30 min getrennt – auch wenn eine Adresse aus dem Quellfilter gefallen ist) und **RemoteSiteUnreachable** (keiner seit 10 min). Dashboard: Zeile „Site tunnels“ in Homelab / NetBird.
+
+### Betrieb
+
+- **Befehle im Container:** `ssh root@aldrin.peer.homelab.example systemd-run -M gw-remote --wait --pipe -q -E PATH=/run/current-system/sw/bin /run/current-system/sw/bin/bash -c '…' </dev/null`. Nicht `nixos-container run` ohne Terminal: Das bleibt gestoppt hängen und hält das init des Containers am Leben (2026-11-02).
+- **Erstes Deploy:** Die NetBird-Anmeldung im Container ist bewusst kein Boot-Job (`Type=exec`). aldrin bringt seine Seite der Container-Verbindung erst hoch, wenn der Container „gebootet“ meldet – eine wartende Anmeldung hatte das verklemmt.
+- **Adresse von uplink2 geändert:** RemoteUplinkDown feuert, die neue Adresse steht in OpenVPNs Log oder per `tcpdump` auf aldrin; dann `sources.uplink2` in `hosts/aldrin/gw-remote.nix` anpassen. Ob die zusätzlich erlaubte Einzeladresse noch gebraucht wird, wird Ende November 2026 anhand der Logs geprüft.
+
+## Deployment & Betrieb
+
+Die Pull-Hosts (zummi, aldrin, grammi, ursalia) halten `/etc/nixos` als Checkout des privaten GitHub-Repos und bauen sich selbst. cuckoosegg wird gepusht, zorlock und gusto werden auf dem Mac selbst per `darwin-rebuild` umgestellt ([macOS-Hosts](#macos-hosts)).
+
+| Host | Manueller Deploy | Automatisch |
+| --- | --- | --- |
+| zummi, aldrin, grammi, ursalia | `just ship <host> "<Nachricht>"` = commit, push, `git pull` + `nixos-rebuild switch` auf dem Host | nächtliches Auto-Upgrade, Reboot-Fenster 04:00–06:00 |
+| cuckoosegg | `just deploy-push cuckoosegg` (gebaut auf ursalia, kopiert zum Ziel) | ursalia pusht täglich um 06:30 |
+| zorlock | `just mac-switch zorlock` (= `deploy-zorlock`: `git pull` + `darwin-rebuild switch` mit sudo, mit Zusammenfassung) | keins |
+| gusto | `just mac-switch` auf gusto, aus der Arbeitskopie | keins – `just mac-upgrade` für die Homebrew-Pins |
+
+### Nächtliches Upgrade
+
+Seit 2026-10-31 aktualisiert nur noch ursalia die Inputs: `nix-cache-prebuild` (`modules/nix-cache.nix`) zieht um 02:30 `main`, aktualisiert `nixpkgs`, `nixpkgs-unstable` und `sops-nix`, baut jeden Host, lädt alles, was nicht auf cache.nixos.org liegt, signiert in den Nix-Cache (Bucket `nix-cache` in Garage auf aldrin) und pusht erst dann die neue `flake.lock` mit seinem Deploy-Key. Baut ein Host nicht, bleibt das Lock für alle liegen. `modules/auto-upgrade-git.nix` setzt auf jedem Host ab 04:00 die `flake.lock` auf HEAD zurück, zieht `main` per Fast-Forward, baut und schaltet um – mit dem Cache als zweitem Substituter nach cache.nixos.org, sodass auch kleine Hosts wie zummi nichts mehr selbst bauen. Ein abgebrochener Lauf hinterlässt keine geänderte `flake.lock` mehr (Reset am Start und in `ExecStopPost`, `just sync` verwirft sie ebenfalls). Der GitHub-Host-Key ist gepinnt, weil niemand zusieht. Ein Konfigurationsfehler, der erst beim Kaltstart auffällt, legt den Host also um 04:00 lahm – bei den VMs gibt es dafür die Konsole des Anbieters.
+
+Hält `just try` einen Host auf einem Themen-Branch, überspringt das Upgrade ihn, bis der Branch gemergt ist ([Branch vor dem Merge testen](#branch-vor-dem-merge-auf-einem-host-testen)).
+
+## Monitoring
+
+Alles landet auf grammi: **vmagent** auf jedem Host schickt Metriken an VictoriaMetrics (`:8428`), **Vector** journald- und nginx-Logs an VictoriaLogs (`:9428`), beides über das Mesh. Grafana (`metrics`) und logchef (`logs`) liegen hinter dem Reverse Proxy mit SSO. Die Exporter je Host kommen aus `modules/metrics.nix`; was keinen eigenen Endpunkt hat, geht über den textfile-Collector von node_exporter (`/var/lib/prometheus-node-exporter-text-files`), geschrieben von kleinen Timern oder Diensten:
+
+| Textfile-Metrik | Host | Quelle |
+| --- | --- | --- |
+| `tailscale_*` | Hosts mit Tailscale | `tailscale metrics write`, alle 30 s |
+| `fwupd_updates_*` | ursalia | `fwupdmgr get-updates` nach jedem Metadaten-Refresh |
+| `smart_selftest_*` | ursalia | Selbsttest-Log jeder Disk aus `services.diskHealth.devices` (`smartctl -l selftest`), stündlich (`modules/disk-health.nix`) |
+| `wifi_link_*` | tummi | `iw dev wlo1 link` (PHY-Modus, Breite, MCS, NSS), alle 30 s |
+| `node_wifi_*`, `wifi_link_*` | zorlock | `system_profiler SPAirPortDataType -json` alle 60 s, dieselben Namen wie auf tummi (unter macOS ohne Empfangsrate, Retries und eigenen PHY-Modus für den Empfang; SSID/BSSID schwärzt macOS ohne Ortungsdienste auch für root, im Dashboard „n/a“), dazu `wifi_link_noise_dbm` |
+| `unit_cgroup_*` | alle Linux-Hosts | CPU-Zeit und Speicher je systemd-Dienst aus seiner cgroup, alle 15 s (`unit-metrics` in `modules/metrics.nix`); zählt alle Prozesse der Unit, Container mit `--cgroups=split` eingeschlossen |
+| `esphome_builder_data_bytes` | ursalia | Größe von `/var/lib/esphome-builder` (Toolchain-Cache), stündlich |
+| `gruffi_power_watchdog_*` | ursalia | Ob gruffi antwortet, das WLAN der Leiste über BLE, die Entscheidung und ihre Bremsen, alle 30 s ([gruffi](#power-watchdog)); Dashboard „Homelab / gruffi power watchdog“ |
+| `grafana_public_dashboard_info` | grammi | öffentliche Dashboards aus der Grafana-API mit ihrem `dash`-Link und den genutzten Template-Variablen, alle 10 s |
+| `netbird_expected_peers` | grammi | `terraform/netbird/expected-peers.json`, beim Bauen ins System übernommen; Label `netbird_host` (der Host, um den es geht), denn `host` ist seit 2026-11-02 auf jeder Serie der sendende Host |
+| `shortener_*`, `floccus_*`, `healthlog_healthkit_*`, `nixlab_state_metrics_*` | aldrin, ursalia | App-Zustand aus nur lesenden Abfragen ([`modules/state-metrics.nix`](modules/state-metrics.nix), #268), alle 5 min: Links von short.homelab.example nach Zustand und Chhotos Hit-Summe (SQLite), die letzte mit 2xx beantwortete floccus-Anfrage (vhost-Log `floccus.no-crowdsec.log`) und der letzte Schreibzeitpunkt pro Sync-Datei, von HealthLog nur die Zeitstempel des HealthKit-Syncs (Postgres-Rolle mit spaltenweisen GRANTs, keine Werte); jeder Job meldet außerdem seinen letzten Erfolg und sein Intervall |
+| `nixlab_remote_uplink_*` | gw-remote | Status-Datei von OpenVPN je Uplink: verbunden, seit wann, Bytes der laufenden Sitzung, alle 30 s ([Standort-Gateway](#überwachung)) |
+| `nixlab_netbird_group_sync_*` | grammi | Gruppensync Pocket ID → NetBird (`hosts/grammi/netbird-group-sync.nix`): letzter fehlerfreier Lauf, Ablauf von Token und Key, Pocket-ID-Nutzer außerhalb von `people.tf` |
+| `nixlab_nixos_upgrade_last_success_seconds` | Hosts mit nächtlichem Upgrade | Zeitpunkt des letzten erfolgreichen `nixos-upgrade` (`modules/auto-upgrade-git.nix`), für den Alarm NixosUpgradeStale |
+
+Die Dashboards liegen als JSON in `hosts/grammi/dashboards/` und werden aus dem Repo provisioniert (Änderungen nur per Commit + Deploy von grammi). `topology.json` erzeugt `just topology`. „Export als Bild“ rendert der Grafana Image Renderer auf grammi (Headless-Chromium, nur Loopback `127.0.0.1:8082`); Teilen nach außen siehe [Zugriff](#grafana-öffentliche-dashboards-über-dash).
+
+| Dashboard | Zeigt |
+| --- | --- |
+| Overview | Netz und Lab auf einer Seite: WAN-Verkehr von gruffi, Protokolle, Top-Geräte, Remote-AS, Dienste und Länder aus den Flows, Auslastung des Home-Uplinks gegen `uplinks.*.bandwidth` in `inventory.json`, Exit-Nodes, Remote-Uplinks, aktive Alarme und ihr Verlauf. Flow-Panels enden 2 Minuten vor jetzt, weil Flows erst an ihrem Ende eintreffen. Der Aufbau folgt der Oberfläche von [Heimnull](https://heimnull.com/), übernommen ist nur das Layout; die Bewertung des Produkts steht in nixlab#259. Nicht zum Teilen |
+| Hosts Overview | Scrape-Ziele, CPU/RAM/Platte/Netz je Host, fehlgeschlagene Units, Zertifikate, Backups (btrbk, restic), ausstehende Firmware, WLAN-Band/-Signal |
+| Topology | Hosts, Exporter und Datenflüsse als Graphviz-Diagramm |
+| NetBird | Erreichbarkeit der Control Plane je Host; Peers je Host als Soll (Tofu) / known (Network Map) / connected P2P / connected Relay, dazu Abweichungen; Verlauf der Verbindungen, P2P-Latenz, Sync- und Aufbauzeiten; netbird-server (Signal, Relay, gRPC, API); Durchsatz und Volumen der Exit-Nodes aldrin/zummi je IP-Familie ([Exit-Nodes](#monitoring)) |
+| Wi-Fi | Band von ursalia und zorlock (2,4 / 5 / 6 GHz) über die Zeit, Kanal, Signal, PHY-Modus, Linkrate, Verkehr, MCS, Retries, Verbindungsdauer |
+| Disk Health | SMART von NVMe und SATA-SSD auf ursalia: Status, kritische Warnungen, Verschleiß, Reserve, Temperatur, geschriebene Daten, ATA-Fehlerzähler, Ergebnis und Alter der letzten Selbsttests |
+| Fiber modem | Modem auf gruffis `lan2`: optische Rx-/Tx-Leistung mit den Grenzen der Klasse B+, BiP/CRC-Fehler, Hardware-Status, Verkehr an der Link-Buchse; dazu gruffis Last, Speicher, Conntrack und `lan2` |
+| gruffi Wi-Fi | gruffis APs: Stationen pro SSID und Band, Signal pro Client (mit MAC, nicht zum Teilen), Verkehr und Wiederholungen, PCI-Geräte |
+| gruffi cooling | gruffis Temperaturen (CPU, WLAN-Sensoren), Drehzahl und PWM des Lüfters |
+| gruffi DHCP | gruffis aktuelle DHCPv4-Leases mit ihrem Inventarnamen, die nicht im Inventar stehen, Leases und Pool-Auslastung je Netz (mit MAC und Hostname des Clients, nicht zum Teilen) |
+| Matter & Thread | Matter-Geräte, die HA nicht erreicht (`sensor.matter_gerate_nicht_erreichbar`), von gruffi abgewiesene Matter-Reports je Regel, Zustand des HA-Scrapes |
+| Home network flows | Wer in den Heimnetzen mit wem redet: Verkehr je Gerät, Top-Geräte und -Ziele nach AS, Zustand von goflow2. Jeder Gerätename öffnet „Flow device“ mit Zielen, Ports und den letzten Datensätzen; dort listet ein Dropdown alle Geräte aus dem gewählten Zeitraum. Nicht zum Teilen |
+| Paperless | Zustand (Celery, Redis, DB, Index, Classifier), Dokumente, Inbox, fehlgeschlagene Tasks, Speicher, Log-Warnungen |
+| paperless-gpt | OCR- und Vorschlags-Rückstau, OCR-Zeit je Seite, LLM-Anfragen, -Dauern, -Tokens, -Fehler; GPU und Speicher von zorlock |
+| ESPHome builds | Build-Server auf ursalia: Zustand, ESPHome-Version, Builds und Erfolgsquote, Dauer je Build und Gerät, CPU und Speicher neben Paperless, Größe des Toolchain-Caches, Warnungen. Builds und Dauern kommen per LogsQL aus den Log-Zeilen „Starting job …“ / „Job … completed/failed“, device-builder hat keinen Metrik-Endpunkt |
+| Shared dashboards | Alle öffentlichen Dashboards mit dem Link für Gäste (`dash.homelab.example`) ob sie pausiert sind und welche Variablen sie nutzen (deren Panels bleiben für Gäste leer); jedes Dashboard verlinkt oben rechts hierher |
+| Web & Security | Anfragen an nginx und Traefik, Statuscodes, Dauern; CrowdSec-Bans, -Alerts, Parser-Treffer |
+| short.homelab.example | Kurzlinks nach Zustand, Code-Aufrufe nach Status (Weiterleitung oder unbekannter Code), OpenInvento-Scans über `/I/`, Anfragen nach Route, Antwortzeit, die externe Prüfung von zummi aus; Verkehr aus dem eigenen Log des vhosts `shortener.no-crowdsec.log` (nginxlog-Namespace `shortener`) |
+| Public endpoints | Jeder öffentliche Endpunkt aus `inventory.json`, über IPv4 und IPv6 getrennt, von einem anderen Anbieter aus geprüft (zummi für aldrin, grammi für zummi): jetzt und Verlauf, Antwortzeit, letzter HTTP-Status, Restlaufzeit des ausgelieferten Zertifikats ([`modules/public-probes.nix`](modules/public-probes.nix), #169) |
+| Garage (S3 storage) | Garage auf aldrin: Cluster-Zustand, Platte, S3-Anfragen/-Fehler/-Dauer, Resync- und GC-Warteschlangen |
+| VictoriaMetrics & VictoriaLogs | Ingest-Rate, Plattenbelegung, Abfragedauer, aktive Serien |
+| zorlock (Mac mini) | mactop: Thermal State, CPU/GPU, Leistung, Temperaturen, Speicher, Lüfter; Ollama-Anfragen, -Geschwindigkeit, Ladezeiten der Modelle |
+
+**Soll gegen known (NetBird):** „expected“ berechnet OpenTofu aus den Policies mit der Gruppenmitgliedschaft beim letzten `just netbird-apply` (Beispiel: aldrin 6, grammi 8, cuckoosegg 4). „known“ ist, was der Management-Server tatsächlich verteilt. Ein später hinzukommendes Gerät erhöht known sofort, das Soll erst nach dem nächsten Apply + Deploy von grammi – gewollt, damit ein neuer Peer auffällt. Das Modell ignoriert Posture Checks; siehe Kopf von `expected-peers.tf`.
+
+**Log-Level:** Vector macht aus journalds `PRIORITY` das Feld `level`. Python-Dienste schreiben ihr Log nach stderr, journald stuft dann jede Zeile als Fehler ein. Zeilen im Format `<Datum> <Zeit> INFO|WARNING|ERROR …` bekommen deshalb das Level aus dem Text, ohne Farbcodes (`modules/log-shipping.nix`).
+
+**Grafana-Falle:** State-Timelines mit `mergeValues` und Farbmodus „thresholds“ machen aus Zahlen Schwellwert-Stufen („1+“, „< 1“), bevor die Wert-Zuordnungen greifen. Farbmodus „fixed“ verwenden und Text und Farbe in die Zuordnungen legen.
+
+### Alerting
+
+**vmalert** auf grammi wertet Regeln aus, eine Instanz gegen VictoriaMetrics, eine gegen VictoriaLogs. **Alertmanager** gruppiert, schaltet stumm und wiederholt. **Home Assistant** macht aus jeder Gruppe eine Push-Meldung aufs iPhone und eine Benachrichtigung in der HA-Weboberfläche. Beide verschwinden wieder, sobald der Alarm behoben ist. Alles lauscht nur auf `127.0.0.1`. Der einzige Weg hinaus ist der Webhook zu HA über das Mesh (Policy `alerting-home-assistant`, nur grammi → HA:8123). Alertmanagers Weboberfläche (Alarme, Silences) liegt unter `alertmanager.homelab.example` bzw. `alerts.homelab.example` hinter dem Reverse Proxy mit SSO, nur für `homelab_admins`. Code: `hosts/grammi/alerting.nix`.
+
+| Alarm | Grundlage | Auslöser |
+| --- | --- | --- |
+| UnitFailed | Journal: systemds „unit failed“ (`MESSAGE_ID d9b373ed…`) je Host und Unit in 30 min (Fehlschläge im Ruhefenster: 3 h), dazu `node_systemd_unit_state{state="failed"}` seit 10 min | ein Fehlschlag reicht, die Meldung nennt die Anzahl |
+| MacosUpdatePending, MacosUpdateCheckStale | `macos_updates_pending`, `macos_updates_last_check_timestamp_seconds` | macOS-Update seit über einer Woche offen, täglicher Check seit 3 Tagen ohne Erfolg (zorlock); installiert wird von Hand |
+| NixosUpgradeStale | `nixlab_nixos_upgrade_last_success_seconds` | kein Erfolg seit 26 h, außer bei Deploy-Hold |
+| BackupRunFailed, BackupNotVerified, BackupMetricMissing | `nixlab_backup_last_run_failed`, `nixlab_backup_verified_timestamp_seconds` | letzter Lauf nicht bestätigt, letzter bestätigter Lauf älter als 26 h (0 = noch nie), Metrik verschwunden |
+| BackupBucketNoNewObject, HealthlogOffhostIncomplete | `nixlab_s3_last_new_object_timestamp_seconds`, `nixlab_s3_new_objects_24h` | Sicht von aldrin: seit 26 h nichts Neues im Bucket; HealthLog weniger als 4 Objekte in 24 h |
+| StateMetricsStale, FloccusSyncStale, HealthLogSyncStale | `nixlab_state_metrics_last_success_timestamp_seconds`, `floccus_last_request_timestamp_seconds`, `healthlog_healthkit_last_sync_timestamp_seconds` | ein State-Metrics-Job seit drei Intervallen ohne Erfolg (Schemaänderung, verlorener GRANT); seit 7 Tagen keine beantwortete floccus-Anfrage (floccus schreibt nur bei Änderungen, deshalb nicht die Dateizeiten); seit 48 h kein HealthKit-Sync |
+| ResticBackupStale, ResticCheckFailed | `restic_backup_timestamp`, `restic_check_success` | neuester Snapshot älter als 26 h, Check fehlgeschlagen |
+| BtrbkSnapshotStale | `btrbk_last_snapshot_timestamp_seconds` | älter als 26 h |
+| CertExpiring | `ssl_certificate_expiry_seconds`, nur `/var/lib/acme/<domain>/cert.pem` | weniger als 21 Tage |
+| DiskFull | `node_filesystem_*` | über 85 % seit 15 min |
+| HostGone, TargetDown | `up` | Host hat in den letzten 24 h geliefert, jetzt nicht mehr; Exporter seit 15 min down |
+| TargetFlapping | `up` | Exporter ist in einer Stunde mindestens 3-mal ausgefallen; bleibt danach 15 min stehen |
+| PublicServiceDown, PublicProbeMissing | `probe_success` (Blackbox-Exporter, [`modules/public-probes.nix`](modules/public-probes.nix)), `nixlab_public_probe_expected` | Ein öffentlicher Endpunkt antwortet über IPv4 oder IPv6 seit 5 min nicht wie erwartet (Status und Inhalt je Endpunkt in [`modules/public-probes-targets.nix`](modules/public-probes-targets.nix)); für eine Prüfung, die das Inventory erwartet, kommt seit 15 min kein Ergebnis, etwa weil der Exporter steht |
+| ServedCertExpiring | `probe_ssl_earliest_cert_expiry` | Das tatsächlich ausgelieferte Zertifikat läuft in weniger als 14 Tagen ab; erneuert wird bei 30 Tagen, also hat die Erneuerung den Listener nicht erreicht (CertExpiring liest nur die Datei) |
+| NetbirdGroupSyncStale | `nixlab_netbird_group_sync_last_success_seconds` | kein fehlerfreier Lauf seit 1 h |
+| SyncCredentialExpiring | `nixlab_netbird_group_sync_credential_expiry_seconds` | Token oder Key des Gruppensyncs laufen in weniger als 30 Tagen ab |
+| PersonNotManaged | `nixlab_netbird_group_sync_unmanaged_person` | Pocket-ID-Nutzer in `homelab`/`homelab_admins`, der nicht in `people.tf` steht, seit 1 h |
+| RemoteUplinkDown, RemoteSiteUnreachable | `nixlab_remote_uplink_connected` | ein Uplink des Remote-Standorts seit 30 min getrennt; keiner seit 10 min |
+| RemoteUplinkFlapping | `nixlab_remote_uplink_connected_since_seconds` | ein Uplink hat in 30 min mindestens 4 neue Sitzungen begonnen; bleibt danach 15 min stehen |
+| ModemRxPowerOutOfSpec, ModemTxPowerOutOfSpec | `modem_pon_rx_power_dbm`, `modem_pon_tx_power_dbm` | Rx außerhalb von -27 bis -8 dBm, Tx außerhalb von +0,5 bis +5 dBm, je 5 min (ITU-T G.984.2, Tabelle A.1, Klasse B+; ob die Telekom-Leitung B+ hat, ist nicht bestätigt) |
+| ModemRxPowerDropped, ModemBipErrors, ModemUnreachable | `modem_pon_rx_power_dbm`, `modem_pon_rx_bip_crc_total`, `modem_scrape_success` | Rx 3 dB unter dem 7-Tage-Schnitt für 1 h; BiP/CRC steigt 15 min; Modem antwortet 10 min nicht (alle drei Schwellen selbst gewählt) |
+| ModemHardwareFault | `modem_hardware_ok` | das Modem meldet 5 min lang einen Hardware-Fehler |
+| GruffiFanNotTurning, GruffiTooHot | `node_hwmon_temp_celsius`, `node_hwmon_fan_rpm` | CPU über 65 °C und Lüfter 5 min lang bei 0 RPM; CPU 10 min lang über 90 °C |
+| GruffiWifiMissing | `up`, `node_network_info` | gruffi antwortet, aber 5 min lang ist kein AP-Interface `up`: das WLAN-Modul fehlt vielleicht (nixlab#93). Ein absichtliches `wifi down` löst das auch aus |
+| MatterReportsRejected, MatterDevicesUnavailable | `gruffi_fw4_rule_packets_total`, `homeassistant_sensor_state` | gruffi weist 5 min lang Matter-Reports an HA ab (gezählte Regeln `r_matter_reject_*`); ein Matter-Gerät ist 30 min in HA nicht erreichbar |
+| LinkSpeedDropped | `node_network_speed_bytes` | ein Ethernet-Link handelt weniger aus als in den letzten 7 Tagen, seit 30 min |
+| AddressNotInInventory, MacNotInInventory | `node_network_address_info`, `node_network_info` | ein Interface mit Adresse bzw. MAC im Inventory meldet eine andere, seit 30 min |
+| VersionCheckCriticalUpdate | Journal: die „critical update“-Zeilen des Versionschecks auf zorlock (`hosts/zorlock/version-check.nix`) | ein Kerndienst (`criticality: core` in `inventory.json`) hat ein Upstream-Release, das noch kein Bericht abgedeckt hat; wartet bis 07:00, bleibt 12 h stehen; die Bewertung steht in `claude.md` dieser Nacht (`just version-check-fetch`) |
+| CrowdsecCacheFull | Journal: die „crowdsec cache) is full“-Zeilen des Lua-Bouncers (`modules/waf.nix`) | eine neue Entscheidung hat eine gültige aus `lua_shared_dict crowdsec_cache` verdrängt, Sperren können also fehlen; bleibt 6 h stehen |
+| Watchdog | `vector(1)` | immer, als Heartbeat |
+
+**Thread/Matter:** Am 2026-11-14 hat gruffi tagelang jede Bewegungs- und Türmeldung der Thread-Sensoren verworfen, weil HA von einer DHCPv6-Adresse sendete, die die Matter-Regeln nicht kannten (nixlab#46); HA sah die Geräte die ganze Zeit als erreichbar. Deshalb zählen zwei Reject-Regeln am Ende der Forward-Regeln von `iot` und `private`, was keine Matter-Regel durchlässt: `nft-counters` (root) schreibt die Zähler der Regeln mit `(counted)` im Namen alle 30 s nach `/tmp/fw4-rules`, der Collector `fw4_rules` im Jail des Exporters liest sie. Den Ausfall eines Geräts (Mesh, Border Router) sieht nur HA: grammi holt `/api/prometheus` über das Mesh (`hosts/grammi/ha-metrics.nix`), HAs `prometheus:`-Filter (`packages/nixlab_metrics.yaml`) gibt nur den Template-Sensor heraus. Ausnehmen lässt sich ein Gerät in HA mit dem Label „Kein Matter-Alarm“ (`kein_matter_alarm`), ohne Deploy; seit 2026-11-14 tragen es die beiden WLAN-Shellys (Flood, Presence) und die Esstisch-Lampe. Das Label allein rechnet den Sensor nicht neu: danach `homeassistant.update_entity` auf `sensor.matter_gerate_nicht_erreichbar` ausführen, sonst wartet er auf die nächste Zustandsänderung irgendeiner Matter-Entität. Das Token dafür legt `just ha-metrics-token` aus der Zwischenablage in `hosts/grammi/ha-metrics.yaml`.
+
+**Linkgeschwindigkeit:** LinkSpeedDropped vergleicht einen Link mit seiner eigenen Vergangenheit, nicht mit `speed` in `inventory.json`: Das ist, was ein Ende kann, ein Link bekommt das langsamere beider Enden (tummis 2.5G-Port hinter dem 1G der Beryl). Nach einem bewussten Umstecken auf einen langsameren Port: stummschalten, es löst sich, sobald die schnellere Woche vorbei ist. WLAN und ausgesteckte Ports melden keine Geschwindigkeit. Es zählen nur Ports mit `speed` im Inventory: veths, taps und Bridges melden erfundene Geschwindigkeiten, und eine Bridge folgt ihren Ports. Ausgehandelt und Inventory-Fähigkeit nebeneinander: Tabelle „Links: negotiated vs. capability“ im Hosts Overview, gespeist aus `nixlab_inventory_link_speed_bytes` (vmalert-Gruppe `nixlab-inventory`, eine konstante Reihe je Interface mit `speed`).
+
+**Adressen:** node_exporter meldet die IPs je Interface (`--collector.netdev.address-info`) und unter Linux die MAC. Auf zorlock schreibt `mac-metrics` die MAC unter demselben Namen `node_network_info` in eine Textdatei, weil dort der netclass-Collector fehlt. Die Alerts vergleichen nur, was ein Host meldet, und nur Interfaces mit Adresse bzw. MAC im Inventory: Ein ausgesteckter Port mit Reservierung bleibt still, ebenso DHCP-Interfaces und Podman-Bridges. Vergleichswerte sind `nixlab_inventory_address` und `nixlab_inventory_mac` (vmalert-Gruppe `nixlab-inventory`). Korrigiert wird das Netz oder `inventory.json`. MacNotInInventory ergänzt seine Meldung, wenn die MAC lokal vergeben ist und das Interface kein `macLocal` hat, dann ist es vermutlich eine private Adresse. Das Bit allein reicht dafür nicht: Provider-VMs wie zummi haben es dauerhaft.
+
+**Warum das Journal:** Den Failed-State einer Unit löscht der nächste Switch. `systemctl --failed` und eine einzelne Abfrage zeigen danach nichts mehr. Die Crash-Loops von paperless-secret-key (Oktober 2026, ~33 000 Fehlstarts) und grist-core (~22 000 am Tag) tauchten nie als „failed“ auf, jeder Start hinterließ aber die systemd-Meldung im Journal.
+
+**Flapping (#170):** HostGone, TargetDown und die Remote-Alarme brauchen ein `for` von 10 bis 30 min und sehen kurze, wiederholte Abbrüche nie. TargetFlapping und RemoteUplinkFlapping zählen stattdessen Wechsel in einem Fenster und bleiben nach dem letzten noch 15 min stehen. Idee und Richtwerte (3 Wechsel in 15 min, 15 min Ruhe) stammen aus Node64 von Dennis Schröder (Apache-2.0, [scheduler.go in 68b0c62](https://github.com/ipv64net/node64/blob/68b0c62fe986b490168e5ea9bc990d71f72022cc/internal/scheduler/scheduler.go)); Code ist nicht übernommen. Die Schwellen sind an der eigenen Historie bis 2026-11-15 kalibriert: uplink1 des Remote-Standorts beginnt jede Nacht gegen 03:03 innerhalb von zwei Minuten 2–3 neue Sitzungen (#145), 3 in 15 min würde also jede Nacht feuern; 4 in 30 min kam nie vor. RemoteUplinkFlapping zählt Sitzungsbeginne, nicht `connected`: Ein Reconnect schneller als der 30-s-Timer lässt `connected` auf 1. TargetFlapping will drei Ausfälle in einer Stunde; in zwei Wochen hätte das zweimal gefeuert, beide Male bei Arbeiten am Netz. Was bei welchem Ausfall passiert, steht in [Ausfallverhalten](#ausfallverhalten).
+
+**Ruhe:** Zwischen 04:00 und 06:00 (nächtliches Upgrade und Reboot-Fenster) ist alles außer dem Watchdog stumm. Was um 06:00 noch feuert, kommt danach an. Deshalb gilt für Fehlschläge zwischen 04:00 und 06:00 ein 3-h-Fenster, sonst 30 min, damit eine behobene Unit ihre Meldung bald wieder räumt. Gruppiert wird nach Alarm und Host, wiederholt alle 12 h. HostGone unterdrückt die übrigen Alarme desselben Hosts.
+
+**Totmann-Schaltung:** Der Watchdog erreicht HA alle 5 min und startet dort den Timer `timer.nixlab_alerting_heartbeat` (20 min) neu. Läuft er ab, meldet die HA-Automation „nixlab Alerting stumm“: grammi, vmalert, Alertmanager oder der Weg zu HA ist ausgefallen. Ohne Internet zu Hause kommt nichts an. Alertmanager versucht es weiter, ein Alarm, der dann noch feuert, kommt danach an.
+
+**Totmann außerhalb des Labs (#169):** Weil HA selbst zu Hause steht, gehen drei Heartbeats zusätzlich an healthchecks.io, das auf eigenen Kanälen meldet (E-Mail und Push, nicht über HA), sobald einer ausbleibt: der Watchdog über eine zweite Alertmanager-Route; ein Ping von grammi alle 5 min, solange alle Prüfungen von Pocket ID bestehen (fragt den Blackbox-Exporter direkt, nicht VictoriaMetrics); und HAs eigene Automation. Die Ping-URLs setzt `just healthchecks-ping-url watchdog|probe` (sops, `hosts/grammi/healthchecks-*.yaml`); ohne diese Dateien bleiben die Heartbeats aus. Die Karenzzeit der Checks deckt das Reboot-Fenster 04:00–06:00 ab, ein Ausfall dort meldet sich also frühestens danach.
+
+**In HA:** Automation „nixlab Alertmanager“ (Webhook, ein Ablauf je Gruppe; Tag `nixlab-<Alarm>-<Host>`, damit die Entwarnung Push und Weboberflächen-Benachrichtigung wieder entfernt), „nixlab Alerting stumm“ und der Timer. Die Push-Meldung geht über den alten Dienst `notify.mobile_app_…`, weil `notify.send_message` kein `data.tag` annimmt. Die Webhook-ID ist das einzige Geheimnis: `just alerting-webhook-key` legt eine neue in die Zwischenablage (für den Trigger der Automation) und die URL in `hosts/grammi/alerting.yaml`. Danach grammi deployen. „gruffi: Shelly-Leiste nicht erreichbar“ schickt einen Push, wenn der Schalter der Leiste 5 min `unavailable` ist, und eine Entwarnung; das braucht grammi nicht, aber den Internetweg über gruffi (nixlab#191).
+
+**Testen:** Einen künstlichen Alarm direkt an Alertmanager schicken: `ssh root@grammi.peer.homelab.example amtool --alertmanager.url=http://127.0.0.1:9093 alert add alertname=Test host=test --annotation=summary=Test`. Er verschwindet nach 5 min von selbst. Ende-zu-Ende: auf einem Host `systemd-run --unit=alerting-selftest false`, nach höchstens etwa 5 min kommt UnitFailed; die Entwarnung kommt, wenn der Fehlschlag aus dem 30-min-Fenster fällt.
+
+### Wann ein Backup als erfolgreich gilt
+
+Nicht, wenn die Unit `success` meldet: Der nächtliche Switch setzt gescheiterte Units zurück, und restic endet auch bei einem fehlenden Pfad mit Exit 0. Bei restic-Jobs auf ursalia, tummi, grammi und zummi zählt deshalb nur, was [`modules/restic-verified.nix`](modules/restic-verified.nix) bestätigt:
+
+- **Vorher:** Jeder Pfad hält Daten, und die Eingaben (Dumps, Paperless-Export) sind innerhalb von 26 h erfolgreich gelaufen. Scheitert das, wird trotzdem gespeichert, der Snapshot bekommt aber das Tag `unverified`.
+- **Nachher:** Der Snapshot wird aus dem Repository zurückgelesen: vorhanden, aus diesem Lauf, Größe plausibel, Pflichtpfade drin, `restic check` besteht (sonntags mit 5 % der Daten, bei den `data`-Jobs 1 %).
+- **Nur dann** bewegt sich `nixlab_backup_verified_timestamp_seconds`, und `forget --prune` läuft. Sonst bleibt `nixlab_backup_last_run_failed` auf 1, auch über Switches, bis ein Lauf bestätigt ist.
+
+Nicht bestätigte Jobs starten um 05:15 und 07:15 erneut. Beim Restore die ID aus `nixlab_backup_verified_snapshot_info` statt `latest` nehmen, denn der neueste Snapshot kann `unverified` sein. `just test-restic-verified` prüft das Verhalten mit erzwungenen Fehlern.
+
+Die `data`-Jobs auf tummi und ursalia ([`modules/restic-data.nix`](modules/restic-data.nix)) sichern die ganze `/data`-Platte und haben keinen restic-Exporter, im Hosts Overview stehen sie deshalb nur im Panel der bestätigten Backup-Alter. Ihre Größenprüfung ist minimal: Auf einer Kiste zum Sortieren sind große Löschungen normal. Ein erster Lauf dauert über die Heimleitung Tage; bis er endet, feuern `BackupNotVerified` und `BackupBucketNoNewObject` für diesen Job.
+
+## Ausfallverhalten
+
+Was wirklich passiert, wenn ein Teil des Labs ausfällt: wer es wie schnell merkt, welchen Weg der Alarm nimmt, was nicht mehr geht und wie es zurückkommt. Die Zeilen beschreiben die Konfiguration, wie sie ist, nicht wie sie sein sollte. Wo nichts geprobt wurde, steht „nicht getestet“. Die Idee einer solchen Matrix stammt aus Node64 von Dennis Schröder (Apache-2.0, [AUSFALLVERHALTEN.md in 68b0c62](https://github.com/ipv64net/node64/blob/68b0c62fe986b490168e5ea9bc990d71f72022cc/docs/AUSFALLVERHALTEN.md)); übernommen ist nur die Idee (#170).
+
+### Wie Alarme laufen
+
+vmalert und Alertmanager auf **grammi** → Webhook über das **NetBird-Mesh** → **Home Assistant** zu Hause → Push aufs iPhone. Jedes Glied dieser Kette ist unten auch eine Zeile. Die Zeiten addieren sich: das `for` einer Regel, dann Alertmanagers `group_wait` von 1 min. Zwischen 04:00 und 06:00 ist alles außer dem Watchdog stumm und kommt um 06:00 an, wenn es dann noch feuert. HostGone unterdrückt die übrigen Alarme desselben Hosts. Details: [Monitoring](#alerting).
+
+Zwei unabhängige Wege merken, wenn die Kette selbst reißt:
+
+- **HAs Timer** (`timer.nixlab_alerting_heartbeat`, 20 min), den der Watchdog alle 5 min neu startet. Deckt grammi, vmalert, Alertmanager und den Mesh-Weg zu HA ab.
+- **healthchecks.io** (#169), außerhalb des Labs, mit eigener E-Mail und eigenem Push: der Watchdog, grammis Ping, solange die Prüfungen von Pocket ID bestehen, und HAs eigener Ping. Deckt ab, was der Timer nicht kann: HA selbst und den Internetanschluss zu Hause.
+
+### Matrix
+
+| Fall | Wer merkt es, wie schnell | Alarmweg | Wirkung | Wiederherstellung | Zuletzt getestet |
+| --- | --- | --- | --- | --- | --- |
+| **grammi aus** | HA-Timer nach ≤ 20 min („nixlab Alerting stumm“); healthchecks.io (Watchdog und Probe-Ping bleiben aus, nach dessen Karenzzeit) | HA-Push; healthchecks.io E-Mail/Push | Kein Alerting, keine Sicht auf Grafana/Metriken/Logs; NetBird-Management, Traefik, der NetBird-Proxy (Mesh-Dienste im Internet) und der Gruppen-Sync stehen. Bestehende Tunnel laufen weiter, neue Peers und Logins scheitern. Metriken und Logs stauen sich auf den Hosts (vmagent-Plattenpuffer, Vector-Backpressure) | Restore aus restic auf eine neue Maschine, `docs/site/*/how-to/restore-test.md`. Der Hardware-Watchdog setzt einen hängenden Kernel oder PID 1 zurück (30 s, VM) | Restore 2026-11-02, RTO 38 s, sobald eine Maschine da ist. Ausfall des Alarmwegs selbst: nicht getestet |
+| **Home Assistant aus** | healthchecks.io (HAs Ping bleibt aus) | nur healthchecks.io – der Push-Weg ist HA selbst | Kein Push für irgendeinen Alarm; Alertmanager versucht es weiter und liefert, was noch feuert, wenn HA zurück ist. Die Hausautomation steht | HA-OS-Backups (täglich, Nabu Casa) | nicht getestet |
+| **Internet zu Hause oder gruffi aus** | healthchecks.io (HAs Ping bleibt aus); grammi löst HostGone für die Hosts zu Hause aus, kann es aber nicht zustellen | nur healthchecks.io | Alles zu Hause ist von außen unerreichbar: ursalia, tummi, zorlock, HA. Der Push-Weg ist weg, Alarme kommen danach an. Öffentliche Dienste auf aldrin und zummi laufen weiter | Vor Ort: gruffi stromlos machen; ohne WLAN mit dem Knopf der Leiste. Der Power-Watchdog auf ursalia ist ein **Trockenlauf** und schaltet nicht (nixlab#177). Erster Start nach Stromausfall: PPPoE braucht 1–2 × 35 s | nicht getestet; gruffis WLAN kam 2026-11-06 durch eine Stromtrennung zurück (Vorfall) |
+| **gruffi an, WLAN-Modul fehlt** | GruffiWifiMissing nach 5 min; HA-Push, wenn die Leiste 5 min unerreichbar ist | grammi → HA, und HA allein | Kein WLAN zu Hause; die Leiste ist unerreichbar, also kein Kaltstart aus der Ferne | Vor Ort: `dmesg` sichern, 30 s stromlos, oder ap-og anstecken (nixlab#93) | Vorfall 2026-11-02 bis -06 |
+| **NetBird-Mesh gestört** (Management oder Weg grammi → HA) | HA-Timer nach ≤ 20 min; healthchecks.io nur, wenn auch grammis Ping scheitert | HA-Push (aus HAs eigenem Timer) | Alarme erreichen HA nicht. Kein eigener Alarm für den Management-Server; TargetDown/HostGone sehen es nur indirekt | Tailscale als Rückfallweg (`NIXLAB_DOMAIN=example-tailnet.ts.net`), öffentliches SSH | nicht getestet |
+| **zummi aus** | healthchecks.io (grammis Ping endet mit Pocket ID); HostGone nach 10 min | healthchecks.io; HA-Push | Pocket ID aus: nirgends ein neuer Login (Dienste, NetBird). Die Prüfungen von aldrin enden (PublicProbeMissing) | Restore, RTO 48 s, sobald eine Maschine da ist; softdog setzt einen hängenden Kernel zurück | Restore 2026-11-02; softdog-Reset 2026-11-03 (Login ~9 min weg) |
+| **aldrin aus** | PublicServiceDown von zummi nach 5 min; HostGone nach 10 min | HA-Push | Garage S3 (restic-Ziel aller Hosts, Nix-Cache), OpenCloud, floccus, shortener, gw-remote und der Remote-Standort, ein Exit-Node. Backups laden nichts hoch, bis es zurück ist | Provider-Konsole; aldrin hat kein Provider-Backup, btrbk ist lokal (nixlab#22) | nicht getestet |
+| **ursalia aus** | HostGone nach 10 min (auch für gruffis Metriken, die ursalia abholt) | HA-Push | paperless, Immich, HealthLog, Doku, AdGuard (Mesh-Clients fallen auf ihr eigenes DNS zurück, das LAN hat keinen Rückfall), der nächtliche Prebuild und das flake.lock-Update, der gruffi-Power-Watchdog | Hardware-Watchdog (60 s) bei hängendem Kernel; sonst vor Ort | AdGuard-Rückfall 2026-11-01; Watchdog-Resets 2026-11-02/03 (Vorfall, kein Test) |
+| **tummi aus** | HostGone nach 10 min | HA-Push | Samba-Freigabe „Daten“ und ihr restic-Job | Vor Ort | nicht getestet |
+| **Ein Remote-Uplink aus** | RemoteUplinkDown nach 30 min | HA-Push | Der Verkehr wechselt nach ~20 s auf den anderen Uplink (`keepalive 2 10`); kein Failover mehr übrig | Meist von selbst; uplink1 fällt jede Nacht 22:53–03:03 aus (#145) | Failover 2026-11-02 |
+| **Beide Remote-Uplinks aus** | RemoteSiteUnreachable nach 10 min | HA-Push | Der Remote-Standort ist unerreichbar | Am Standort (ER7206) | Isolationstest 2026-11-02; Totalausfall nicht getestet |
+| **Remote-Uplink flappt** | RemoteUplinkFlapping bei 4 neuen Sitzungen in 30 min, bleibt danach 15 min stehen | HA-Push | Wiederholte kurze Abbrüche von je ein paar Sekunden | Leitung beim Provider oder den ER7206 prüfen | Rückblick auf 2026-11-02 bis -15: hätte nie gefeuert |
+| **Exporter aus / flappt** | TargetDown nach 15 min; TargetFlapping bei 3 Ausfällen in einer Stunde | HA-Push | Fehlende Metriken dieses Exporters; der Dienst selbst kann in Ordnung sein | Exporter oder Scrape neu starten | Rückblick: TargetFlapping hätte in zwei Wochen zweimal gefeuert, beide Male bei Arbeiten am Netz |
+| **Host liefert nichts mehr** | HostGone nach 10 min | HA-Push | Alle Metriken des Hosts; die übrigen Alarme des Hosts sind unterdrückt | Je nach Host, siehe dessen Zeile | nicht getestet |
+| **Kernel oder PID 1 hängt** | niemand: der Hardware-Watchdog setzt den Host zurück (60 s NUCs, 30 s VMs, softdog auf zummi) | – danach HostGone, wenn er nicht zurückkommt | Kurzer Ausfall, Neustart | Automatisch; HardwareWatchdogInactive, wenn systemd das Gerät nicht hält | zummi 2026-11-03; Ablauf mit `kill -SEGV 1` nicht ausgeführt |
+| **Unit schlägt fehl** | UnitFailed nach ~5 min (Journal), auch zwischen Switches | HA-Push | Dieser Dienst | Beheben und deployen; der Alarm geht, wenn der Fehlschlag aus dem 30-min-Fenster fällt | Selbsttest beschrieben, Datum nicht festgehalten |
+| **Nächtliches Upgrade scheitert** | NixosUpgradeStale nach 26 h (nicht bei Deploy-Hold) | HA-Push | Der Host bleibt auf der alten Generation; ein kaputter Boot legt ihn um 04:00 lahm | Provider-Konsole oder vor Ort; Rückfall auf die vorige Generation | nicht getestet |
+| **Backup scheitert** | BackupRunFailed nach 5 min, BackupNotVerified nach 26 h, BackupBucketNoNewObject (aldrins Sicht) | HA-Push (nachts erst ab 06:00) | Kein neuer verifizierter Snapshot | restic-verified versucht es um 05:15 und 07:15 erneut | `just test-restic-verified`, Datum nicht festgehalten |
+| **Platte voll** | DiskFull über 85 % für 15 min | HA-Push | Je nach Mount | Platz schaffen | nicht getestet |
+| **Zertifikat nicht erneuert** | CertExpiring unter 21 Tagen (Datei), ServedCertExpiring unter 14 Tagen (ausgeliefert) | HA-Push | Noch nichts – erneuert wird ab 30 Tagen | ACME/deSEC prüfen; den Listener neu laden | nicht getestet |
+| **Matter-Meldungen verworfen** | MatterReportsRejected nach 5 min; MatterDevicesUnavailable nach 30 min | HA-Push (über HA, also nicht, wenn HA aus ist) | Bewegungs- und Türmeldungen erreichen HA nicht | Adresse in gruffis Matter-Regeln korrigieren (nixlab#46) | Vorfall 2026-11-14 |
+
+### Lücken
+
+- Home Assistant und der Internetanschluss zu Hause sind nur über healthchecks.io abgedeckt. Dessen Karenzzeit ist dort eingestellt, nicht in diesem Repository.
+- Keine der Zeilen zum Alarmweg (grammi, HA, Mesh, Internet) ist Ende zu Ende geprobt.
+- Der gruffi-Power-Watchdog schaltet noch nicht; scharf geht er erst nach einer Woche Trockenlauf und einer Probe (nixlab#177).
+- Für den NetBird-Management-Server gibt es keinen eigenen Alarm.
+
+## Web Application Firewall
+
+CrowdSec liest auf jedem Host die Access-Logs von nginx und Traefik und sperrt Adressen, die auffallen (`modules/crowdsec.nix`). Das geschieht im Nachhinein: Der eine Request, der eine Lücke ausnutzt, ist dann schon beim Dienst angekommen. Die WAF (`modules/waf.nix`, seit 2026-10-25) prüft jeden Request, bevor nginx ihn weiterreicht – mit CrowdSecs AppSec-Komponente, also derselben Engine, denselben Alerts und denselben Bans.
+
+### Aufbau
+
+| Teil | Was es tut |
+| --- | --- |
+| OpenResty | ersetzt nginx (dasselbe NixOS-Modul, Lua eingebaut) |
+| Lua-Bouncer (`pkgs/crowdsec-lua-bouncer.nix`) | schickt in der Access-Phase jeden Request der gelisteten vhosts an AppSec auf `127.0.0.1:7422` und setzt dessen Antwort um |
+| AppSec (Teil von CrowdSec) | wertet die Regeln aus, erzeugt Alerts |
+| Firewall-Bouncer | setzt Bans wie bisher in nftables um, auf allen Ports |
+
+Ist CrowdSec nicht erreichbar, lässt nginx die Requests ungeprüft durch (`APPSEC_FAILURE_ACTION=passthrough`) – Pocket ID soll nicht mit CrowdSec ausfallen.
+
+### Regeln
+
+| Regeln | Phase | Folge |
+| --- | --- | --- |
+| `crowdsecurity/appsec-virtual-patching` – rund 200 Regeln für bekannte CVEs (PHP-CGI, Spring4Shell, Grafana File Read, …) | in-band | 403 |
+| `crowdsecurity/appsec-generic-rules` – `.env`, `.git`, SSTI, … | in-band | 403 |
+| `homelab/no-server-side-scripts` – `.php`, `.asp(x)`, `.jsp`, `.cgi`, `/cgi-bin/` | in-band | 403 |
+| `homelab/foreign-stack-probing` – `/wp-admin`, `/phpmyadmin`, `/actuator`, `/owa`, `.aws`, `.ssh`, … | in-band | 403 |
+| Methoden-Allowlist pro Name (`services.waf.allowedMethods`) – auf `auth.homelab.example` nur GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS | in-band | 403 |
+| `crowdsecurity/appsec-crs` – OWASP Core Rule Set | out-of-band | kein Block; Ban, wenn der Bucket überläuft (Kapazität 5, alle 30 s leert sich ein Token) |
+
+Jeder In-band-Treffer bekommt 403. Gebannt wird die IP, sobald zwei *verschiedene* In-band-Regeln innerhalb von 60 s treffen (`crowdsecurity/appsec-vpatch`: capacity 1 mit `distinct: rule_name`) – dieselbe Regel wiederholt füllt den Bucket nicht. Wer Scanner sucht, trifft in der Regel schnell mehrere.
+
+Die beiden eigenen Regeln sind das grobe Netz unter den CVE-Regeln: Kein öffentlicher Dienst hier führt PHP, ASP, JSP oder CGI aus, also ist jede Anfrage danach ein Scan oder ein Exploit – auch für eine Lücke, für die es noch keine eigene Regel gibt. Die CRS läuft nur out-of-band, weil sie breit ist und einzelne Fehlalarme kein Grund sein sollen, einen legitimen Nutzer auszusperren.
+
+Ausnahmen pro Name: `services.waf.ruleExclusions."<fqdn>" = [ "<regel>" ];`. OpenCloud (aldrin) braucht das für `homelab/no-server-side-scripts`, weil es ownClouds `/remote.php`, `/status.php` und `/ocs/v*.php` für die Desktop-Clients beibehält.
+
+Auch CRS-Regeln lassen sich ausnehmen, per ID und optional pro Pfad: `services.waf.outOfBandExclusions."<fqdn>" = [ { ruleId = <id>; paths = [ "<pfad>" ]; } ];`. Auf `auth.homelab.example` betrifft das CRS 931100 auf `/authorize` und `/api/oidc/token`: Die Regel hält `redirect_uri=http://127.0.0.1:<port>` nativer OIDC-Clients wie OpenCloud Desktop für Remote File Inclusion.
+
+### Modi
+
+- **`detect`** (Standard für jeden neuen Host): In-band-Treffer bekommen „allow“, die Ban-Szenarien der WAF laufen in der Simulation. Alerts erscheinen in `cscli alerts list` und in der Console mit „(simul)“, gesperrt wird durch die WAF nichts.
+- **`block`**: In-band-Treffer bekommen 403, die IP wird gebannt.
+
+Die log-basierten HTTP-Szenarien aus `modules/crowdsec.nix` hängen nicht am Modus und bannen wie bisher.
+
+### Hosts
+
+| Host | vhosts | Modus |
+| --- | --- | --- |
+| zummi | `auth.homelab.example` (Pocket ID) | block (seit 2026-11-08, davor detect ab 2026-10-25) |
+| aldrin | `short.homelab.example` | detect (seit 2026-11-08) |
+
+Geplant: aldrin (Detect auf `tabs` und `cloud`; `cloud` braucht Ausnahmen für `homelab/no-server-side-scripts` und CRS 911100, sonst bannen die WebDAV-Methoden die Sync-Clients), grammi (Traefik-Plugin, zuerst auf den öffentlichen Grafana-Pfaden, später NetBird-Dashboard und `/oauth2/`). Nie durch die WAF: Garages S3-API und NetBirds gRPC/Relay/API – signierte oder binäre Bodies, nichts für die Regeln zu finden, viel falsch zu lesen.
+
+Ein Traefik-Plugin auf grammi schützt die Dienste anderer Hosts nicht: Traefik reicht diese Namen als TCP an den NetBird-Proxy durch, und der erreicht seine Ziele direkt.
+
+aldrin läuft seit dem Wechsel mit OpenResty und der Engine im Detect-Modus. `short.homelab.example` fragt dort als erster vhost AppSec; die Weiterleitungen unter `/I/` und `/i/` antworten schon vor diesem Schritt.
+
+### Einen Host anschließen
+
+1. `services.waf = { enable = true; nginx.vhosts = [ "<vhost>" ]; };` in der Host-Konfiguration, `./modules/waf.nix` in der Modulliste des Hosts in `flake.nix`, `waf` in die Zeile des Hosts in `.sops.yaml`.
+2. Deployen. Die AppSec-Engine läuft dann schon; nginx fragt sie noch nicht (Warnung beim Evaluieren).
+3. `just waf-key <host>` – registriert den Bouncer `nginx-appsec` beim LAPI des Hosts und schreibt den Schlüssel nach `hosts/<host>/waf.yaml`. Committen, deployen.
+4. Prüfen: `cscli bouncers list` zeigt `nginx-appsec` mit frischem „Last API pull“; `curl -I https://<vhost>/crowdsec-test-NtktlJHV4TfBSK3wvlhiOBnl` erzeugt einen Test-Alert (`cscli alerts list`).
+5. Nach ein, zwei Wochen ohne Fehlalarme: `mode = "block";`.
+
+Quellen: Die nginx-Einbindung folgt CrowdSecs [`crowdsec_nginx.conf`](https://github.com/crowdsecurity/cs-nginx-bouncer/blob/067541cdfff4b650182d819e92c04a207aa2fbb5/nginx/crowdsec_nginx.conf) aus cs-nginx-bouncer v1.2.3; die Lua-Bibliothek ist CrowdSecs [lua-cs-bouncer v1.0.19](https://github.com/crowdsecurity/lua-cs-bouncer/tree/ec94d512927cf70be865686e4eb928d128189633).
+
+## macOS-Hosts
+
+Zwei Maschinen in diesem Repo laufen mit macOS und nix-darwin statt NixOS: **zorlock**, der Mac mini mit Ollama, und **gusto**, das MacBook, die Admin-Workstation. Beide sind `darwinConfigurations` im selben Flake und nutzen dasselbe für macOS getestete nixpkgs (`nixpkgs-darwin`). Ansonsten sind sie Gegensätze – der eine ein Server, an dem niemand sitzt, der andere ein Laptop, der nur von einem Menschen benutzt wird – und manches ist deshalb bewusst unterschiedlich gelöst. Diese Seite erklärt, was beide teilen, wo sie sich unterscheiden und warum.
+
+| | zorlock | gusto |
+| --- | --- | --- |
+| Rolle | LLM-Server (Ollama für paperless-gpt) | Admin-Workstation: Deploys, Secrets, Tofu, Doku |
+| Konfiguration | `hosts/zorlock/` | `hosts/gusto/` (System) + `home.nix`, `ssh.nix` (home-manager) |
+| Gebaut und geschaltet | auf zorlock, aus `/etc/nixos` (`just mac-switch zorlock`) | auf gusto, aus der Arbeitskopie (`just mac-switch`) |
+| Homebrew | aus | an – die Apps sind Casks |
+| Softwareliste | in `configuration.nix` | `hosts/gusto/apps.json` – `apps`, `apps-rm` |
+| home-manager | nein | ja, für admins Dotfiles |
+| NetBird-Client | nix-darwin `services.netbird`, Client aus `nixpkgs-netbird` | Homebrew-Cask `netbird-ui` aus NetBirds Tap |
+| NetBird-Anmeldung | Setup-Key aus sops, unbeaufsichtigt | SSO (Pocket ID) in der App |
+| SSH hinein | ja, als admin, nur Schlüssel | nein – Entfernte Anmeldung bleibt aus |
+| sops-Secrets | ja (Deploy-Key, deSEC-Token, NetBird-Key, WLAN) | keine |
+| Monitoring, Logs | vmagent, Vector → grammi | keins – nicht in der Topologie |
+| Verfügbarkeit | immer an (`criticality: service`) | zeitweise (`kind: laptop`) |
+
+Keins der `modules/*.nix` gilt für die Macs – diese Module sind für NixOS geschrieben (systemd, ifstate, nginx). Was sich übertragen lässt, steht in der `configuration.nix` des jeweiligen Hosts in nix-darwin-Form. Das einzige Modul, das beide teilen, ist `modules/darwin/homebrew.nix`.
+
+### Homebrew: eine Richtlinie für beide Macs
+
+Manche macOS-Software gibt es nur als Homebrew-Cask, oder sie soll vom Hersteller signiert kommen: 1Password, Vivaldi, Arq, Ghostty, die NetBird-App. `modules/darwin/homebrew.nix` wird von jeder `darwinConfiguration` importiert und legt eine Richtlinie fest (entschieden am 2026-10-21). Sie greift nur, wo ein Host `homebrew.enable = true` setzt – heute gusto; auf zorlock ändert das Modul nichts, seine System-Closure ist mit und ohne es identisch.
+
+**Homebrew und seine Taps sind in `flake.lock` festgeschrieben.** Homebrew selbst wird nicht mit dem `curl | bash`-Skript installiert, sondern über den Input `nix-homebrew`. `homebrew-core`, `homebrew-cask` und jeder Drittanbieter-Tap sind Flake-Inputs (`flake = false`), dazu `mutableTaps = false`. Es gibt keinen Git-Checkout, den `brew update` verschieben könnte: Welche Version eines Casks ein Switch installiert, hängt allein an `flake.lock` – dieselbe Logik wie bei nixpkgs. Ein Host fügt einen Tap mit einer Zeile hinzu,
+
+```nix
+nix-homebrew.taps."netbirdio/homebrew-tap" = inputs.netbirdio-tap;
+```
+
+und `homebrew.taps` (die Liste, die nix-darwin in den Brewfile schreibt) ergibt sich daraus automatisch.
+
+**Homebrews eigene Version ist per Tag festgeschrieben.** nix-homebrew bringt einen eigenen Homebrew-Pin mit (7.0.4, Stand 2026-10-28), der hinter den Casks zurückbleibt: Seit [Homebrew/brew#24369](https://github.com/Homebrew/brew/pull/24369) (2026-10-27) schreibt homebrew-cask `zap :not_required`, das erst Homebrew 7.0.11 versteht ([Homebrew/brew#24315](https://github.com/Homebrew/brew/pull/24315)) – mit 7.0.4 brach `brew bundle` bei `android-platform-tools` ab. Deshalb hat `flake.nix` einen eigenen Input `brew-src` auf einem Release-Tag und lenkt nix-homebrew darauf um (`nix-homebrew.inputs.brew-src.follows`); `modules/darwin/homebrew.nix` benennt das Paket nach diesem Tag, damit der Switch-Diff die echte Version zeigt (`brew --version` taugt dafür nicht: Es meldet bei jedem Pin `>=4.3.0 (shallow or no git repository)`). `just mac-upgrade` verschiebt kein Tag – Homebrew zu aktualisieren heißt, diese Zeile zu ändern. Sobald nix-homebrew selbst 7.0.11 oder neuer pinnt, fallen Input und `follows` wieder weg.
+
+**Ein Switch tut, was in der Konfig steht – und sonst nichts.**
+
+- `onActivation.autoUpdate = false`: kein `brew update` beim Switch.
+- `onActivation.upgrade = false`: auch kein `brew upgrade` beim Switch; ein installierter Cask bleibt auf seiner Version, bis er gezielt aktualisiert wird.
+- `onActivation.cleanup = "zap"`: Was installiert, aber nicht deklariert ist, wird entfernt, Casks samt ihren App-Daten (`brew uninstall --zap`). Einen Cask aus der Konfiguration (`apps.json`) zu löschen, deinstalliert die App also wirklich mit ihren Einstellungen. Das gilt auch für Mac-App-Store-Apps (früher ließ Homebrew sie in Ruhe). `just mac-diff` zeigt das, bevor es passiert, und `just mac-switch` hält davor an: Würde der Switch etwas entfernen, zeigt er die Liste und fragt `[y/N]`, ohne Terminal bricht er ab. `MAC_SWITCH_ALLOW_REMOVALS=1 just mac-switch` geht ohne Frage weiter. Meist ist die Lösung aber, das Fehlende in `apps.json` einzutragen (entschieden am 2026-10-23, nachdem ein Switch drei von Hand installierte App-Store-Apps entfernt hätte).
+- `global.autoUpdate = false` und `global.brewfile = true`: dasselbe für `brew` von Hand, und `HOMEBREW_BUNDLE_FILE` zeigt auf den erzeugten Brewfile, sodass ein einfaches `brew bundle check` gegen die Konfig vergleicht.
+
+Apps mit eigenem Updater und Mac-App-Store-Apps aktualisieren sich weiter selbst; die Richtlinie betrifft nur, was Homebrew tut.
+
+**Kein `brew shellenv`.** Weder die Shell-Integration von nix-darwin noch die von nix-homebrew wird genutzt – beide würden in jeder neuen Shell `brew shellenv` ausführen und Homebrew *vor* Nix in den `PATH` stellen. Stattdessen kommen `/opt/homebrew/bin` und `sbin` direkt in den System-`PATH`, hinter die Nix-Profile und vor die macOS-eigenen Verzeichnisse:
+
+```text
+~/.nix-profile/bin : /etc/profiles/per-user/$USER/bin : /run/current-system/sw/bin : /nix/var/nix/profiles/default/bin : /opt/homebrew/bin : /opt/homebrew/sbin : /usr/local/bin : /usr/bin : …
+```
+
+Ein Tool aus Nix gewinnt immer gegen dasselbe Tool aus Homebrew, Homebrew gegen Apples Platzhalter, und beim Öffnen einer Shell läuft kein `brew`.
+
+#### Die mac-*-Rezepte
+
+| Rezept | Was es tut |
+| --- | --- |
+| `just mac-diff [host]` | Baut die Konfig und zeigt, was ein Switch ändern würde: die Nix-Closure (`nvd diff`), die Casks und Formulae, die **entfernt** würden (`brew bundle cleanup --zap` ohne `--force`), und die, die **installiert** würden. Ändert nichts. |
+| `just mac-switch [host]` | Baut, hält an, falls Homebrew etwas entfernen würde (siehe oben), schaltet und endet mit einer kompakten Zusammenfassung: Nix-Pakete neu/entfernt/aktualisiert (nvd) und Homebrew `- entfernt` / `+ neu`. |
+| `just mac-upgrade` | Aktualisiert nur die Homebrew-Pins (`nix-homebrew` und jeder Input aus einem Repo `github:<owner>/homebrew-<name>` – `homebrew-core`, `homebrew-cask`, `netbirdio-tap`, `stablyai-orca-tap`, gefunden in `flake.lock`), schaltet, führt `brew upgrade` aus und zeigt `alt -> neu` je aktualisiertem Paket, dazu die NetBird-Client-Version auf gusto neben dem Pin des Mesh. Ergebnis ist eine Änderung an `flake.lock`, die committet wird. |
+
+Standard-Host ist `gusto`, gebaut aus der Arbeitskopie (auch mit nicht committeten Änderungen – nix sieht aber nur Dateien, die git kennt, neue also erst `git add`). `zorlock` wird per SSH erreicht: `git pull` in `/etc/nixos`, dann dasselbe Skript mit sudo. `deploy-zorlock` und `check-zorlock` sind jetzt Kurzformen von `mac-switch zorlock` und `mac-diff zorlock`. Die eigentliche Arbeit macht `modules/darwin/rebuild.sh` auf dem Mac.
+
+`mac-upgrade` gibt es nur für gusto: Es ändert `flake.lock`, und das wird auf der Workstation committet; zorlock hat kein Homebrew.
+
+#### Software als Daten: apps.json
+
+Was ein Mac installiert – Casks, Homebrew-Formeln, Mac-App-Store-Apps und nixpkgs-Pakete – steht nicht in seiner `configuration.nix`, sondern in `hosts/<host>/apps.json` (entschieden 2026-10-22; heute gusto, zorlock nutzt es nicht). `modules/darwin/apps.nix` macht daraus `homebrew.casks`, `homebrew.brews`, `homebrew.masApps`, `environment.systemPackages`, die `home.packages` des Benutzers und `fonts.packages`. Jeder Eintrag heißt so wie in seiner Quelle und trägt eine `note` (warum er da ist) und das Datum `added`; nixpkgs-Einträge zusätzlich einen `scope` (`system`, `user`, `font`). Taps bleiben Nix, in der Konfiguration des Hosts – sie sind Flake-Inputs; `apps` kann einen anlegen (unten).
+
+Die Datei ist mit Absicht Daten: Ein Werkzeug kann Einträge hinzufügen und entfernen, ohne Nix zu parsen, und die Konfiguration prüft sie bei jeder Auswertung – unbekannte Quellen oder Felder, ein nixpkgs-Attribut, das es nicht gibt, ein Eintrag aus einem Tap, den der Host nicht pinnt – und listet alle Probleme auf einmal (`checks.darwin-apps`). `modules/darwin/apps.schema.json` liefert im Editor Vervollständigung und Hover-Hilfe.
+
+`apps` ist dieses Werkzeug (`pkgs/nixlab-apps`): eine Runde aus Suchen, Hinzufügen und Entfernen, dann ein Switch und ein Commit. Es sucht online in nixpkgs, Homebrew und dem Mac App Store, fasst Treffer derselben Software zusammen und markiert die empfohlene Quelle – für eine GUI-App Cask vor App Store vor nixpkgs (signiert, in `/Applications`, aktualisiert sich selbst), für ein Kommandozeilenwerkzeug nixpkgs vor einer Formel. Die Auswahl wird dann gegen den **Pin** geprüft, denn ein Switch installiert, was in `flake.lock` steht, nicht was die Suche gezeigt hat: Ein nixpkgs-Paket muss in `nixpkgs-darwin` auswertbar sein (verfügbar, nicht unfree), ein Cask oder eine Formel muss im gepinnten Tap liegen. Fehlt ein Cask oder eine Formel, kann das Werkzeug `homebrew-cask` / `homebrew-core` in einem eigenen Commit aktualisieren – harmlos, `upgrade = false` lässt installierte Casks in Ruhe. `nixpkgs-darwin` wird dort nie angefasst: Das ist das ganze System beider Macs. Die gepinnten Drittanbieter-Taps durchsucht es ebenfalls, offline aus ihrem Pin; einen Cask aus einem noch nicht gepinnten Tap findet es über den vollen Namen (`apps stablyai/orca/orca`), und die Auswahl pinnt den Tap – Flake-Input, Zeile in `nix-homebrew.taps`, `nix flake lock`, eigener Commit –, nachdem es gezeigt hat, wer ihn veröffentlicht, und gefragt hat. Diese Frage ist die Vertrauensentscheidung: Jedem gepinnten Tap wird vertraut (entschieden 2026-10-23, mit Orca als erstem solchen Tap). Schritte: [Software auf den Macs](#software-auf-den-macs).
+
+### NetBird auf den beiden Macs
+
+Beide Macs sind Peers im NetBird-Mesh, bekommen ihren Client aber auf zwei verschiedenen Wegen. Das ist Absicht.
+
+#### zorlock: nix-darwin-Modul, Client aus dem Mesh-Pin
+
+`hosts/zorlock/netbird.nix` schaltet nix-darwins `services.netbird` ein. Das Modul startet nur den Daemon – `netbird service run` als launchd-Daemon, als root, Zustand in `/var/lib/netbird` – und überlässt Anmeldung und Einstellungen dem Benutzer. Den Rest erledigt ein zweiter launchd-Job, `netbird-login`, nach demselben Muster wie auf den Linux-Hosts:
+
+- Das **Client-Binary** kommt aus dem Input `nixpkgs-netbird`, dem Pin, den der NetBird-Server auf grammi und alle NixOS-Clients nutzen. Das ganze Mesh zieht gemeinsam mit `nix flake update nixpkgs-netbird` um – Server zuerst, dann die Clients.
+- Die **Anmeldung** läuft unbeaufsichtigt: `netbird-login` registriert sich einmal mit einem Einmal-Setup-Key aus `hosts/zorlock/netbird.yaml` (sops, `just netbird-key zorlock`). Danach ist der Key verbraucht, die Identität des Peers liegt in `/var/lib/netbird/config.json`.
+- **Rosenpass** schaltet derselbe Job aus (seit 2026-10-24 im ganzen Mesh aus, bis 2026-10-31, siehe unten), den lokalen Prometheus-Endpunkt des Clients (`127.0.0.1:9191`, von vmagent abgefragt) ein – das nix-darwin-Modul hat kein `config.d` wie das NixOS-Modul.
+- Nach einem Neustart kommt zorlock erst ins Mesh, wenn FileVault entsperrt ist (per SSH aus dem Heim-LAN), weil der Daemon auf dem Datenvolume liegt. Über WLAN klappte das Entsperren im Test vom 2026-11-06 mit „Limit IP Address Tracking“ und „Private Wi-Fi Address“ aus, mit beiden an nicht. Beide wurden zusammen geändert; ob es eine davon allein tut, ist nicht bekannt.
+
+Das braucht ein Server: keine GUI-Sitzung (zorlock soll abgemeldet bleiben, Ollama zählt freien Arbeitsspeicher), von selbst wiederkommen, dieselbe Client-Version wie der Rest des Mesh und Metriken.
+
+#### gusto: die offizielle App als Homebrew-Cask
+
+gusto installiert `netbirdio/homebrew-tap/netbird-ui`, den Cask aus NetBirds eigenem Tap, festgeschrieben als Flake-Input `netbirdio-tap` (entschieden am 2026-10-21). Der Cask ist die signierte Menüleisten-App; er hängt von der Formula `netbird` aus demselben Tap ab (CLI und Daemon), und sein Installer registriert den Daemon als `/Library/LaunchDaemons/netbird.plist`. Das ist dieselbe Software, die auch das offizielle `.pkg`-Installationspaket auf einen Mac bringt, nur über die Konfig installiert und entfernt. Die Formula steht zusätzlich einzeln in der Konfig (`homebrew.brews`), damit `cleanup = "zap"` den Daemon nie als verwaist ansieht und unter der App wegzieht.
+
+- Die **Anmeldung** ist interaktiv: in der App, per SSO über Pocket ID – der Peer gehört dann zum Benutzer des Admins und seinen Gruppen, wie es sich für das Gerät eines Menschen gehört. Es gibt keinen Setup-Key und keine sops-Datei für gusto.
+- **Rosenpass** wird einmal in den Einstellungen der App gesetzt (Quantum-Resistance); der Daemon behält das in seiner eigenen Konfig. Seit 2026-10-21 ist es auf der Workstation **aus** – ein Test gegen Tunnel, die nach dem Ablauf des Rosenpass-Schlüssels ohne WireGuard-Handshake auf „Connected“ stehen blieben (upstream #3107, #3121); gusto startet genauso, aus. Die toten Tunnel kamen trotzdem wieder, zwischen zwei Peers, die beide Rosenpass sprachen (ursalia↔zorlock, 2026-10-23: Schlüssel ohne Erneuerung abgelaufen, danach verschiedene Pre-Shared-Keys auf beiden Seiten, kein Handshake mehr – und Rosenpass läuft selbst durch diesen Tunnel). Deshalb ist Rosenpass seit 2026-10-24 im **ganzen Mesh aus**, eine Woche lang bis 2026-10-31; die Apps (iPhone, Apple TVs, Home Assistant) von Hand. Danach wird entschieden: keine toten Tunnel mehr – es bleibt aus, bis upstream das Re-Keying repariert; tote Tunnel trotzdem – Rosenpass war nicht die Ursache und kommt permissiv wieder.
+- **Version**: das, was der festgeschriebene Tap enthält. Sie ändert sich nur mit `just mac-upgrade`, das die Client-Version von gusto neben der von `nixpkgs-netbird` anzeigt, damit die beiden nicht weit auseinanderlaufen. Die übliche Regel gilt weiter: Zuerst wird der Server (grammi) aktualisiert, die Clients folgen.
+- **Updates von anderswo**: Der eigene Update-Hinweis der App und das über das Dashboard gesteuerte Auto-Update von NetBird dürfen die Version nicht an der Konfig vorbei verschieben; das wird beim ersten Switch geprüft und abgeschaltet, falls die App es anbietet.
+- Kein Metrik-Endpunkt und kein Log-Versand – gusto wird nicht überwacht.
+
+#### Warum nicht auf beiden gleich?
+
+| Frage | Antwort |
+| --- | --- |
+| Warum nutzt gusto nicht das nix-darwin-Modul wie zorlock? | Das Modul hat keine Menüleisten-App; alles liefe über die Kommandozeile. Auf einem Laptop, der ständig das Netz wechselt, sieht man über die App auf einen Blick, ob das Mesh steht, wechselt Profile und meldet sich neu an. Die Anmeldung ist auf gusto ohnehin SSO, und dafür braucht es einen Browser und einen Menschen – der unbeaufsichtigte Setup-Key-Job, der zorlocks Variante lohnend macht, entfällt. |
+| Warum nutzt zorlock nicht den Cask? | Ein Server muss nach einem Neustart von selbst wiederkommen, ohne dass sich jemand anmeldet, mit derselben Client-Version wie das Mesh und mit Metriken. Die App des Casks braucht eine GUI-Sitzung, und ihre Version folgt dem Tap, nicht dem Mesh-Pin. |
+| Warum nicht `netbird-ui` aus nixpkgs auf gusto? | nixpkgs paketiert die UI in erster Linie für Linux; ob sie auf macOS sauber baut und läuft (Signatur, Menüleiste), ist nicht geprüft, und es wäre nicht das signierte Binary, das NetBird ausliefert. |
+| Mac App Store? | NetBird bietet keine Version im Mac App Store an (nur für iOS). |
+| Was kostet es? | Die Client-Version von gusto ist getrennt von der des Mesh festgeschrieben (`netbirdio-tap` statt `nixpkgs-netbird`). `just mac-upgrade` macht den Abstand sichtbar; geschlossen wird er von Hand. |
+
+#### Der Peer in Tofu
+
+`terraform/netbird/subraum.tf` holt sich die Admin-Workstation über den Peer-Namen (`data "netbird_peer"`) für die Gruppe `admin-workstations` – die Gruppe, die die Subraum-Geräte und die Doku-Site erreichen darf. Ein Wechsel der Workstation (altes MacBook → gusto) läuft mit beiden Peers kurz parallel in der Gruppe: zweiter data source `gusto`, `just netbird-apply`, aldrin und ursalia deployen (Freigabeliste der Doku-Site), testen, erst dann den alten Peer entfernen.
+
+### gusto im Einzelnen
+
+Hier die Gründe hinter gustos Aufbau; die vollständige Liste, was darauf ist, jede Einstellung und die Abläufe im Alltag stehen unter [gusto – die Admin-Workstation](#gusto--die-admin-workstation).
+
+#### Nackt starten
+
+gusto wurde bewusst schlank aufgesetzt (2026-10-21): keine App-Liste aus der alten Installation übernommen, nur eine kleine Grundausstattung. Alles Weitere kommt dazu, sobald es gebraucht wird – `apps` (in `hosts/gusto/apps.json`, Switch, Commit), und falls es Daten gibt, kommen sie aus dem Backup zurück.
+
+| Wo | Was |
+| --- | --- |
+| Casks | 1Password + `1password-cli`, Vivaldi, Arq, Claude, Ghostty, NetBird |
+| System (`environment.systemPackages`) | git, gh, just, jq, neovim (`EDITOR`), curl, wget, rsync |
+| admin (home-manager) | zsh, atuin, fzf, zoxide, direnv + nix-direnv, bat, eza, ripgrep, fd, tree, lazygit, btop, yazi, tmux, nvd, nix-output-monitor, uv, typst |
+| Schrift | Maple Mono NF (Nerd Font) für Ghostty und die TUIs |
+| Repo-Werkzeuge | sops, age, ssh-to-age, opentofu, nvd – aus der devShell des Flakes; dnscontrol aus einer eigenen für das DNSControl-Repo, siehe unten |
+
+`op` kommt als Cask und nicht aus nixpkgs, weil die CLI über die 1Password-App mit Touch ID entsperrt – das geht nur mit dem signierten Binary des Herstellers.
+
+#### XDG und home-manager
+
+Projektregel: Konfiguration liegt unter `~/.config/<tool>`, wo immer das Tool es unterstützt – zsh (`ZDOTDIR=~/.config/zsh`), git (`~/.config/git/config`), Ghostty, tmux, direnv. Ein Tool ohne XDG-Unterstützung behält die echte Datei am klassischen Ort und bekommt einen Link `~/.config/<tool>` darauf, z. B. `~/.config/ssh → ~/.ssh`. Daten landen in `~/.local/share`, Zustand (zsh-Verlauf) in `~/.local/state`.
+
+Der `PATH` bekommt genau ein persönliches Verzeichnis, `~/.local/bin`: `GOBIN` zeigt dorthin, `CARGO_INSTALL_ROOT` ist `~/.local`, und `uv tool install` nutzt es von sich aus. `GOPATH` und `CARGO_HOME` liegen unter `~/.local/share`. Kein `~/go/bin`, `~/.cargo/bin` oder pnpm-Pfad mehr.
+
+git: Name `admin`, Standardadresse `mail@personal.example`; für alles unter `~/Projects/homelab/` schaltet ein `includeIf gitdir:` auf `admin@homelab.example` um.
+
+#### SSH: nur 1Password
+
+Die privaten Schlüssel gibt es nur in 1Password; dessen Agent bietet sie an. Zwei Links machen den Agent unter einem Pfad ohne Leerzeichen erreichbar: `~/.1password/agent.sock` (home-manager) und `SSH_AUTH_SOCK` – in jeder Shell (home-manager) und für GUI-Apps über `launchd.user.envVariables`.
+
+`~/.ssh/config` erzeugt home-manager (`hosts/gusto/ssh.nix`):
+
+- **Globale Zeilen zuerst**, vor jedem `Host`-Block (`extraOptionOverrides`): `IdentityAgent`, `IdentitiesOnly`, `Compression`, `SendEnv`. Der erste Wert, den ssh findet, gewinnt – kein späterer Block und keine eingebundene Datei kann den Agent woandershin lenken. Genau daran war die alte Konfig gescheitert: Ein `Host *` in einer eingebundenen Datei schickte IdentityAgent zum Agent eines anderen Benutzers.
+- **Ein Schlüssel pro Ziel**: `IdentityFile` nennt die *öffentliche* Hälfte (`hosts/gusto/ssh/*.pub`, verlinkt nach `~/.ssh/pub/`). Daran erkennt der Agent, welchen Schlüssel er anbieten soll; die private Hälfte liegt nie auf der Platte.
+- **Lab-Hosts werden erzeugt** aus `inventory.json` – jeder verwaltete Host außer gusto: `<host>` / `<host>.peer.homelab.example` über das Mesh als root (zorlock als admin); `<host>.example-tailnet.ts.net`, solange Tailscale noch läuft; und für Hosts mit öffentlicher Adresse (aldrin, grammi, zummi) `<host>.homelab.example` als admin – root ist auf öffentlichen Adressen gesperrt (`modules/ssh.nix`), so funktioniert dieser Ausweg, wenn das Mesh nicht geht. Die alternativen Namen nutzen `HostKeyAlias <host>.peer.homelab.example`, damit alle gegen den einen Host-Key aus dem Inventar geprüft werden.
+- **Host-Keys** kommen aus dem Inventar (`/etc/ssh/ssh_known_hosts`, wie auf jedem Host); GitHubs Schlüssel ist in `configuration.nix` festgeschrieben. `just known-hosts` braucht es auf gusto nicht.
+- Von Hand: `zorlock-lan` (FileVault entsperren, Ethernet-Adresse; im WLAN die WLAN-Adresse nehmen), `gruffi`, `arkkvm`/`arkkvm01`, der Subraum-Router als Jumphost (mit seinen Portweiterleitungen), vogon, amnesia, unifi, git.hackspace.example, edi, ein Block für alte Switches, der Legacy-Algorithmen nur *ergänzt* (`+…`), und GitHub (mit 60 s ControlMaster).
+
+#### devShell und direnv
+
+Die Werkzeuge des Repos werden nicht global installiert. `flake.nix` hat `devShells.aarch64-darwin.default` mit sops, age, ssh-to-age, opentofu und nvd aus den Pins des Flakes; `.envrc` (`use flake`) lässt direnv sie laden, sobald eine Shell den Checkout betritt – einmal pro Checkout `direnv allow`. nix-direnv cacht die Shell und schützt sie vor der Garbage Collection. Die Doku-Werkzeuge sind nicht drin: `just docs` und `just docs-serve` holen sich ihre eigenen per `nix shell`.
+
+sops nimmt auf gusto den age-Schlüssel der Workstation direkt aus 1Password: home-manager setzt `SOPS_AGE_KEY_CMD='op read "op://<vault>/<item>/password"'`, `op` entsperrt per Touch ID über die App – kein `op signin`, keine Schlüsseldatei.
+
+#### DNSControl
+
+Die öffentlichen DNS-Records liegen im Repo nebenan, `~/Projects/homelab/DNSControl` (lokal, ohne Remote; hier als Symlink `dnsconfig.js` eingebunden). dnscontrol kommt aus einer zweiten, schlanken devShell `devShells.aarch64-darwin.dns`, die nur dnscontrol und sops enthält; die `.envrc` dort lädt sie mit `use flake ../nixlab#dns`. Eine eigene `flake.nix` bekommt DNSControl nicht – so bleibt dnscontrol auf den Pins dieses Flakes, ohne zweites `flake.lock`.
+
+Die Zugangsdaten der Provider (deSEC, OVH, hosting.de) liegen sops-verschlüsselt in `creds.sops.json` im Repo, nie im Klartext auf der Platte. Die `.sops.yaml` dort nennt dieselben Empfänger wie die Tofu-Module: den Workstation-Schlüssel und den Recovery-Key `admin` – ohne 1Password bleiben sie also lesbar. Den Rest erledigt ein Wrapper:
+
+- `bin/dnscontrol` steht durch die `.envrc` (`PATH_add bin`) vor dem echten Binary, dessen Pfad sie in `DNSCONTROL_BIN` ablegt.
+- Bei den Befehlen, die mit Providern reden – `preview`, `push`, `ppreview`, `ppush`, `check-creds`, `get-zones`, `get-certs` – hängt er `--creds '!sops -d …/creds.sops.json --output-type json'` an, außer `--creds` steht schon in der Zeile. Alles andere reicht er unverändert durch. `--output-type` steht absichtlich am Ende: Einen `--creds`-Wert, der auf `.json` endet, hält dnscontrol auch hinter dem `!` für einen Dateinamen.
+- sops entschlüsselt mit dem Workstation-Schlüssel (`SOPS_AGE_KEY_CMD`, Touch ID), dnscontrol liest das JSON aus der Ausgabe. Nichts davon landet auf der Platte.
+
+Der Aufruf bleibt `dnscontrol preview` und `dnscontrol push`. Ein Token wechseln heißt: `sops creds.sops.json` und committen. Eine `creds.json` sperrt die `.gitignore` des Repos, damit nie wieder Klartext hineingerät. Eine ausführbare `creds.json` statt des Wrappers geht nicht: dnscontrol prüft das Ausführbar-Bit bei Namen auf `.json` nicht.
+
+## Neuen Host aufnehmen
+
+Ein Host steht an mehreren Stellen im Repo, weil NixOS und OpenTofu bewusst keine gemeinsame Host-Liste haben (siehe [Was bewusst nicht verdrahtet ist](#was-bewusst-nicht-verdrahtet-ist)). Diese Anleitung geht sie der Reihe nach durch.
+
+### 1. Maschine bereitstellen
+
+Gemietete VMs werden beim Anbieter von Hand angelegt; Bare Metal und die Subraum-VM folgen den Installationsanleitungen unter `docs/install-*.md`. Am Ende steht ein NixOS mit SSH-Host-Key – aus dem entsteht gleich der age-Schlüssel des Hosts.
+
+### 2. Konfiguration anlegen
+
+- `hosts/<host>/configuration.nix` und `hardware-configuration.nix` anlegen.
+- In `flake.nix` unter `nixosConfigurations` eintragen, mit expliziter Modulliste. Was bewusst fehlt, bekommt einen Kommentar mit Begründung daneben.
+
+### 3. Überall eintragen, wo Hosts aufgezählt sind
+
+| Datei | Eintrag |
+| --- | --- |
+| `flake.nix` | `nixosConfigurations.<host>` |
+| `inventory.json` | `hosts.<host>` mit `"managed": true` – Art, Site, Owner, Entsperren (siehe [Inventar](#inventar)) |
+| `justfile` | `hosts := "…"` (nur Pull-Hosts, für `ship-all`) |
+| `terraform/netbird/main.tf` | `local.hosts`: Host → Setup-Key-Gruppe (`servers` o. ä.) |
+| `terraform/desec-tokens/main.tf` | `local.hosts`: erlaubte Quelladressen, `acme_names` |
+| `terraform/github/main.tf` | `local.hosts`: Deploy-Key nur lesend oder mit Schreibrecht |
+
+### 4. sops-Empfänger
+
+Den age-Schlüssel aus dem SSH-Host-Key des neuen Hosts ableiten (`ssh-to-age` auf `/etc/ssh/ssh_host_ed25519_key.pub`) und in `.sops.yaml` eintragen: einen Anker unter `keys` und eine `creation_rule` für `hosts/<host>/(secrets|netbird|desec|github)\.yaml$` mit dem Host und `admin` als Empfängern. Der öffentliche Host-Key selbst kommt in `inventory.json` (`sshHostKeys`, oder später per `just inventory-collect`); `checks.inventory-sops` gleicht beides ab.
+
+### 5. Schlüssel und Tokens erzeugen
+
+| Rezept | Ergebnis | Hinweis |
+| --- | --- | --- |
+| `just netbird-key <host>` | `hosts/<host>/netbird.yaml` | Einmal-Setup-Key, **24 h gültig** – direkt danach deployen |
+| `just desec-key <host>` | `hosts/<host>/desec.yaml` | nur für Hosts mit eigenen Zertifikaten |
+| `just github-key <host>` | `hosts/<host>/github.yaml` + `github-deploy.pub` | nur für Pull-Hosts |
+
+Rezepte, die sops brauchen, nehmen den Workstation-Key aus 1Password (auf gusto von home-manager eingerichtet, siehe [just-Rezepte](#just-rezepte)).
+
+### 6. Deployen und prüfen
+
+- Erster Deploy innerhalb von 24 h nach `netbird-key`. Der Host registriert sich beim Start selbst im Mesh; Tofu findet ihn über `data "netbird_peer"` am Namen.
+- `just topology` ausführen und das Ergebnis committen – sonst schlägt `nix flake check` fehl.
+- `just inventory-collect` (Host-Key, Interfaces), `network`/`ipv4` von Hand ergänzen, dann `just inventory-test`; auf gusto `just mac-switch` (dessen known_hosts kommt aus dem Inventar) – ein neuer verwalteter Host bekommt dort auch automatisch seinen SSH-Block, dazu `hosts/gusto/ssh/<host>.homelab.example.pub`.
+- App-Secrets erst eintragen, wenn der Host läuft: [Secrets eintragen](#secrets-eintragen).
+- Doku nachziehen: [Hosts & Rollen](#hosts--rollen), [Services](#services-2).
+
+## Neuen Dienst veröffentlichen
+
+Dienste heißen nach ihrer Funktion (`rezepte`, nicht `mealie`); neue Webdienste auf grammi nutzen PostgreSQL. Zuerst entscheiden, wie der Dienst erreichbar sein soll – davon hängt ab, welche Dateien sich ändern.
+
+| Erreichbarkeit | Für | Beispiele |
+| --- | --- | --- |
+| Nur im Mesh | Admin-Oberflächen, Dienste für die eigenen Geräte | `s3-admin`, `ollama` |
+| Öffentlich hinter dem Reverse Proxy mit SSO | Web-Apps, die auch von unterwegs ohne NetBird-App erreichbar sein sollen | `rezepte`, `grist`, `metrics`, `dokumente` |
+| Direkt öffentlich | Dienste mit eigenem Login für Maschinen oder alle | `auth`, `s3.aldrin` |
+
+### Nur im Mesh
+
+1. In `terraform/netbird/mesh-services.tf` eine Zeile unter `local.mesh_services`: Name → Host(s). Daraus entsteht eine eigene NetBird-DNS-Zone mit A-Record(s) auf die Mesh-Adresse(n); öffentliches DNS kennt den Namen nicht.
+2. `just netbird-apply` – neue Zonen kommen seit NetBird 0.81 ohne Neustart bei den Clients an.
+3. Auf dem Host einen nginx-vHost mit `enableACME`, `acmeRoot = null` (DNS-01 über deSEC) und `allow 192.0.2.0/24; deny all;`.
+4. Steht der Dienst auf ursalia oder zorlock: den Namen in `acme_names` des Hosts in `terraform/desec-tokens/main.tf` ergänzen und `just desec-apply` – deren Tokens dürfen nur genau diese TXT-Records schreiben.
+5. Host deployen, `just topology` (neuer vHost).
+
+### Öffentlich hinter dem Reverse Proxy
+
+Für Dienste auf grammi:
+
+1. Eintrag in `hosts/grammi/proxy-services.json`: Name → App, Port, Pocket-ID-Gruppen, optional `start` (wohin `/` weiterleitet). Tofu (`reverse-proxy.tf`), Traefik und `topology.nix` lesen dieselbe Datei; der Proxy erreicht jede App über Traefik `:8090`.
+2. Der Dienst lauscht nur auf `127.0.0.1` – Traefik verbindet sich über Loopback, mehr braucht es nicht ([Apps auf grammi](#apps-auf-grammi-nur-über-traefik-8090)).
+3. In DNSControl einen CNAME `<name>` → `proxy.homelab.example` pushen – einige Minuten vor dem Apply, sonst cacht der Resolver NXDOMAIN.
+4. Erst grammi deployen, dann `just netbird-apply`. Das ruft am Ende `just netbird-proxy-certs` auf: Es fragt jeden neuen Namen einmal von außen ab, damit der Proxy sein Zertifikat holt, und startet `netbird-proxy` danach einmal neu – sonst hängt das Dashboard bei „Issuing certificate…“ (NetBird-Diskussion #7118).
+
+Dienste auf anderen Hosts bekommen eine eigene Ressource in `terraform/netbird/reverse-proxy.tf` mit dem Host als Peer-Ziel (Beispiele: `dokumente` auf ursalia – SSO für die App, PIN nur für Freigabelinks –, `doku` auf aldrin). Auch hier: CNAME vorher pushen, `just netbird-apply` erledigt die Zertifikate.
+
+### Direkt öffentlich
+
+nginx-vHost auf dem Host (ACME per DNS-01), A/AAAA-Records in DNSControl, CrowdSec liest die nginx-Logs mit. Nur für Dienste, die ohnehin eine eigene Anmeldung haben.
+
+### Danach
+
+- Doku: [Services](#services-2), bei neuem Host-Verzeichnis-Inhalt auch [Inhalt von hosts/&lt;host&gt;/](#inhalt-von-hostshost).
+- Dual-Stack, wo es geht (A und AAAA).
+- Wartungsschalter und Fehlerseiten: [Wartungsmodus](#neuen-dienst-aufnehmen) – auf grammi automatisch, auf anderen Hosts ein Eintrag im Host.
+
+## Wartungsmodus
+
+Ein Dienst lässt sich für eine Wartung abschalten, ohne ihn anzuhalten: Wer ihn aufruft, bekommt eine Seite mit Status 503, dem Grund und `Retry-After`; der Dienst selbst läuft weiter und ist für Tests erreichbar. Dieselbe Seite erscheint mit 502 oder 504, wenn der Dienst gerade nicht antwortet – etwa während eines `switch`. Modul: `modules/maintenance.nix`.
+
+### Wie es funktioniert
+
+Jeder HTTP-Weg zu einem Dienst endet an nginx oder Traefik auf dem Host, auf dem der Dienst läuft – auch der Weg über den NetBird-Reverse-Proxy, der nur weiterreicht. Dort sitzen Wartungsschalter und Fehlerseiten; die Software davor ist ein Detail pro Host.
+
+<figure class="nx-diagram">
+<svg viewBox="0 0 680 530" role="img" aria-label="Wege zu den Diensten: jeder HTTP-Weg endet an nginx oder Traefik auf dem Ziel-Host, dort sitzen Wartungsschalter und Fehlerseiten" xmlns="http://www.w3.org/2000/svg">
+<style>.nx-t{font-family:'DejaVu Sans',sans-serif;font-size:14px;font-weight:bold;fill:#2c2c2a}.nx-s{font-family:'DejaVu Sans',sans-serif;font-size:11px;fill:#5f5e5a}.nx-line{fill:none;stroke:#888780;stroke-width:1.4}.nx-gray rect{fill:#f1efe8;stroke:#888780}.nx-gray .nx-t{fill:#2c2c2a}.nx-gray .nx-s{fill:#5f5e5a}.nx-teal rect{fill:#e1f5ee;stroke:#0f6e56}.nx-teal .nx-t{fill:#04342c}.nx-teal .nx-s{fill:#0f6e56}</style>
+<text class="nx-s" x="62" y="30" text-anchor="middle">Quelle</text>
+<text class="nx-s" x="172" y="30" text-anchor="middle">Eingang grammi</text>
+<text class="nx-s" x="298" y="30" text-anchor="middle">Proxy</text>
+<text class="nx-s" x="432" y="30" text-anchor="middle">Front am Ziel</text>
+<text class="nx-s" x="584" y="30" text-anchor="middle">Dienste</text>
+<g class="nx-gray"><rect x="20" y="48" width="84" height="50" rx="8" stroke-width="1"/><text class="nx-t" x="62" y="78" text-anchor="middle">Internet</text></g>
+<path class="nx-line" d="M104 73 H368"/><path class="nx-line" d="M362 69 L368 73 L362 77"/>
+<a data-target="nginx" tabindex="0" role="link" class="nx-teal"><rect x="370" y="48" width="124" height="50" rx="8" stroke-width="1"/><text class="nx-t" x="432" y="70" text-anchor="middle">nginx</text><text class="nx-s" x="432" y="87" text-anchor="middle">aldrin, zummi</text></a>
+<path class="nx-line" d="M494 73 H506"/><path class="nx-line" d="M500 69 L506 73 L500 77"/>
+<g class="nx-gray"><rect x="508" y="48" width="152" height="50" rx="8" stroke-width="1"/><text class="nx-s" x="584" y="69" text-anchor="middle">s3.aldrin, cloud,</text><text class="nx-s" x="584" y="85" text-anchor="middle">auth</text></g>
+<g class="nx-gray"><rect x="20" y="110" width="84" height="50" rx="8" stroke-width="1"/><text class="nx-t" x="62" y="140" text-anchor="middle">Internet</text></g>
+<path class="nx-line" d="M104 135 H116"/><path class="nx-line" d="M110 131 L116 135 L110 139"/>
+<g class="nx-gray"><rect x="118" y="110" width="108" height="50" rx="8" stroke-width="1"/><text class="nx-t" x="172" y="140" text-anchor="middle">Traefik :443</text></g>
+<path class="nx-line" d="M226 135 H238"/><path class="nx-line" d="M232 131 L238 135 L232 139"/>
+<g class="nx-gray"><rect x="240" y="110" width="116" height="50" rx="8" stroke-width="1"/><text class="nx-t" x="298" y="140" text-anchor="middle">netbird-proxy</text></g>
+<path class="nx-line" d="M356 135 H368"/><path class="nx-line" d="M362 131 L368 135 L362 139"/>
+<a data-target="nginx" tabindex="0" role="link" class="nx-teal"><rect x="370" y="110" width="124" height="50" rx="8" stroke-width="1"/><text class="nx-t" x="432" y="132" text-anchor="middle">nginx</text><text class="nx-s" x="432" y="149" text-anchor="middle">ursalia :8092</text></a>
+<path class="nx-line" d="M494 135 H506"/><path class="nx-line" d="M500 131 L506 135 L500 139"/>
+<g class="nx-gray"><rect x="508" y="110" width="152" height="50" rx="8" stroke-width="1"/><text class="nx-s" x="584" y="140" text-anchor="middle">dokumente</text></g>
+<g class="nx-gray"><rect x="20" y="172" width="84" height="50" rx="8" stroke-width="1"/><text class="nx-t" x="62" y="202" text-anchor="middle">Internet</text></g>
+<path class="nx-line" d="M104 197 H116"/><path class="nx-line" d="M110 193 L116 197 L110 201"/>
+<g class="nx-gray"><rect x="118" y="172" width="108" height="50" rx="8" stroke-width="1"/><text class="nx-t" x="172" y="202" text-anchor="middle">Traefik :443</text></g>
+<path class="nx-line" d="M226 197 H238"/><path class="nx-line" d="M232 193 L238 197 L232 201"/>
+<g class="nx-gray"><rect x="240" y="172" width="116" height="50" rx="8" stroke-width="1"/><text class="nx-t" x="298" y="202" text-anchor="middle">netbird-proxy</text></g>
+<path class="nx-line" d="M356 197 H368"/><path class="nx-line" d="M362 193 L368 197 L362 201"/>
+<a data-target="traefik" tabindex="0" role="link" class="nx-teal"><rect x="370" y="172" width="124" height="50" rx="8" stroke-width="1"/><text class="nx-t" x="432" y="194" text-anchor="middle">Traefik :8090</text><text class="nx-s" x="432" y="211" text-anchor="middle">alle grammi-Apps</text></a>
+<path class="nx-line" d="M494 197 H506"/><path class="nx-line" d="M500 193 L506 197 L500 201"/>
+<g class="nx-gray"><rect x="508" y="172" width="152" height="50" rx="8" stroke-width="1"/><text class="nx-s" x="584" y="193" text-anchor="middle">vm, vl, rezepte,</text><text class="nx-s" x="584" y="209" text-anchor="middle">grist, logs, metrics</text></g>
+<g class="nx-gray"><rect x="20" y="234" width="84" height="50" rx="8" stroke-width="1"/><text class="nx-t" x="62" y="264" text-anchor="middle">Mesh</text></g>
+<path class="nx-line" d="M104 259 H368"/><path class="nx-line" d="M362 255 L368 259 L362 263"/>
+<a data-target="nginx" tabindex="0" role="link" class="nx-teal"><rect x="370" y="234" width="124" height="50" rx="8" stroke-width="1"/><text class="nx-t" x="432" y="256" text-anchor="middle">nginx</text><text class="nx-s" x="432" y="273" text-anchor="middle">ursalia :443</text></a>
+<path class="nx-line" d="M494 259 H506"/><path class="nx-line" d="M500 255 L506 259 L500 263"/>
+<g class="nx-gray"><rect x="508" y="234" width="152" height="50" rx="8" stroke-width="1"/><text class="nx-s" x="584" y="264" text-anchor="middle">dokumente</text></g>
+<g class="nx-gray"><rect x="20" y="296" width="84" height="50" rx="8" stroke-width="1"/><text class="nx-t" x="62" y="326" text-anchor="middle">Internet</text></g>
+<path class="nx-line" d="M104 321 H238"/><path class="nx-line" d="M232 317 L238 321 L232 325"/>
+<g class="nx-gray"><rect x="240" y="296" width="116" height="50" rx="8" stroke-width="1"/><text class="nx-t" x="298" y="318" text-anchor="middle">netbird-proxy</text><text class="nx-s" x="298" y="335" text-anchor="middle">:8883, nur TCP</text></g>
+<path class="nx-line" d="M356 321 H368"/><path class="nx-line" d="M362 317 L368 321 L362 325"/>
+<g class="nx-gray"><rect x="370" y="296" width="124" height="50" rx="8" stroke-width="1" stroke-dasharray="5 4"/><text class="nx-t" x="432" y="326" text-anchor="middle">keine</text></g>
+<path class="nx-line" d="M494 321 H506"/><path class="nx-line" d="M500 317 L506 321 L500 325"/>
+<g class="nx-gray"><rect x="508" y="296" width="152" height="50" rx="8" stroke-width="1"/><text class="nx-s" x="584" y="326" text-anchor="middle">mqtt (Home Assistant)</text></g>
+<g class="nx-gray"><rect x="20" y="358" width="84" height="50" rx="8" stroke-width="1"/><text class="nx-t" x="62" y="388" text-anchor="middle">Internet</text></g>
+<path class="nx-line" d="M104 383 H116"/><path class="nx-line" d="M110 379 L116 383 L110 387"/>
+<g class="nx-gray"><rect x="118" y="358" width="108" height="50" rx="8" stroke-width="1"/><text class="nx-t" x="172" y="388" text-anchor="middle">Traefik :443</text></g>
+<path class="nx-line" d="M226 383 H238"/><path class="nx-line" d="M232 379 L238 383 L232 387"/>
+<g class="nx-gray"><rect x="240" y="358" width="116" height="50" rx="8" stroke-width="1"/><text class="nx-t" x="298" y="380" text-anchor="middle">netbird-proxy</text><text class="nx-s" x="298" y="397" text-anchor="middle">Ziel umgestellt</text></g>
+<path class="nx-line" d="M356 383 H368" stroke-dasharray="5 4"/><path class="nx-line" d="M362 379 L368 383 L362 387"/>
+<a data-target="proxy-maintenance" tabindex="0" role="link" class="nx-teal"><rect x="370" y="358" width="124" height="50" rx="8" stroke-width="1" stroke-dasharray="5 4"/><text class="nx-t" x="432" y="380" text-anchor="middle">Wartungsseite</text><text class="nx-s" x="432" y="397" text-anchor="middle">grammi :8090</text></a>
+<g class="nx-gray"><rect x="508" y="358" width="152" height="50" rx="8" stroke-width="1"/><text class="nx-s" x="584" y="379" text-anchor="middle">wenn der Ziel-Host</text><text class="nx-s" x="584" y="395" text-anchor="middle">ganz aus ist</text></g>
+<a data-target="switching" tabindex="0" role="link" class="nx-teal"><rect x="20" y="430" width="640" height="56" rx="8" stroke-width="1"/><text class="nx-t" x="340" y="453" text-anchor="middle">Gemeinsam auf jedem Host mit Front</text><text class="nx-s" x="340" y="472" text-anchor="middle">Flag in /var/lib/maintenance · Seite 503/502/504 · Bypass-Cookie</text></a>
+<g class="nx-teal"><rect x="20" y="504" width="14" height="14" rx="3" stroke-width="1"/></g><text class="nx-s" x="42" y="515">Wartungs-Check und Fehlerseiten</text>
+<g class="nx-gray"><rect x="340" y="504" width="14" height="14" rx="3" stroke-width="1" stroke-dasharray="3 2"/></g><text class="nx-s" x="362" y="515">gestrichelt: Proxy-Wartung, nur bei Bedarf</text>
+</svg>
+</figure>
+
+- **Flag**: `/var/lib/maintenance/<fqdn>` (oder `all` für den ganzen Host). Der Inhalt der Datei ist der Grund auf der Seite. Die Flags überstehen einen Neustart – eine Wartung bleibt zu, bis sie jemand beendet.
+- **Seite**: ein kleines Programm auf jedem Host (`maintenance-responder`, nur 127.0.0.1:8089, startet bei Bedarf über systemd). Es entscheidet für nginx und Traefik gleich zwischen Wartung (503) und Störung (502/504).
+- **Bypass**: ein Cookie für alle Namen unter `homelab.example`, mit dem der Dienst trotz Wartung im Browser erreichbar bleibt.
+
+### Ein- und ausschalten
+
+Vom Arbeitsrechner; der Host wird über `inventory.json` gefunden:
+
+```bash
+just maintenance dokumente on "Paperless-Upgrade, bis ca. 22 Uhr"
+```
+
+```bash
+just maintenance dokumente off
+```
+
+```bash
+just maintenance-list
+```
+
+Ein Name ohne Punkt bekommt `.homelab.example` angehängt. Ein ganzer Host (alle Namen mit Wartungsschalter dort):
+
+```bash
+just maintenance all on "Umzug auf neue Hardware" aldrin
+```
+
+```bash
+just maintenance all off "" aldrin
+```
+
+Auf dem Host selbst geht dasselbe mit `maintenance on|off|status`. Ein Neuladen von nginx oder Traefik ist nicht nötig; nginx prüft das Flag bei jeder Anfrage, Traefik übernimmt die Änderung nach zwei bis vier Sekunden.
+
+Welche Namen einen Wartungsschalter haben:
+
+| Host | Namen | Front |
+| --- | --- | --- |
+| aldrin | `s3.aldrin`, `cloud` | nginx |
+| zummi | `auth` | nginx |
+| ursalia | `dokumente` (443 und der Proxy-Listener 8092) | nginx |
+| grammi | alle Namen aus `hosts/grammi/proxy-services.json` | Traefik `:8090` |
+
+Nebenwirkungen: `s3.aldrin` in Wartung heißt, dass die nächtlichen restic-Backups aller Hosts scheitern; `auth` in Wartung heißt, dass sich niemand neu per Pocket ID anmelden kann. `s3-admin` (garage-ui) hat nur die Fehlerseiten: Sein 443 ist öffentlich offen, und die Wartungsprüfung liefe vor dessen Mesh-Sperre (`allow`/`deny`).
+
+### Dienst trotzdem sehen
+
+1. Token in die Zwischenablage holen (wird nie angezeigt):
+
+    ```bash
+    just maintenance-key
+    ```
+
+2. `https://<name>/_maintenance/bypass` öffnen, z. B. `https://dokumente.homelab.example/_maintenance/bypass`, Token einfügen.
+
+Das Cookie gilt 12 Stunden für alle Namen unter `homelab.example`, auch für den Rückweg nach dem Login bei Pocket ID. Löschen: `https://<name>/_maintenance/clear`. Der Bypass ist Komfort, keine Sicherheitsgrenze – Login, SSO am Proxy und Mesh-Sperren gelten weiter. Das Token liegt per sops in `hosts/<host>/maintenance.yaml` (gleiches Token auf allen vier Hosts); neu erzeugen: alle vier Dateien löschen, `just maintenance-token`, committen, die vier Hosts deployen.
+
+Der Schlüssel wird per Formular geschickt, nicht als `?key=` in der Adresse: Adressen stehen in den Zugriffsprotokollen, und die landen in VictoriaLogs.
+
+### Hinter der Wartung testen mit ssh -L
+
+Für Prüfungen ohne Browser – Healthcheck, API, Versionsabfrage – reicht ein Tunnel direkt zum Dienst, an nginx und Traefik vorbei:
+
+```bash
+ssh -L 8000:127.0.0.1:8000 root@ursalia.peer.homelab.example
+```
+
+```bash
+curl -sI http://localhost:8000/api/
+```
+
+Weitere Beispiele: Grafana `ssh -L 3000:127.0.0.1:3000 root@grammi.peer.homelab.example`, Garage-S3 `ssh -L 3900:127.0.0.1:3900 root@aldrin.peer.homelab.example` (dann ein S3-Client gegen `http://localhost:3900`).
+
+Für einen Test im Browser taugt das meist nicht: Dienste, die ihre eigene Adresse prüfen, lehnen `localhost` ab. paperless vergleicht beim Login den `Origin` mit `PAPERLESS_URL` (CSRF), OpenCloud und alles mit OIDC leiten nach der Anmeldung auf ihre echte Adresse zurück – die gerade in Wartung ist. Für den Browser ist der [Bypass](#dienst-trotzdem-sehen) da.
+
+### Wenn der Host ganz aus ist
+
+Ist der Ziel-Host selbst aus (Neustart, Umzug), fehlt auch seine Wartungsseite, und der NetBird-Proxy zeigt seinen eigenen Fehler. Für die Dienste außerhalb von grammi (`dokumente`, `doku`) lässt sich das Proxy-Ziel deshalb auf grammi umstellen, wo Traefik jeden Namen, den es nicht selbst bedient, mit der Wartungsseite beantwortet:
+
+```bash
+just proxy-maintenance dokumente on "ursalia wird neu installiert"
+```
+
+```bash
+just proxy-maintenance dokumente off
+```
+
+Das schreibt `terraform/netbird/proxy-maintenance.json`, ruft `just netbird-apply` auf und setzt bzw. löscht das Flag auf grammi. Danach `proxy-maintenance.json` und `expected-peers.json` committen (solange umgestellt ist, fällt der Host aus den Zielen des Proxys). Der Login (SSO, PIN) bleibt davor; aus dem Mesh direkt bleibt der Host natürlich unerreichbar.
+
+### Fehlerseiten bei 502 und 504
+
+Ohne Schalter: Antwortet der Dienst nicht (502) oder zu langsam (504), zeigt die Front dieselbe Seite mit „Gerade nicht erreichbar“ und dem echten Statuscode.
+
+#### nginx
+
+nginx ersetzt nur seine eigenen Fehler (`error_page`). Fehlerantworten des Dienstes selbst kommen unverändert durch – `proxy_intercept_errors` bleibt aus, damit S3-Clients ihr XML und OIDC-Clients ihr JSON bekommen.
+
+#### Traefik
+
+Traefik ersetzt mit der `errors`-Middleware auch Antworten des Dienstes, deshalb nur 502 und 504, nicht 503. Die Wartungs-Router erzeugt `maintenance-traefik-sync` aus den Flags in `/run/traefik-dynamic/`, das Traefik beobachtet. Der Kontroll-Endpunkt `mesh.homelab.example` bekommt nie einen Wartungsschalter.
+
+### Neuen Dienst aufnehmen
+
+- **nginx**: den vHost (Attributname) in `services.maintenance.nginx.vhosts` des Hosts eintragen, oder in `nginx.errorPagesOnly` für nur die Fehlerseiten. Nicht für vHosts mit `allow`/`deny`, deren Port auch Abgewiesene erreichen – die Wartungsprüfung läuft vor `allow`/`deny`.
+- **grammi**: jeder Eintrag in `hosts/grammi/proxy-services.json` ist automatisch dabei.
+- **Neuer Host**: `./modules/maintenance.nix` in `flake.nix` importieren, `services.maintenance.enable = true`, den Host in `.sops.yaml` (`maintenance`) und in `just maintenance-token` aufnehmen und das Token neu erzeugen.
+
+## Secrets eintragen
+
+App-Passwörter, OIDC-Clients und Ähnliches liegen in `hosts/<host>/secrets.yaml`, verschlüsselt für den Host und den Recovery-Key `admin`. Das MacBook kann diese Dateien nicht entschlüsseln – deshalb wird auf dem Host editiert (Hintergrund: [Secrets, Netzwerk & Zugriff](#secrets-netzwerk--zugriff)).
+
+### Ablauf
+
+1. `just sync <host>` – sonst liegt auf dem Host ein veralteter Stand von `secrets.yaml`, und `pull-secrets` holt ihn zurück ins Repo.
+2. `just secrets <host>` – öffnet sops auf dem Host (mit dessen Host-Key, ohne 1Password-Anmeldung) und holt das Ergebnis danach per `pull-secrets` ins Repo.
+3. Werte immer in Anführungszeichen: `key: "wert"`, einfache Anführungszeichen, wenn der Wert `"` oder `\` enthält. Ein unquotierter Wert kann von YAML als Zahl oder Bool gelesen werden; sops-nix bricht dann `setupSecrets` ab und **kein** Secret dieser Generation wird installiert.
+4. Die NixOS-Seite (`sops.secrets."<name>"`) im Host-Modul ergänzen, committen, deployen: `just ship <host> "<nachricht>"`.
+
+### Was nicht von Hand editiert wird
+
+| Datei | Erzeugt von |
+| --- | --- |
+| `hosts/<host>/netbird.yaml` | `just netbird-key <host>` |
+| `hosts/<host>/desec.yaml` | `just desec-key <host>` |
+| `hosts/<host>/github.yaml` | `just github-key <host>` |
+| `terraform/*/secrets.yaml` | sops auf dem MacBook mit dem Workstation-Key aus 1Password |
+
+Alles, was auf dem MacBook sops braucht, läuft mit vorangestellter Anmeldung – siehe [just-Rezepte](#just-rezepte).
+
+## Schlüssel rotieren
+
+Was sich wie erneuern lässt und was danach zu tun ist. Die Rezepte ersetzen den alten Schlüssel jeweils sofort – deshalb direkt danach committen und deployen.
+
+| Schlüssel | Rezept | Danach | Wann |
+| --- | --- | --- | --- |
+| NetBird-Setup-Key eines Hosts | `just netbird-key <host>` | Deploy innerhalb von 24 h | bei Neuinstallation oder verlorenem Client-State |
+| deSEC-Token eines Hosts | `just desec-key <host>` | sofort deployen, dann `just desec-verify` | bei Verdacht, sonst nie |
+| GitHub-Deploy-Key eines Hosts | `just github-key <host>` | commit + deploy | bei Verdacht |
+| Tofu-Token für NetBird (Service-User `terraform`) | `just netbird-renew-token` | – | jährlich |
+| App-Secrets | `just secrets <host>` (siehe [Secrets eintragen](#secrets-eintragen)) | deploy | bei Verdacht |
+
+### SSH-Host-Key (= sops-Empfänger)
+
+Der age-Schlüssel eines Hosts ist aus seinem SSH-Host-Key abgeleitet. Ein neuer Host-Key heißt deshalb auch:
+
+1. Neuen age-Schlüssel per `ssh-to-age` ableiten und in `.sops.yaml` ersetzen.
+2. Die Dateien des Hosts mit `sops updatekeys` neu verschlüsseln – dafür braucht es einen Schlüssel, der sie noch lesen kann (der alte Host-Key oder `admin`).
+3. Den neuen öffentlichen Key in `inventory.json` übernehmen: `just inventory-collect --force <host>`. `nix flake check` (`checks.inventory-sops`) schlägt fehl, bis Inventar und `.sops.yaml` übereinstimmen.
+4. Committen und deployen, bevor der alte Key verschwindet – die known_hosts aller Hosts kommt aus dem Inventar. Auf gusto: `just mac-switch`.
+
+### Nach einer Rotation
+
+- Alte Schlüssel beim Gegenüber löschen (GitHub, deSEC und NetBird erledigt das Rezept per Tofu).
+- `just docs`, falls sich Namen oder Abläufe geändert haben.
+
+## Software auf den Macs
+
+Alles, was auf gusto installiert ist – Casks, Homebrew-Formeln, Mac-App-Store-Apps, nixpkgs-Pakete und Schriften – steht in `hosts/gusto/apps.json`. `apps` verwaltet sie und verhält sich wie `brew`: `apps install`, `apps uninstall`, `apps list`, `apps search` und `apps` allein (oder mit Suchbegriff) für die Suchrunde; `apps-list` und `apps-rm` sind Kurzformen. Auf gusto installiert und in jedem Ordner nutzbar; im Repo-Ordner tun `just apps …`, `just apps-list` und `just apps-rm` dasselbe. Den Hintergrund (warum eine Datendatei, warum die Pin-Prüfung) erklärt [macOS-Hosts](#software-als-daten-appsjson).
+
+### Installieren und deinstallieren, wie brew
+
+```bash
+apps install neohtop
+```
+
+```bash
+apps uninstall neohtop
+```
+
+`apps install` nimmt einen oder mehrere exakte Namen – das Token eines Casks oder einer Formel (oder `<owner>/<tap>/<name>`), ein nixpkgs-Attribut, den Namen einer App-Store-App – und tut, was eine Auswahl in der Runde tut: Pin-Prüfung, bei Bedarf Tap-Bump oder Tap-Pin, Eintrag in `apps.json`. Dann switcht es ohne Nachfrage und committet. `--cask`, `--formula`, `--nix` oder `--mas` legen die Quelle fest; ohne sie kommt ein Name, der in mehreren Quellen steht, als kurze nummerierte Liste mit der empfohlenen Quelle zuerst (Enter nimmt sie, `s` überspringt). Ein Name ohne exakten Treffer öffnet die Suchrunde mit diesem Namen, die schon aufgelösten Namen im Korb. Nach einer Notiz wird nicht gefragt – `--note "…"` gibt eine mit (jedem Namen); ein nixpkgs-Paket fragt nach dem Scope, außer mit `--scope user|system|font`.
+
+`apps uninstall` (auch `apps remove`, `apps rm`) nimmt einen oder mehrere deklarierte Namen – den Cask eines Taps auch nur über sein Token –, listet sie, fragt einmal (y/N), switcht ohne Nachfrage und committet. Ein **Cask wird gezappt**: App und Daten gehen; eine **Mac-App-Store**-App wird beim Switch deinstalliert. Ein aus zwei Quellen deklarierter Name braucht `--source`.
+
+`--host` geht wie überall; auf einem anderen Mac ändert sich nur `apps.json` und wird committet (dort switchen).
+
+### Eine Runde: hinzufügen und entfernen
+
+```bash
+apps obsidian
+```
+
+Der Suchbegriff ist optional (`apps` allein startet mit leerer Suche). Eine Runde sind beliebig viele Änderungen und endet mit einem Switch und einem Commit:
+
+```
+╭──────────── search: obsidian  filter: export ─╮   ← beide Felder
+│ filter> export                                 │   ← das aktive
+╰────────────────────────────────────────────────╯
+  this round:  + ripgrep (nixpkgs, user)   − shottr (cask) ZAP
+  enter: add / remove   tab: search ⇄ filter   ctrl-s: done   esc: cancel
+  nixpkgs ✓ 12  Homebrew ✓ 2  App Store ✓ 10
+   nixpkgs  obsidian-export   25.3.0   CLI  Rust library and CLI to export …
+…
+  [ Done · ctrl-s ]  [ Cancel · esc ]     shift-tab: buttons
+```
+
+- **Zwei Felder, `tab` wechselt.** `search>` sucht online; `filter>` (optional) grenzt die Treffer dieser Suche in fzf unscharf ein, ohne neu zu suchen (`'wort` für einen exakten Treffer). Ein neuer Suchbegriff leert den Filter – er gehörte zu den alten Treffern. Der Rahmen oben zeigt beide.
+- **Die Suche** läuft beim Tippen (ab 2 Zeichen, nach einer kurzen Pause) gegen nixpkgs (search.nixos.org, Release von `nixpkgs-darwin`), Homebrew (formulae.brew.sh), den Mac App Store und die Drittanbieter-Taps, die gusto pinnt (offline, aus ihrem Pin). Ein voll qualifizierter Begriff – `owner/tap/name`, wie in `brew install --cask owner/tap/name` – schlägt diesen einen Cask oder diese Formel zusätzlich auf GitHub nach, wenn ihr Tap noch nicht gepinnt ist (siehe [Ein Cask aus einem Drittanbieter-Tap](#ein-cask-aus-einem-drittanbieter-tap)). Ist search.nixos.org nicht erreichbar, übernimmt `nix search` gegen den Pin – langsamer, aber immer verfügbar. Die Zeile über der Liste zeigt, was jede Quelle geliefert hat.
+- **★** markiert die empfohlene Quelle, wenn es dieselbe Software mehrfach gibt: für eine GUI-App Cask vor App Store vor nixpkgs, für ein Kommandozeilenwerkzeug nixpkgs vor einer Homebrew-Formel. Die Vorschau unten zeigt Beschreibung, Version, Lizenz, Homepage – und bei einem deklarierten Eintrag seine Notiz.
+- **Enter auf einen neuen Treffer fügt ihn hinzu.** Die Liste schließt sich für die Fragen:
+    1. Die Pin-Prüfung –
+
+        | Quelle | Prüfung | Wenn sie scheitert |
+        | --- | --- | --- |
+        | nixpkgs | auswertbar im gepinnten `nixpkgs-darwin`, verfügbar auf aarch64-darwin, nicht unfree | nicht hinzugefügt – kommt mit dem nächsten System-Update; unfree: den Cask nehmen |
+        | Cask / Formel | die `.rb`-Datei liegt im gepinnten Tap | bietet an, `homebrew-cask` / `homebrew-core` zu aktualisieren (eigener Commit) |
+        | Cask / Formel aus einem nicht gepinnten Tap | – (kommt vor der Prüfung) | zeigt, wer den Tap veröffentlicht und was er herunterlädt, und bietet dann an, ihn zu pinnen **und ihm zu vertrauen** (eigener Commit) |
+        | App Store | – (kein Pin, der Store installiert die aktuelle Version) | – |
+
+    2. bei nixpkgs der Scope: `user` (admins `home.packages`, Standard), `system` (root und jede Shell) oder `font`;
+    3. eine Notiz – warum es da ist, auf Englisch, wie ein Kommentar in der Konfiguration; Enter lässt sie weg.
+
+    Danach ist die Liste mit derselben Suche und demselben Filter wieder da, im Feld, in dem du warst, bereit für das Nächste. Ctrl-C während der Fragen überspringt diesen Treffer.
+- **Enter auf einen deklarierten Eintrag (✓) merkt ihn zum Entfernen vor** (rot, durchgestrichen, `−`). Gelöscht wird noch nichts.
+- **Enter auf etwas, das in dieser Runde dazukam oder vorgemerkt wurde, nimmt es zurück.**
+- Die Kopfzeile listet die Runde: `+` grün, `−` rot, **ZAP** bei einem Cask – einen Cask zu entfernen löscht beim Switch die App *und ihre Daten* (Einstellungen, Caches, Container).
+
+**Fertig** – `ctrl-s`, oder mit `shift-tab` auf den Button *Done* und Enter (ein Klick geht auch):
+
+1. die Runde noch einmal, dann wird die Konfiguration ausgewertet; scheitert das, steht der Fehler da und du bist zurück in der Liste;
+2. zu zappende Casks: `just mac-diff` zeigt sie, dann *Continue? [y/N]* – Nein führt zurück in die Liste;
+3. auf gusto selbst: Switch? (Standard ja, nein wenn etwas gezappt wird);
+4. der Commit folgt auf einen erfolgreichen Switch – oder einen abgelehnten; ein gescheiterter Switch lässt alles uncommittet.
+
+Ein Commit pro Runde, nur `apps.json`: `gusto: add obsidian (cask), remove shottr (cask)`, mit einer Liste im Text; bei einer längeren Runde steht im Betreff die Anzahl (`gusto: add 3 and remove 1 apps`). Ein Tap-Bump ist ein eigener Commit davor (`flake.lock: bump homebrew-cask for …`), ebenso ein neuer Tap (`gusto: pin tap stablyai/homebrew-orca for orca`).
+
+**Abbrechen** – `esc` oder der Button *Cancel*: Mit Änderungen in der Runde fragt es *Discard N change(s)?*, danach sind `apps.json` (und `flake.lock`, bei einem neuen Tap auch `flake.nix` und `configuration.nix`) wieder wie vorher. Hat `apps.json` beim Start von `apps` schon uncommittete Änderungen, bricht es ab, bevor es etwas ändert; für die anderen Dateien gilt das, sobald eine Runde sie ändern würde.
+
+### Ein Cask aus einem Drittanbieter-Tap
+
+Manche Hersteller veröffentlichen ihre Mac-App nur in einem eigenen Tap; ihre Installationszeile lautet dann `brew install --cask <owner>/<tap>/<name>`. Genau diesen Namen bekommt `apps`:
+
+```bash
+apps stablyai/orca/orca
+```
+
+- Ist der Tap gepinnt, erscheinen seine Casks und Formeln in jeder Suche wie die anderen; die Suche liest sie aus dem Pin, ohne Netz. In `apps.json` heißen sie `"<owner>/homebrew-<tap>/<name>"`, z. B. `stablyai/homebrew-orca/orca`.
+- Einen noch nicht gepinnten Tap findet nur der voll qualifizierte Name; der Treffer ist mit *tap not pinned* markiert. Enter darauf zeigt, wer den Tap veröffentlicht (GitHub-Owner, verifiziert oder nicht, Alter des Repos, letzter Push) und von welchen URLs der Cask lädt, und fragt *Pin stablyai/homebrew-orca as flake input stablyai-orca-tap for gusto and trust it?*
+- **Ja** trägt den Input in `flake.nix` ein (nach dem letzten Tap-Input, mit einem erzeugten Kommentar – umschreiben, wenn der Grund mehr verdient), die Zeile `nix-homebrew.taps."stablyai/homebrew-orca" = inputs.stablyai-orca-tap;` in `hosts/gusto/configuration.nix` und führt `nix flake lock` aus. Danach folgen die übliche Pin-Prüfung und die Notiz. Weil der Startbegriff genau diesen Cask genannt hat, endet die Runde dort – kein Zurück in die Liste, keine *Switch?*-Frage: Zusammenfassung, Auswertung, `just mac-switch`, dann der Tap als eigener Commit (`flake.nix`, `flake.lock`, `configuration.nix`) vor dem von `apps.json`. Dasselbe gilt für `apps owner/tap/name`, dessen Tap schon gepinnt ist. Eine Runde mit einer Entfernung fragt vor dem Switch weiterhin.
+- **Jedem gepinnten Tap wird vertraut** (`brew trust`, [macOS-Hosts](#homebrew-eine-richtlinie-für-beide-macs)): Ein Cask führt seinen Installationscode als du aus. Vor dem Ja den Herausgeber prüfen.
+- Ab dann aktualisiert `just mac-upgrade` den neuen Input mit den anderen – es findet jeden Tap-Input in `flake.lock` selbst.
+
+Entfernen des letzten Casks eines Taps lässt den Tap gepinnt und vertraut; der kommt von Hand raus (Input, Zeile in `nix-homebrew.taps`, `nix flake lock`).
+
+### Eins direkt entfernen
+
+```bash
+apps-rm shottr
+```
+
+Die Kurzform von `apps uninstall` (oben): einmal y/N, Switch, Commit; ein Cask wird gezappt. Ist ein Name aus zwei Quellen deklariert, mit `--source` wählen, z. B. `apps-rm obsidian --source nixpkgs`.
+
+### Auflisten
+
+```bash
+apps-list
+```
+
+Nach Quelle, mit dem Datum, an dem es dazukam, und der Notiz.
+
+### Von Hand
+
+`apps.json` lässt sich direkt bearbeiten (der Editor ergänzt die Felder über `modules/darwin/apps.schema.json`), danach `just mac-diff` und `just mac-switch`. Fehler zeigen sich bei der Auswertung mit der vollständigen Liste der Probleme; `nix build .#checks.aarch64-darwin.darwin-apps` prüft nur die Datei.
+
+Nicht in `apps.json`:
+
+- **Ein neuer Drittanbieter-Tap** – er ist ein Flake-Input: `apps <owner>/<tap>/<name>` legt ihn an (oben); von Hand den Input in `flake.nix` anlegen und `nix-homebrew.taps."<owner>/homebrew-<tap>" = inputs.<input>;` in `hosts/gusto/configuration.nix`, dann `nix flake lock`. Seine Casks und Formeln heißen in `apps.json` dann `"<owner>/homebrew-<tap>/<name>"`.
+- **Ein Werkzeug mit Konfiguration** – `programs.<tool>` in `hosts/gusto/home.nix` (zsh, git, tmux, …).
+
+### Welcher Checkout, welcher Mac
+
+Die Befehle ändern den nixlab-Checkout (oder Worktree), in dem der aktuelle Ordner liegt; überall sonst den aus `NIXLAB_REPO` (`~/Projects/homelab/nixlab`, gesetzt in `home.nix`), oder `--repo <pfad>`. Sie sind das Paket `nixlab-apps` aus diesem Flake, installiert über `home.nix` – eine Änderung am Werkzeug selbst kommt mit dem nächsten `just mac-switch`; `just apps*` nutzt immer die Version aus der Arbeitskopie.
+
+Der Host ist standardmäßig gusto; `--host zorlock` geht, sofern der Host `nixlab.apps.file` setzt – zorlock tut das heute nicht. Für einen anderen Mac als den, an dem du sitzt, committet die Runde ohne Switch; danach `just push` und `just mac-switch <host>`.
+
+## Paket per Hotfix fixen
+
+Wenn nixpkgs eine Version mit Sicherheitslücke oder Bug ausliefert und der Fix noch nicht in unserem Pin ist, pinnen wir das Paket selbst – aber über `hotfix` aus [`modules/hotfixes.nix`](modules/hotfixes.nix), nicht mit einem nackten `overrideAttrs`. `hotfix` wendet das Override nur an, solange nixpkgs es noch braucht, und warnt, sobald es das nicht mehr tut.
+
+Warum: Der nächtliche Auto-Upgrade bewegt `nixpkgs` und `nixpkgs-unstable` von selbst. Ein handgeschriebener Pin veraltet unbemerkt und pinnt, sobald nixpkgs weiter ist, eine *ältere* Version. So geschehen beim paperless-3.3.2-Bump auf ursalia: unstable hatte 3.3.2 schon eine Weile, bevor es jemand bemerkte. Die Warnung ist unsere Ergänzung, der Rest ist snowballs Arbeit, siehe [Credits](#credits).
+
+### Wann sich der Hotfix abschaltet
+
+`hotfix` gibt das nixpkgs-Paket unverändert zurück und warnt, sobald eins von beidem gilt:
+
+- `pkg.version` ≥ `fixedVersion` – nixpkgs hat aktualisiert, oder
+- einer von `pkg.patches` hat `fixPatch` im Dateinamen – stable hat den Fix als Patch zurückportiert, ohne die Version anzuheben (bei CVEs auf einem stable Release der Normalfall).
+
+Das Override selbst samt src-Hash wird dann gar nicht mehr ausgewertet.
+
+### Paket aus dem nixpkgs des Hosts: Overlay in `modules/hotfixes/`
+
+Für Pakete aus dem normalen `pkgs` eines NixOS-Hosts (sudo, openssh, nginx …). Jede Datei in `modules/hotfixes/` wird auf **jedem** NixOS-Host als Overlay geladen – nicht aber auf den Macs, die `modules/*.nix` nicht bekommen.
+
+```nix
+# modules/hotfixes/sudo.nix
+# CVE-2025-32463: chroot option lets local users run code as root.
+hotfix: final: prev: {
+  sudo = hotfix {
+    name = "sudo CVE-2025-32463";
+    pkg = prev.sudo;
+    fixedVersion = "1.9.17p1";
+    fixPatch = "CVE-2025-32463";
+    override = pkg: pkg.overrideAttrs (old: rec {
+      version = "1.9.17p1";
+      src = final.fetchurl {
+        url = "https://www.sudo.ws/dist/sudo-${version}.tar.gz";
+        hash = "sha256-…";
+      };
+    });
+  };
+}
+```
+
+`fixPatch` ist optional und nur sinnvoll, wo der nixpkgs-Patch absehbar einen erkennbaren Namen hat (CVE-Nummer). Hash eintragen: erst `lib.fakeHash` stehen lassen, dann den richtigen Wert aus dem Build-Fehler übernehmen.
+
+### Paket aus einem anderen nixpkgs: `hotfix` im Host-Modul
+
+Pakete aus `import nixpkgs-unstable { … }` (paperless, Grist, …) sehen die Overlays nicht. Dort wird `hotfix` als Modul-Argument benutzt:
+
+```nix
+{ pkgs, nixpkgs-unstable, hotfix, ... }:
+let
+  unstable = import nixpkgs-unstable { inherit (pkgs.stdenv.hostPlatform) system; };
+  paperless = hotfix {
+    name = "paperless-ngx GHSA-…";
+    pkg = unstable.paperless-ngx;
+    fixedVersion = "3.4.1";
+    override = pkg: pkg.overrideAttrs (finalAttrs: prev: { version = "3.4.1"; src = …; });
+  };
+in
+```
+
+Änderungen, die *nicht* an einer Version hängen – ein Patch für ein offenes Upstream-Issue, abgeschaltete Tests – bleiben außerhalb von `hotfix`, als normales `overrideAttrs` auf dem Ergebnis.
+
+### Wo die Warnung erscheint
+
+Es ist eine Evaluation-Warnung:
+
+```
+evaluation warning: hotfix "sudo CVE-2025-32463" is no longer needed: nixpkgs' sudo has version 1.9.17p1 (fix in 1.9.17p1) - remove it
+```
+
+Sie erscheint bei jedem `just ship`, `nixos-rebuild` und `nix eval` des Hosts – und auf den Pull-Hosts im Journal des nächtlichen Upgrades, wo sie niemand liest:
+
+```bash
+journalctl -u nixos-upgrade --since today | grep 'hotfix "'
+```
+
+Dann die Datei in `modules/hotfixes/` löschen bzw. das `hotfix { … }` aus dem Host-Modul entfernen und deployen.
+
+### Credits
+
+Das Muster – Versionsvergleich, Erkennung eines zurückportierten CVE-Patches, ein automatisch geladenes Overlay pro Datei – ist von snowball ([BBBSnowball](https://github.com/BBBSnowball)) und ausdrücklich zur Übernahme angeboten: [`hotfixes/` in BBBSnowball/nixcfg](https://github.com/BBBSnowball/nixcfg/tree/35264a74189686e8ce0231b4752f85225d0c9e00/hotfixes). Unsere Fassung ergänzt die Warnung und das Modul-Argument `hotfix` für Pakete aus einem anderen nixpkgs.
+
+## Branch vor dem Merge auf einem Host testen
+
+Ein Thema wird aus seinem Worktree auf einen Host deployt und erst nach erfolgreichem Test in main gemergt. Ohne Vorkehrung hielte das nur bis 04:00: Das nächtliche Upgrade baut `/etc/nixos` – also main – und schaltet den Host still zurück. Dasselbe passiert bei einem `just deploy` aus einem anderen Thema. `just try` setzt deshalb einen **Halt** auf dem Host, den alle Wege zurück zu main beachten ([`modules/deploy-hold.nix`](modules/deploy-hold.nix)).
+
+### Ablauf
+
+Aus dem Worktree des Themas, in einem echten Terminal – die Rezepte brauchen SSH und funktionieren nicht per `!` in der Claude-App:
+
+```bash
+cd .worktrees/<thema>
+git rebase origin/main
+just try ursalia
+```
+
+`just try <host>`:
+
+1. bricht ab bei uncommitteten Änderungen (der Halt nennt einen Commit), auf main oder wenn der Branch nicht auf dem aktuellen `origin/main` aufsetzt – sonst würde der Test zurückdrehen, was andere inzwischen gemergt haben;
+2. bricht ab, wenn ein **anderer** Branch den Host schon hält (derselbe Branch darf erneut deployen);
+3. baut auf ursalia und schaltet um wie `just deploy-push`;
+4. schreibt `/etc/nixos-hold` auf den Host: Branch, Commit, Zeitpunkt, von wo.
+
+Läuft es, mergen und deployen:
+
+```bash
+git switch main && git merge --ff-only <thema> && git push
+just deploy ursalia
+```
+
+`just deploy` (genauer `rebuild`) sieht, dass der gehaltene Commit jetzt in `/etc/nixos` enthalten ist, hebt den Halt auf und baut normal.
+
+Läuft es nicht: zurück zu main mit
+
+```bash
+just release ursalia
+just deploy ursalia
+```
+
+### Mit automatischem Zurückrollen: `just try-confirm`
+
+Für Änderungen, die den Host abschneiden können – Netzwerk, NetBird, SSH, Firewall –, gibt es eine Variante mit Totmannschalter:
+
+```bash
+just try-confirm ursalia        # 5 Minuten zum Bestätigen
+just try-confirm ursalia 10     # 10 Minuten
+```
+
+1. Dieselben Prüfungen und derselbe Build wie bei `just try`, aber nixos-rebuild schaltet nichts um.
+2. Auf dem Host wird zuerst ein Timer gestellt: Nach Ablauf schaltet er zurück auf die Generation, die jetzt läuft.
+3. Dann wird der Branch mit `switch-to-configuration test` aktiviert, als eigene Unit auf dem Host – die Aktivierung übersteht eine abgerissene SSH-Verbindung. `test` lässt den Boot-Eintrag in Ruhe: Auch ein Neustart oder ein Hänger landet in der alten Generation.
+4. Die Workstation wartet, bis sie den Host wieder über das Mesh erreicht und die Aktivierung fertig ist, und fragt **Keep it? [y/N]**.
+5. Erst `y` stoppt den Timer, setzt Systemprofil und Boot-Eintrag und schreibt den Halt wie `just try`. Alles andere – `n`, keine Antwort, keine Verbindung – und der Host rollt bei Ablauf von selbst zurück (`n` sofort).
+
+Meldet sich der Host danach unter einem anderen Namen (Umbenennung), nennt `via` die Adresse, an die deployt wird; die Bestätigung geht immer an `<host>.peer.homelab.example`. So war es beim Cut-over von ursalia (2026-10-29), als sich die NUC noch als ursalia-next meldete:
+
+```bash
+just try-confirm ursalia 10 root@ursalia-next.peer.homelab.example
+```
+
+Die Frage braucht ein echtes Terminal; ohne eines gilt die Antwort als „nein“.
+
+Das Muster – einspielen, von außen prüfen, nur bei Bestätigung innerhalb einer Frist behalten, sonst zurück – stammt von snowball (BBBSnowball): [`firewall-update.sh`](https://github.com/BBBSnowball/nixcfg/blob/35264a74189686e8ce0231b4752f85225d0c9e00/hosts/sonline0/firewall-update.sh) macht das für iptables-Regeln, `try-confirm` für eine ganze NixOS-Generation.
+
+### Wer den Halt beachtet
+
+| Weg | Verhalten bei Halt |
+| --- | --- |
+| nächtliches `nixos-upgrade` | übersprungen (`ExecCondition`, kein Fehlschlag): kein Flake-Update, kein Switch, kein Reboot. Ist der gehaltene Commit inzwischen in `/etc/nixos`, hebt es den Halt auf und läuft. |
+| `just rebuild`/`deploy`/`ship`/`deploy-all` | Abbruch, außer der gehaltene Commit ist im frisch gepullten `/etc/nixos` – dann Halt weg und Deploy |
+| `just deploy-push <host>` | dieselbe Regel gegen den `HEAD` des lokalen Checkouts |
+| ursalias nächtlicher Push nach cuckoosegg | übersprungen, außer der gehaltene Commit ist in ursalias `/etc/nixos` |
+
+Die Regel ist überall dieselbe: Ein Halt blockiert, solange das, was deployt werden soll, den gehaltenen Commit nicht enthält. Ein **Rebase-Merge** schreibt den Commit neu – dann erkennt nichts den Merge, und der Halt muss mit `just release <host>` weg.
+
+### cuckoosegg
+
+`just try cuckoosegg` funktioniert genauso, der Halt liegt auf cuckoosegg. Nach dem Merge gibt es kein `just deploy cuckoosegg`: Entweder ursalias Push um 06:30 übernimmt, sobald ursalias Checkout den Merge hat (`just deploy ursalia` oder `just sync ursalia`), oder sofort aus main mit `just deploy-push cuckoosegg`.
+
+### Sehen, wer was hält
+
+- `just holds` – alle NixOS-Hosts auf einmal
+- Login-Shell auf dem Host – eine Warnzeile, ab 48 h mit Hinweis auf `just release`
+- Grafana „Homelab / Hosts Overview“, Panel **Deploy holds (just try)** – Metrik `nixlab_deploy_hold_since_seconds{branch,commit}`, orange solange ein Halt besteht, rot ab 48 h. Echte Alarmierung gibt es im Lab nicht; das Panel ist der Hinweis.
+
+### Grenzen
+
+- **Tofu** (`netbird-apply`, `desec-apply`, `pocketid-apply`) hat einen State und wird nur aus main angewandt. Ein Thema, das Tofu ändert, lässt sich damit nicht vorab testen.
+- **Macs** (gusto, zorlock) sind nicht abgedeckt – sie haben kein nächtliches Upgrade, das zurückdrehen würde.
+- **Zwei Themen auf einem Host** gleichzeitig gehen nicht: Das zweite `just try` bricht ab, bis das erste gemergt oder freigegeben ist.
+- Ein Host vor `modules/deploy-hold.nix` kennt keinen Halt; der erste `just try` darauf bringt das Modul mit.
+- **`try-confirm` und das nächtliche Upgrade:** Bis zur Bestätigung gibt es keinen Halt. Fällt die Frist über 04:00, baut `nixos-upgrade` main. Ändert der Branch den Hostnamen, baut es sogar main für den *neuen* Namen – beim Cut-over von ursalia (2026-10-27) bootete die NUC so die Konfiguration der M720q. Vorher `nixos-hold set` setzen oder nicht in die Nacht hinein testen.
+
+## Restore testen
+
+Ein Backup ist nur so gut wie der letzte Restore, der funktioniert hat. `just restore-test <host>` holt grammi oder zummi aus dem restic-Backup in eine Wegwerf-VM auf ursalia zurück und misst, wie lange das dauert – von der leeren Disk, bis die Dienste antworten. Es braucht nichts als dieses Repository und den Recovery-Key `admin`, genau wie nach dem echten Verlust des Hosts.
+
+### Ausführen
+
+Aus einem Checkout, in einem Terminal, in dem `op` angemeldet ist (`op whoami`; sonst `eval "$(op signin)"`):
+
+```bash
+just restore-test grammi isolation
+just restore-test grammi
+just restore-test zummi
+```
+
+- `isolation` ist der Probelauf: Die VM bootet und muss beweisen, dass sie nichts erreicht. Kein Secret ist beteiligt. Zuerst laufen lassen, wenn sich [`tests/restore/vm.nix`](https://github.com/admin/nixlab/blob/main/tests/restore/vm.nix) geändert hat.
+- Ohne Modus ist es der Restore. 1Password fragt gleich am Anfang nach dem `admin`-Key (`op://<vault>/<item>/password`, andere Referenz per `NIXLAB_ADMIN_AGE_KEY`).
+- Etwa zwei Minuten pro Host. Wiederholen, wenn sich Backup-Pfade, Datenbanken oder das Datenverzeichnis eines Dienstes ändern, sonst alle paar Monate.
+
+### Was passiert
+
+1. **Build:** `lib.restoreTest.<host>` – die eigene Konfiguration des Hosts plus [`tests/restore/vm.nix`](https://github.com/admin/nixlab/blob/main/tests/restore/vm.nix) – wird auf ursalia als QEMU-VM gebaut.
+2. **T0:** Die VM startet mit leerer Disk. Ihre Dienste kommen leer hoch oder scheitern an fehlenden Secrets, wie nach einer Neuinstallation.
+3. **Während sie bootet**, auf ursalia: Der `admin`-Key entschlüsselt `restic_password` und den S3-Key aus `hosts/<host>/secrets.yaml` des Repositorys; restic stellt den neuesten Snapshot wieder her. Der `admin`-Key wird gleich danach gelöscht.
+4. **Isolation:** Die VM darf weder ursalia noch das Internet noch das S3 auf aldrin erreichen, und NetBird, Tailscale und die restic-Timer dürfen nicht laufen – geprüft, bevor irgendein Secret in die VM kommt. Die Prüfung beweist sich selbst am eigenen sshd der VM.
+5. **Secrets:** Der zurückgeholte SSH-Host-Key muss zu `inventory.json` passen; in der VM entschlüsselt sops-nix damit dann jedes Secret des Hosts.
+6. **Daten:** grammi – frischer Postgres-Cluster, `pg_dumpall`-Dump eingespielt, Zustand von mealie, Grist, Grafana, logchef und NetBird an Ort und Stelle. zummi – die pocket-id-Datenbank aus der konsistenten `.backup`-Kopie und der Let's-Encrypt-Account.
+7. **Prüfungen:** Jeder Dienst muss per HTTP antworten; die JWKS von pocket-id muss einen Schlüssel enthalten (beweist, dass der Encryption-Key zur Datenbank passt). Dann Anzahlen (User, Peers, Dokumente, OIDC-Clients) in der VM neben denselben Anzahlen auf dem echten Host – dort nur lesend.
+8. **Aufräumen:** VM und tmpfs werden gelöscht. Stirbt das Rezept mittendrin, beendet sich die VM nach 2 h selbst, und ein Timer löscht das tmpfs nach 3 h.
+
+### Isolation
+
+Die VM fährt die echte Konfiguration des Hosts mit echten Secrets. Sicher ist das nur, weil sie kein einziges Paket verschicken kann: QEMUs User-Netz mit `restrict=on` (`virtualisation.restrictNetwork`). Der einzige Weg hinein ist SSH auf dem Loopback von ursalia, mit einem Schlüssel, den es nur für diesen Lauf gibt. Ihre Disk, der zurückgeholte Host-Key und jedes entschlüsselte Secret liegen unter `/run/restore-test/<host>` auf ursalia, einem tmpfs – sie berühren nie eine Disk. Der Hostname bleibt der echte, weil die Module daran die sops-Dateien festmachen; ohne Netz taucht er nirgends auf.
+
+### Ergebnis 2026-11-02
+
+| | grammi | zummi |
+| --- | --- | --- |
+| Build (aus dem Cache) | 17–24 s | 14–20 s |
+| VM läuft | 12 s | 13 s |
+| Backup geholt | 2 s (65,7 MiB) | 2 s (5,2 MiB) |
+| Secrets entschlüsselt | 22 s (29/29) | 19 s (13/13) |
+| Daten am Platz | 29 s | 48 s |
+| **RTO: Dienste antworten** | **38 s** | **48 s** |
+| Anzahlen wiederhergestellt / live | NetBird-Peers 15/15, User 6/6; mealie-User 3/3; Grafana-User 3/3; Grist-Dokumente 6/6 | User 4/4, OIDC-Clients 13/13, ACME-Dateien 3/3 |
+
+Nicht gemessen: eine Ersatzmaschine mieten, NixOS darauf installieren, DNS umstellen. Die RTO oben ist der Teil danach.
+
+### Was der Test gefunden hat
+
+1. **Im zummi-Backup war keine pocket-id-Datenbank** – in keinem der 22 Snapshots vom 2026-08-10 bis 2026-11-02. Das nicht verankerte Exclude `"*.db"` traf auch die `.backup`-Kopie. Am selben Tag behoben (auf das Datenverzeichnis verankert).
+2. **grist braucht pocket-id zum Start** (OIDC-Discovery bei `auth.homelab.example`): Sind grammi und zummi beide weg, kommt zummi zuerst zurück.
+3. **netbird-server braucht `pkgs.netbird.io` zum Start** – er fragt jedes Mal nach der aktuellen GeoLite-Datei, obwohl die Dateien im Backup sind.
+4. **Nur numerische Besitzer:** restic hält UIDs, keine Namen, und `/var/lib/nixos` (die UID-Zuordnung) ist in keinem Backup. Ein neu installierter Host vergibt UIDs neu, deshalb chownt ein Restore die Dateien jedes Dienstes nach Namen (der Test macht das).
+5. **Wohin die pocket-id-Datenbank gehört** (`data/` im Arbeitsverzeichnis), steht in keinem Backup; die Kopie behält nur ihren Dateinamen.
+
+## Repository-Struktur
+
+Ein Flake, `nixosConfigurations` für fünf Hosts plus `darwinConfigurations` für die beiden Macs (zorlock, gusto) und zwei `devShells`: eine zum Arbeiten am Repo, eine mit dnscontrol für das DNSControl-Repo. Jeder Host bekommt eine explizite Modulliste in `flake.nix`; was fehlt, fehlt mit Begründung im Kommentar daneben.
+
+| Pfad | Inhalt |
+| --- | --- |
+| `flake.nix` / `flake.lock` | Inputs, Host-Definitionen, Pakete, `lib.topology`, `lib.inventory`, `checks` |
+| `modules/` | 19 geteilte Module: base, nix, hotfixes, ssh, firewall, networking (ifstate), acme, crowdsec, tailscale, netbird, metrics/metrics-shipping, logging/log-shipping, qemu-guest, deploy, auto-upgrade-git, docs-site, maintenance |
+| `modules/darwin/` | Für die Macs: `homebrew.nix` (eine Homebrew-Richtlinie für jeden darwin-Host) und `rebuild.sh` (die Mechanik hinter den `mac-*`-Rezepten) |
+| `hosts/gusto/` | Die Workstation: `configuration.nix` (System, Casks, macOS-Einstellungen), `home.nix` und `ssh.nix` (home-manager), `ssh/*.pub` (öffentliche Hälften der 1Password-SSH-Schlüssel) |
+| `.envrc` | direnv: lädt die devShell des Flakes (sops, age, tofu, …) im Checkout |
+| `hosts/<host>/` | `configuration.nix`, Hardware, Dienst-Module, sops-Dateien (`secrets.yaml`, `netbird.yaml`, `desec.yaml`) |
+| `pkgs/` | Eigene Pakete: garage-ui, logchef, paperless-gpt, prometheus-paperless-exporter, adguardexporter, ollama-metrics-proxy |
+| `terraform/netbird/` | OpenTofu: NetBird-Account, Policies, DNS-Zonen, Reverse-Proxy-Dienste, Personen/Gruppen (inkl. Pocket ID) |
+| `terraform/desec-tokens/` | OpenTofu: eng gescopte deSEC-Tokens pro Host für DNS-01 |
+| `terraform/github/` | OpenTofu: die Repos `nixlab` (privat) und `nixlab-docs` (öffentlich), Deploy-Keys pro Host |
+| `terraform/garage/` | OpenTofu: Buckets, Keys und Rechte in Garage auf aldrin (Lifecycle-Regeln von Hand) |
+| `topology.nix` | Generiert das Topologie-Dashboard für Grafana aus den Host-Configs |
+| `inventory.json` / `inventory.nix` | Lab-Inventar (jede Maschine: Art, Site, Uplink, Beziehungen, Entsperren) und seine Prüfung, siehe [Inventar](#inventar) |
+| `inventory.schema.json` | JSON-Schema zum Bearbeiten von `inventory.json`, generiert |
+| `tests/` | Tests, die `nix flake check` auswertet (`inventory.nix`) |
+| `justfile` | Alle Bedienabläufe: deploy, secrets, netbird-\*, desec-\* |
+| `docs/` | Diese Projektdokumentation: Seiten unter `site/{de,en}/`, Zensical-Konfiguration, Build (`build.sh`, `site-src.sh`, `assemble.py`, `gen-reference.py`, `gen-llms.py`), Paket der privaten Site (`package.nix`) und was sie sonst von Dritten laden würde – Schriften, glightbox (`assets.nix`), Installationsanleitungen (ursalia, cuckoosegg, gusto), Upstream-Issue-Entwürfe |
+| `dnsconfig.js` | Symlink ins separate DNSControl-Repo – öffentliche DNS-Records leben dort |
+| `.sops.yaml` | age-Empfänger pro Host, `admin` (Offline-Recovery) und `workstation` (1Password) |
+
+## Wo ändere ich was?
+
+Welche Datei für welche Änderung zuständig ist, wie oft das vorkommt und was danach zu tun ist.
+
+| Was | Wo | Wie oft | Danach |
+| --- | --- | --- | --- |
+| Dienst, Paket oder Option auf einem Host | `hosts/<host>/*.nix` | häufig | `just ship <host> "…"` |
+| Etwas für alle Hosts | `modules/*.nix` | gelegentlich | `just ship-all "…"`; neues Modul: öffentlich oder in `docs/modules-private.txt`? |
+| Name hinter dem Reverse Proxy (grammi) | `hosts/grammi/proxy-services.json` | selten | CNAME in DNSControl, grammi deployen, `just netbird-apply` |
+| Name nur im Mesh | `terraform/netbird/mesh-services.tf` | selten | `just netbird-apply` |
+| Wer die private Doku lesen darf | Gruppe `admin-workstations` (`terraform/netbird/subraum.tf`, Peer-Namen) | selten | `just netbird-apply`, `admin-peers.json` committen, aldrin und ursalia deployen |
+| NetBird-Policies, Gruppen, Personen, Routen | `terraform/netbird/*.tf` | selten | `just netbird-plan`, `just netbird-apply` |
+| Wer die Exit-Nodes nutzen darf | Pocket-ID-Gruppe `exit-nodes` (auth.homelab.example) | selten | `just netbird-apply` |
+| Öffentliche DNS-Records | DNSControl-Repo (`dnsconfig.js`) | selten | dort `dnscontrol preview`, `dnscontrol push`, committen |
+| Was ein deSEC-Token darf | `terraform/desec-tokens/main.tf` | selten | `just desec-apply` |
+| Repos, Deploy-Keys | `terraform/github/` | selten | `just github-plan`, `just github-apply` |
+| Version eines automatisch aktualisierten Inputs | `flake.lock` | nachts automatisch | – |
+| Version eines separat gepinnten Inputs | `flake.lock` (`nix flake update <input>`) | von Hand | Hosts deployen, die ihn nutzen |
+| Eine Paketversion, die nixpkgs noch nicht hat (Sicherheitsfix) | `modules/hotfixes/` oder `hotfix` im Host-Modul | bei Bedarf | deployen; entfernen, sobald der Build warnt – [Paket per Hotfix fixen](#paket-per-hotfix-fixen) |
+| Ein Thema vor dem Merge auf einem Host testen | Worktree des Themas | bei Bedarf | `just try <host>`, nach dem Merge `just deploy <host>` – [Branch vor dem Merge testen](#branch-vor-dem-merge-auf-einem-host-testen) |
+| Grafana-Dashboard | `hosts/grammi/dashboards/*.json` | gelegentlich | grammi deployen |
+| Topologie (neuer Host, Exporter, vHost) | `topology.nix` erzeugt sie | bei Bedarf | `just topology`, committen |
+| Maschinendaten: Art, Hardware, Site, Uplink, Strom, Entsperren, Netze, Interfaces, Host-Keys | `inventory.json` | mit jedem neuen Gerät | `just inventory-collect`, `just inventory-test` ([Inventar](#inventar)) |
+| Eine App oder ein CLI-Tool auf der Workstation | `hosts/gusto/configuration.nix` (Cask) oder `hosts/gusto/home.nix` (CLI) | bei Bedarf | `just mac-diff`, `just mac-switch` |
+| Homebrew-Richtlinie der Macs | `modules/darwin/homebrew.nix` | selten | `just mac-switch` auf jedem Mac mit Homebrew |
+| Versionen der Casks | `flake.lock` (Homebrew-Inputs) | von Hand | `just mac-upgrade`, committen |
+| Inventar-Format (Felder, Gerätearten) | `spec` in `inventory.nix` | selten | `just inventory-schema`, Testfall, Doku |
+| Secrets eines Hosts | `hosts/<host>/secrets.yaml` | selten | [Secrets eintragen](#secrets-eintragen) |
+| Diese Dokumentation | `docs/site/{de,en}/` | mit jeder Änderung | `just docs` |
+
+## Inhalt von hosts/&lt;host&gt;/
+
+Was in einem Host-Verzeichnis liegt und wer es schreibt. Nicht jeder Host hat jede Datei.
+
+| Datei | Inhalt | Geschrieben von |
+| --- | --- | --- |
+| `configuration.nix` | Host-Konfiguration: Netz, Dienste, vHosts | von Hand |
+| `hardware-configuration.nix` | Hardware, Dateisysteme | `nixos-generate-config`, danach von Hand |
+| `disk-config.nix` | Partitionierung (disko, nur ursalia) | von Hand |
+| weitere `*.nix` | ein Dienst pro Datei, z. B. `backup.nix`, `samba.nix`, `netbird.nix`, `traefik.nix` | von Hand |
+| `secrets.yaml` | App-Secrets, verschlüsselt für Host + admin | `just secrets <host>` |
+| `netbird.yaml` | NetBird-Setup-Key | `just netbird-key <host>` (Tofu) |
+| `desec.yaml` | deSEC-Token für DNS-01 | `just desec-key <host>` (Tofu) |
+| `maintenance.yaml` | Bypass-Token des [Wartungsmodus](#dienst-trotzdem-sehen), gleich auf aldrin, zummi, grammi, ursalia | `just maintenance-token` |
+| `github.yaml` | privater Teil des Deploy-Keys | `just github-key <host>` |
+| `github-deploy.pub` | öffentlicher Teil, von `terraform/github` gelesen | `just github-key <host>` |
+| weitere `*.yaml` | sops-Dateien einzelner Dienste, z. B. `netbird-server.yaml`, `netbird-proxy.yaml` (grammi), `push-cuckoosegg.yaml` (ursalia) | ihre Rezepte, z. B. `just netbird-server-secrets`, `just netbird-proxy-token` |
+| `push-key.pub` | öffentlicher Schlüssel für den Push-Deploy (nur cuckoosegg) | `just cuckoosegg-push-key` |
+| `dashboards/*.json` | Grafana-Dashboards (nur grammi) | von Hand, `topology.json` per `just topology` |
+| `proxy-services.json` | Dienste hinter dem Reverse Proxy (nur grammi) | von Hand, gelesen von Tofu und `topology.nix` |
+
+## Inputs und ihre Pins
+
+Nur `nixpkgs`, `nixpkgs-unstable` und `sops-nix` laufen im nächtlichen Auto-Upgrade mit (`services.nixCache.prebuild.updateInputs` in `modules/deploy.nix`, aktualisiert von ursalia für alle Hosts). Alles, was bei einem kaputten Release das ganze Lab aussperren würde, ist separat gepinnt und wird von Hand gebumpt.
+
+| Input | Branch / Tag | Wer nutzt es | Nachts mit? |
+| --- | --- | --- | --- |
+| `nixpkgs` | nixos-26.05 | alle NixOS-Hosts | ja |
+| `nixpkgs-unstable` | nixos-unstable | grammi (Grist), ursalia (Paperless 3.x), zorlock (mactop) | ja |
+| `sops-nix` | main | alle | ja |
+| `nixpkgs-netbird` | nixos-unstable | NetBird-Server und alle Clients | nein – Server zuerst, dann Clients |
+| `nixpkgs-pocketid` | nixos-26.05 | zummi (pocket-id-Paket) | nein |
+| `disko` | main | ursalia (alle Mounts) | nein |
+| `lanzaboote` | v1.1.0 | ursalia (Secure Boot) | nein |
+| `nixpkgs-darwin`, `nix-darwin` | 26.05-darwin | zorlock, gusto | nein (kein Auto-Upgrade) |
+| `home-manager` | release-26.05 | gusto (Dotfiles) | nein – zusammen mit `nix-darwin` |
+| `nix-homebrew` | main | Macs mit Homebrew (gusto): das Modul, das Homebrew installiert | nein – `just mac-upgrade` |
+| `brew-src` | Tag `7.0.11` (`flake = false`) | Macs mit Homebrew: Homebrew selbst, statt des eigenen Pins von nix-homebrew | nein – Tag in `flake.nix` ändern |
+| `homebrew-core`, `homebrew-cask` | main (`flake = false`) | Macs mit Homebrew: die festgeschriebenen Taps | nein – `just mac-upgrade` |
+| `netbirdio-tap` | main (`flake = false`) | gusto: NetBird-App (Cask `netbird-ui`) | nein – `just mac-upgrade` |
+| `stablyai-orca-tap` | main (`flake = false`) | gusto: Orca (Cask `orca`), gepinnt von `apps` | nein – `just mac-upgrade` |
+
+Die Homebrew-Inputs sind der Grund, warum ein Cask eine feste Version hat: Mit `mutableTaps = false` kann Homebrew seine Taps nicht selbst aktualisieren, siehe [macOS-Hosts](#macos-hosts).
+
+`nix flake check` prüft zusätzlich, dass `hosts/grammi/dashboards/topology.json` zu dem passt, was `topology.nix` gerade erzeugt – ein neuer Exporter ohne `just topology` lässt den Check fehlschlagen.
+
+## Hosts & Rollen
+
+Drei gemietete VMs tragen die öffentlichen Dienste, ursalia, tummi und zorlock stehen zu Hause, cuckoosegg im Subraum; gusto ist die Admin-Workstation (ein MacBook). Alle Server sind über `<host>.peer.homelab.example` im NetBird-Mesh erreichbar; root-SSH gibt es nur dort. Art, Site, Uplink und Entsperren jeder Maschine – auch der Router, des KVM und der Appliances – stehen im [Inventar](#inventar), alles zusammen auf einen Blick in der [Lagekarte](#lagekarte).
+
+| Host | Plattform | Rolle | Besonderheiten |
+| --- | --- | --- | --- |
+| grammi | NixOS, gemietete VM | NetBird-Server (`mesh.homelab.example`) + Reverse Proxy, Traefik, Monitoring (VictoriaMetrics/-Logs, Grafana, logchef), Mealie, Grist, PostgreSQL | Zentrale Senke für Metriken und Logs aller Hosts |
+| zummi | NixOS, gemietete VM | Pocket ID (`auth.homelab.example`) – Login für alle Dienste und NetBird | pocket-id separat gepinnt |
+| aldrin | NixOS, gemietete VM | Garage S3 (`s3.aldrin.homelab.example`), garage-ui (`s3-admin`), Backup-Ziel für restic, Doku-Site (`doku`), Immich Public Proxy (`fotos` von außen) | Fork-Paket garage-ui mit Subpath-Support |
+| ursalia | NixOS, Bare Metal (ASRock NUC BOX-1260P) | Paperless-ngx 3 + paperless-gpt (`dokumente`), HealthLog (`health`), Immich (`fotos`), Bambuddy (`bambuddy`), AdGuard Home (`dns`, `adguard`), Doku-Site (`doku`), Samba für den Scanner, Routing-Peer ins Heim-LAN, Build-Host für cuckoosegg, ESPHome-Build-Server für Home Assistant (nur Heim-LAN, Port 6055), Claude-Code-Brücke zum NanoKVM Go+ (nur bei Bedarf) | LUKS + btrfs via disko, TPM-Unlock, Secure Boot (lanzaboote), WLAN (Intel AX211, `home-wifi.nix`), kein CrowdSec |
+| tummi | NixOS, Bare Metal (ASRock NUC BOX-1260P) | Dateien kopieren und sortieren: 8 TB auf `/data`, SMB-Freigabe „Daten“ im Mesh, ganz `/data` gesichert nach Garage auf aldrin | Aufbau wie ursalia (disko, TPM-Unlock, Secure Boot), WLAN mit Kabel als Fallback, keine Dienste nach außen |
+| cuckoosegg | NixOS, VM auf dem Subraum-Proxmox | NetBird-Routing-Peer in die Subraum-Netze | Gruppe `subraum-devices` statt `servers`, kein Repo/Deploy-Key, wird per Push deployed |
+| zorlock | macOS + nix-darwin, Mac mini M6 | Ollama auf der Apple-GPU (`ollama`), genutzt von paperless-gpt | Keins der `modules/*.nix`; FileVault-Unlock nach Reboot per LAN-SSH |
+| gusto | macOS + nix-darwin + home-manager, MacBook Pro | Admin-Workstation: Deploys, Secrets, Tofu, Doku | Laptop, kein sshd, keine Secrets, nicht überwacht; Apps als Homebrew-Casks, NetBird als offizielle App – siehe [gusto](#gusto--die-admin-workstation) und [macOS-Hosts](#macos-hosts) |
+
+## gusto – die Admin-Workstation
+
+gusto ist das MacBook Pro, von dem aus alles in diesem Repo läuft: Deploys, Secrets, Tofu, die Doku. Es ist der zweite nix-darwin-Host neben zorlock und das einzige Gerät im Lab, an dem ein Mensch sitzt. Diese Seite ist die vollständige Referenz dafür – was darauf ist, wo jeder Teil konfiguriert wird, wie es im Alltag benutzt wird und was zu prüfen ist, wenn etwas nicht geht. *Warum* es so gebaut ist (Homebrew-Richtlinie, NetBird als App, die Unterschiede zu zorlock), steht unter [macOS-Hosts](#macos-hosts).
+
+### Überblick
+
+| | |
+| --- | --- |
+| Hardware | Apple MacBook Pro (Apple Silicon), im Inventar `kind: laptop`, `availability: intermittent` |
+| System | macOS (Englisch, Region Deutschland), FileVault an |
+| Konfiguration | `darwinConfigurations.gusto` in `flake.nix`: nix-darwin + home-manager (Benutzer `admin`) |
+| Gebaut und geschaltet | auf gusto selbst, aus dem Arbeitsklon `~/Projects/homelab/nixlab` – `just mac-switch` |
+| Apps | Homebrew-Casks; Homebrew und seine Taps in `flake.lock` festgeschrieben (`modules/darwin/homebrew.nix`); alle Software steht in `hosts/gusto/apps.json` |
+| Repo-Werkzeuge | aus der devShell des Flakes, von direnv im Repo-Ordner geladen |
+| SSH | nur Client, Schlüssel nur in 1Password; kein Remote Login (kein sshd) |
+| Mesh | NetBird-Peer `gusto` (Cask `netbird-ui`), Gruppe `admin-workstations` |
+| Secrets | nur `hosts/gusto/mcp.yaml` (die [MCP-Server der Claude-App](#mcp-server-der-claude-app)), verschlüsselt für den Workstation-age-Schlüssel aus 1Password; gusto hat keinen eigenen Host-Schlüssel |
+| Monitoring | keins; nicht in der Topologie, nichts im Lab hängt davon ab (`criticality: lab`) |
+| Sicherung | Arq 7 nach Garage auf aldrin, dazu Time Machine |
+
+### Dateien
+
+| Datei | Inhalt |
+| --- | --- |
+| `hosts/gusto/configuration.nix` | System: Hostname, Nix-Einstellungen, Touch ID für sudo, Taps, SSH-Hostkeys, `SSH_AUTH_SOCK` für GUI-Apps, macOS-Einstellungen, Einbindung von home-manager |
+| `hosts/gusto/home.nix` | admins Home: Umgebung, Links, zsh und Helfer, CLI-/TUI-Werkzeuge, Ghostty, git |
+| `hosts/gusto/ssh.nix` | `~/.ssh/config` und `~/.ssh/pub/` |
+| `hosts/gusto/mcp.nix`, `mcp.yaml` | Die MCP-Server der Claude-App: `mcp-run` und ihre Einträge in den Konfigs von Claude; ihre Zugangsdaten (sops) |
+| `hosts/gusto/ssh/*.pub` | Öffentliche Hälften der SSH-Schlüssel (einer pro Ziel), verlinkt nach `~/.ssh/pub/` |
+| `hosts/gusto/apps.json` | Alle Software: Casks, Formeln, Mac App Store, nixpkgs (System, Benutzer, Schrift), jeweils mit Notiz – `apps-list` |
+| `modules/darwin/apps.nix`, `apps.schema.json` | Macht aus `apps.json` die Optionen und prüft sie; Editor-Schema |
+| `pkgs/nixlab-apps/` | Das Werkzeug hinter `apps` (`install`, `uninstall`, `list`, `search`), `apps-list`, `apps-rm` |
+| `modules/darwin/homebrew.nix` | Homebrew-Richtlinie, gemeinsam mit zorlock |
+| `modules/darwin/rebuild.sh` | Die Mechanik hinter den `mac-*`-Rezepten |
+| `.envrc` | `use flake` – direnv lädt die devShell im Repo-Ordner |
+| `docs/install-gusto.md` | gusto von Grund auf aufsetzen (nur in der privaten Doku) |
+
+Flake-Inputs nur für gusto: `home-manager`, `nix-homebrew`, `homebrew-core`, `homebrew-cask`, `netbirdio-tap`, `stablyai-orca-tap` – siehe [Flake-Inputs](#inputs-und-ihre-pins).
+
+### Was installiert ist
+
+gusto wurde am 2026-10-21 bewusst „nackt“ aufgesetzt: keine App-Liste aus der vorherigen Installation übernommen, nur die Grundausstattung unten. Alles andere kommt dazu, wenn es gebraucht wird (siehe [Im Alltag](#im-alltag)). Die Tabellen beschreiben sie; die vollständige, aktuelle Liste ist `hosts/gusto/apps.json` – `apps-list`.
+
+#### Apps (Homebrew-Casks)
+
+| Cask | Wofür |
+| --- | --- |
+| `1password`, `1password-cli` | Passwörter, der SSH-Agent mit allen SSH-Schlüsseln, `op` für Skripte (age-Schlüssel für sops). Die CLI als Cask, nicht aus nixpkgs: Sie entsperrt über die App mit Touch ID, und das geht nur mit dem signierten Binary des Herstellers. |
+| `vivaldi` | Browser |
+| `arq` | Sicherung nach Garage auf aldrin |
+| `claude` | Claude-Desktop-App; ihre lokalen MCP-Server: [MCP-Server der Claude-App](#mcp-server-der-claude-app) |
+| `ghostty` | Terminal |
+| `netbirdio/homebrew-tap/netbird-ui` (+ Formula `netbird`) | NetBird-Menüleisten-App und Daemon – siehe [NetBird](#netbird) |
+| `stablyai/homebrew-orca/orca` | Orca – IDE, um mehrere KI-Coding-Agenten nebeneinander in Terminals und Worktrees laufen zu lassen; aus Stablys eigenem Tap (Input `stablyai-orca-tap`), aktualisiert sich selbst. Entfernen löscht per zap auch `~/.orca` |
+| `shottr` | Screenshots |
+| `telegram`, `whatsapp` | Messenger |
+| `spotify` | Musik |
+| `alfred` | KI-Chat gegen Ollama auf zorlock, nur im Mesh: offizieller ChatGPT-Workflow mit eigener Adresse und Patch für Ollamas letzten Stream-Chunk (`apps.json`); Powerpack und Workflow liegen in der App |
+| Continue | KI-Assistent in VS Code gegen Ollama auf zorlock, nur im Mesh | Erweiterung aus nixpkgs und `~/.continue/config.yaml` in `hosts/gusto/continue.nix`; Telemetrie aus, die Konfiguration ist schreibgeschützt |
+| `visual-studio-code` | Editor (Microsofts Build wegen Remote-SSH und Pylance); Telemetrie aus, `settings.json` kommt aus home-manager und ist schreibgeschützt |
+
+Aus dem Mac App Store (`homebrew.masApps`, über `mas`; braucht die App-Store-Anmeldung): **1Blocker**, **1Password for Safari**, **Ivory**, **TestFlight**. `zap` entfernt auch App-Store-Apps, die nicht deklariert sind; `just mac-switch` hält vorher an und fragt (siehe [macOS-Hosts](#macos-hosts)).
+
+#### Systemweit (nix-darwin)
+
+`git`, `gh`, `just`, `jq`, `neovim` (`EDITOR`/`VISUAL`, bleibt auch unter sudo erhalten), `curl`, `wget`, `rsync`; zsh als Systemshell (`programs.zsh`); die Schrift **Maple Mono NF** (Nerd Font) für Ghostty und die TUIs.
+
+#### admin (home-manager)
+
+| Werkzeug | Hinweise |
+| --- | --- |
+| zsh | Konfig in `~/.config/zsh`, Autosuggestions, Syntax-Hervorhebung, Verlauf in `~/.local/state/zsh/history` |
+| atuin | Shell-Verlauf in SQLite, Suche mit Ctrl-R / ↑; Update-Prüfung aus |
+| fzf | Ctrl-T (Dateien), Alt-C (cd) |
+| zoxide | `z <Teil eines Pfads>` |
+| direnv + nix-direnv | Umgebungen pro Ordner; hält Flake-Shells im Cache und schützt sie vor der GC |
+| bat, eza, ripgrep, fd, tree | Ersatz für `cat`/`ls`/`grep`/`find`; eza bringt `ls`, `ll`, `la`, `lt` mit |
+| lazygit, btop, yazi, tmux | TUIs; yazi als `y` (wechselt beim Beenden in den letzten Ordner), tmux mit Maus, `tmux-256color` |
+| nvd, nix-output-monitor | Closure-Vergleiche, lesbare Build-Ausgabe (`nom`) |
+| uv | Python-Werkzeuge (`uv tool install` → `~/.local/bin`) |
+| typst | Dokumente (real-fast-document) |
+
+#### Repo-Werkzeuge (devShell)
+
+`sops`, `age`, `ssh-to-age`, `opentofu`, `nvd` – aus `devShells.aarch64-darwin.default`, in den Versionen aus `flake.lock`. Sie sind in jeder Shell im Repo-Ordner da (direnv), sonst nicht. `dnscontrol` kommt aus `devShells.aarch64-darwin.dns` und ist nur im DNSControl-Ordner da, dort hinter einem Wrapper, der die Zugangsdaten mit sops entschlüsselt – siehe [macOS-Hosts](#dnscontrol). Die Doku-Werkzeuge (pandoc, WeasyPrint, Zensical) gehören nicht dazu; `just docs` und `just docs-serve` holen sich ihre eigenen.
+
+### Umgebung
+
+| Variable / Pfad | Wert | Warum |
+| --- | --- | --- |
+| `PATH` | Nix-Profile, dann `/opt/homebrew/bin:sbin`, dann die macOS-Ordner; für admin `~/.local/bin` davor | Nix vor Homebrew, Homebrew vor Apples Platzhaltern; nirgends `brew shellenv` |
+| `SSH_AUTH_SOCK` | `~/.1password/agent.sock` | jeder SSH-Client spricht mit 1Password – in Shells (home-manager) und GUI-Apps (`launchd.user.envVariables`) |
+| `SOPS_AGE_KEY_CMD` | `op read "op://<vault>/<item>/password"` | sops holt den Workstation-Schlüssel aus 1Password, wenn es ihn braucht; nie auf der Platte |
+| `EDITOR`, `VISUAL` | `nvim` | |
+| `GOPATH` / `GOBIN` | `~/.local/share/go` / `~/.local/bin` | XDG; Programme in den einen persönlichen PATH-Ordner |
+| `CARGO_HOME` / `CARGO_INSTALL_ROOT` | `~/.local/share/cargo` / `~/.local` | ebenso; `cargo install` schreibt nach `<root>/bin` |
+| `ZDOTDIR` | `~/.config/zsh` | gesetzt vom Platzhalter `~/.zshenv`, den home-manager schreibt |
+
+#### Von home-manager verwaltete Dateien und Links
+
+| Pfad | |
+| --- | --- |
+| `~/.zshenv` → `~/.config/zsh/.zshenv`, `.zshrc` | zsh |
+| `~/.config/git/config` | git |
+| `~/.config/ghostty/config` | Ghostty |
+| `~/.config/tmux/tmux.conf`, `~/.config/atuin/config.toml`, `~/.config/direnv/…`, `~/.config/lazygit/config.yml` | die Werkzeuge |
+| `~/.ssh/config`, `~/.ssh/pub/` | SSH |
+| `~/.1password/agent.sock` → `~/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock` | Pfad ohne Leerzeichen für den Agent; 1Password legt ihn nicht selbst an |
+| `~/.config/ssh` → `~/.ssh` | XDG-Regel: Werkzeuge ohne XDG-Unterstützung bekommen einen Link unter `~/.config` |
+
+Findet home-manager eine Datei schon vor, die es schreiben will (erster Switch auf frischem macOS), wird sie in `<Name>.before-hm` umbenannt, statt den Switch abzubrechen.
+
+### macOS-Einstellungen
+
+Am 2026-10-21 einzeln entschieden; alles nicht Genannte ist macOS-Standard.
+
+| Bereich | Einstellung | nix-darwin-Option |
+| --- | --- | --- |
+| Menüleisten-Uhr | 24 h, Wochentag, kein Datum | `menuExtraClock.Show24Hour`, `ShowDayOfWeek`, `ShowDate = 2` |
+| Dock | immer sichtbar, keine Vergrößerung, Symbolgröße 66 | `dock.autohide`, `magnification`, `tilesize` |
+| | keine Startanimation, kein Hüpfen | `dock.launchanim`, `CustomUserPreferences."com.apple.dock"."no-bouncing"` |
+| | ins App-Symbol minimieren, Effekt „Skalieren“, keine zuletzt benutzten Apps | `minimize-to-application`, `mineffect`, `show-recents` |
+| | aktive Ecke unten rechts: Schnelle Notiz | `dock.wvous-br-corner = 14` |
+| | Dock-Inhalt | (noch) nicht verwaltet |
+| Finder | Pfadleiste an, Statusleiste aus, Symbole auf dem Schreibtisch, Listenansicht, Ordner zuerst (Fenster und Schreibtisch) | `finder.ShowPathbar`, `ShowStatusBar`, `CreateDesktop`, `FXPreferredViewStyle = "Nlsv"`, `_FXSortFoldersFirst`, `_FXSortFoldersFirstOnDesktop` |
+| Allgemein | dunkles Erscheinungsbild, alle Dateiendungen, automatische Großschreibung, Punkt nach doppeltem Leerzeichen | `NSGlobalDomain.AppleInterfaceStyle`, `AppleShowAllExtensions`, `NSAutomaticCapitalizationEnabled`, `NSAutomaticPeriodSubstitutionEnabled` |
+| Trackpad | Force Click an, Zeigergeschwindigkeit 1 | `NSGlobalDomain."com.apple.trackpad.forceClick"`, `"com.apple.trackpad.scaling"` |
+| Tastatur | Eingabequellen Deutsch (Haupt) und U.S. | `CustomUserPreferences."com.apple.HIToolbox".AppleEnabledInputSources` – U.S. für KVM-Sitzungen (NanoKVM Go+ und ArkKVM tippen PC-Scancodes); wirkt nach einmal Ab- und Anmelden |
+| Netzwerknamen | `gusto` als Computer-, lokaler Host- und SMB-NetBIOS-Name | `networking.*Name`, `smb.NetBIOSName` |
+| Sprache, Region | Englisch, Deutschland | nicht über Nix – bei der macOS-Einrichtung |
+
+Nach jedem Switch läuft `activateSettings -u` als admin, damit die meisten Einstellungen ohne Abmelden greifen.
+
+### Nix
+
+Experimentelle Features `nix-command flakes`; `admin` ist trusted user; keine Channels; `min-free` 5 GiB / `max-free` 20 GiB; Store-Optimierung an; Garbage Collection sonntags 12:15, alles älter als 30 Tage. Keine zusätzlichen Binary-Caches – alle Inputs folgen nixpkgs, ein Community-Cache hätte keine Treffer.
+
+### Sicherheit
+
+- **FileVault** an (macOS-Einrichtung).
+- **sudo mit Touch ID** (`/etc/pam.d/sudo_local`, das macOS-Updates in Ruhe lassen), auch in tmux (`pam_reattach`).
+- **Kein Remote Login**: gusto hat kein sshd und nimmt keine SSH-Verbindungen an. Weder das Inventar noch `.sops.yaml` haben einen Schlüssel dafür, also wird nie ein Secret dafür verschlüsselt.
+- **Schlüssel nur in 1Password**: SSH-Schlüssel (Agent), der age-Schlüssel für sops (`op read`), die Arq-Zugangsdaten. Nichts Privates unter `~/.ssh`. Die Zugangsdaten der MCP-Server liegen in sops (`hosts/gusto/mcp.yaml`), lesbar nur mit diesem age-Schlüssel.
+
+### SSH
+
+`~/.ssh/config` wird erzeugt (`hosts/gusto/ssh.nix`). Ganz oben, vor jedem `Host`-Block: `IdentityAgent ~/.1password/agent.sock`, `IdentitiesOnly yes`, `Compression yes`, `SendEnv LANG LC_*` – in ssh_config gewinnt der erste Wert, also kann nichts weiter unten sie ändern. Jedes `IdentityFile` nennt einen **öffentlichen** Schlüssel in `~/.ssh/pub/`; daran erkennt der Agent, welchen einen Schlüssel er anbieten soll.
+
+Hostkeys: Lab-Hosts aus `inventory.json` (`/etc/ssh/ssh_known_hosts`), GitHub fest hinterlegt; der Rest landet beim ersten Kontakt in `~/.ssh/known_hosts`.
+
+| `ssh …` | Ziel | Benutzer | Schlüssel (`~/.ssh/pub/`) | Hinweise |
+| --- | --- | --- | --- | --- |
+| `aldrin`, `grammi`, `zummi`, `ursalia`, `cuckoosegg` (auch `<host>.peer.homelab.example`) | `<host>.peer.homelab.example` (NetBird) | root | `<host>.homelab.example.pub` | aus dem Inventar erzeugt: jeder verwaltete Host außer gusto |
+| `zorlock` | `zorlock.peer.homelab.example` | admin | `zorlock.homelab.example.pub` | kein root auf macOS |
+| `<host>.example-tailnet.ts.net` | Tailscale | wie oben | wie oben | Notzugang, solange Tailscale läuft; nicht für cuckoosegg. Fällt mit Tailscale weg. |
+| `aldrin.homelab.example`, `grammi.homelab.example`, `zummi.homelab.example` | öffentliche Adresse | admin | wie oben | Ausweichweg, wenn das Mesh nicht geht – root ist auf öffentlichen Adressen gesperrt (`modules/ssh.nix`) |
+| `zorlock-lan` | 198.51.100.86 | admin | `zorlock.homelab.example.pub` | FileVault-Entsperren nach einem Neustart, aus dem Heimnetz |
+| `gruffi` | 198.51.100.1 | root | `gruffi.homelab.example.pub` | Heimrouter (Flint 4, GL.iNet-Firmware, Dropbear) |
+| `arkkvm`, `arkkvm01` | `arkkvm01` (DHCP-Name) | root | `arkkvm.pub` | |
+| `subraum-router` | jump.hackspace.example | admin | `hackspace.example.pub` | Jumphost; Weiterleitungen 8006 → Proxmox, 8080/8081 → Home Assistant |
+| `vogon`, `amnesia`, `unifi` | `<name>.subraum.hackspace.example` über `subraum-router` | root | `<name>.subraum.hackspace.example.pub` | |
+| `git.hackspace.example` | | git | `git.hackspace.example.pub` | |
+| `edi` | | admin | – | `HostKeyAlgorithms +ssh-rsa` |
+| `switch-*`, `172.31.64.*`, `172.31.65.*` | | bernd (Switches) | – | alte Switches: *ergänzt* SHA-1-KEX, `ssh-rsa`, CBC-Ciphers |
+| `github.com` | | git | `github.com.pub` | ControlMaster, 60 s |
+| `github-443` | ssh.github.com:443 | git | `github.com.pub` | für Netze, die Port 22 sperren |
+
+Die zusätzlichen Namen (Tailnet, öffentlich) tragen `HostKeyAlias <host>.peer.homelab.example`, werden also alle gegen den einen Hostkey aus dem Inventar geprüft. Ein neuer verwalteter Host erscheint nach `just mac-switch` von selbst – nur seine öffentliche Schlüsseldatei muss nach `hosts/gusto/ssh/`.
+
+### git
+
+`~/.config/git/config`: Name `admin`, Adresse `mail@personal.example`; unterhalb von `~/Projects/homelab/` (`includeIf gitdir:`) `admin@homelab.example`. `init.defaultBranch = main`, `pull.rebase = true`, Alias `lg = log --oneline`. GitHub per SSH mit dem Schlüssel `github.com SSH (admin)` aus 1Password; `gh` für die API.
+
+### NetBird
+
+Die offizielle App aus NetBirds Tap (Cask `netbird-ui`, Formula `netbird` für den Daemon), festgeschrieben als Input `netbirdio-tap`. Anmeldung per SSO (Pocket ID) in der App, Peer-Name `gusto`, Gruppe `admin-workstations` (Subraum-Geräte, Doku-Site). Rosenpass ist auf der Workstation **aus** (seit 2026-10-21, seit 2026-10-24 im ganzen Mesh bis 2026-10-31). Die Version folgt dem Tap, nicht `nixpkgs-netbird`; `just mac-upgrade` zeigt beide an. Details und der Vergleich mit zorlock: [macOS-Hosts](#netbird-auf-den-beiden-macs).
+
+### MCP-Server der Claude-App
+
+Die Desktop-App und Claude Code starten ihre lokalen MCP-Server als stdio-Prozesse über `mcp-run <server>` (`hosts/gusto/mcp.nix`, eingerichtet am 2026-10-23). Bei jedem Start entschlüsselt `mcp-run` nur den Abschnitt dieses Servers aus `hosts/gusto/mcp.yaml` (`moneymoney` hat keinen und startet ohne sops). Die Datei ist mit sops für die Schlüssel `workstation` und `admin` verschlüsselt; `op` fragt dabei unter Umständen nach Touch ID. Danach startet `mcp-run` den Server. In keiner Konfigdatei von Claude steht ein Zugangsdatum.
+
+| Server | Was | Start | Zugangsdaten in `mcp.yaml` | Desktop | Claude Code |
+| --- | --- | --- | --- | --- | --- |
+| `homeassistant` | [ha-mcp](https://github.com/homeassistant-ai/ha-mcp) als App (Add-on) auf dem Raspberry Pi, Port 9583 | `uvx fastmcp-remote <url>`, Brücke von HTTP auf stdio | `homeassistant.url`: die geheime URL der App, Host `homeassistant.peer.homelab.example` | ja | ja |
+| `feedbin` | [FeedbinMCP](https://github.com/admin/FeedbinMCP), admins Fork von [hypermoose/FeedbinMCP](https://github.com/hypermoose/FeedbinMCP) | `uv run --directory ~/Projects/personal/FeedbinMCP feedbin-mcp` | `feedbin.email`, `feedbin.password` | ja | nein |
+| `arkkvm` | [arkkvm-mcp](https://github.com/admin/arkkvm-mcp) | `uv run --directory ~/Projects/arkkvm/arkkvm-mcp arkkvm-mcp`, Host `arkkvm01`, Tastaturlayout `de` | `arkkvm.password` | ja | ja |
+| `moneymoney` | [moneymoney-mcp](https://github.com/pipamann/moneymoney-mcp) von Leon Heuser, nur lesend, per AppleScript an die laufende, entsperrte App | `moneymoney-mcp`, gebaut aus dem Tag [v0.4.0](https://github.com/pipamann/moneymoney-mcp/tree/3266505c450ff92ceaa79df3d59965f8ea28f22f) (`pkgs/moneymoney-mcp.nix`) | keine | ja | nein |
+
+- **ha-mcp statt der eingebauten Integration „Model Context Protocol Server“:** Die eingebaute Integration sieht nur, was für Assist freigegeben ist, und keine Geräte-Registry. ha-mcp kann Automationen, Dashboards, Registries, Verlauf und mehr, mit Schreibrechten. Das ist bewusst so: Claude fragt vor jedem Werkzeugaufruf, und ha-mcp legt vor Änderungen ein Backup an. Die App spricht über den Supervisor mit HA, es braucht also kein Long-lived Token. Ihre geheime URL steht beim Start im Log der App.
+- **Erreichbar über das Mesh:** Zu Hause und unterwegs gilt dieselbe URL. Die NetBird-Policy `home-assistant-mcp` (`terraform/netbird/home-assistant.tf`) erlaubt `admin-workstations` → HA, nur TCP 9583. Außerhalb von LAN und Mesh nützt die URL allein nichts.
+- **Feedbin und MoneyMoney nicht in Claude Code:** Feed-Artikel und Umsatztexte sind fremder Text (den Verwendungszweck bestimmt, wer überweist), also ein Weg für Prompt Injection, und Claude Code hat auf gusto eine Shell und sops.
+- **Konfig:** Jeder Switch trägt die Server per `jq` in `mcpServers` von `~/Library/Application Support/Claude/claude_desktop_config.json` bzw. `~/.claude.json` ein, nach Namen. Von Hand ergänzte Server bleiben erhalten; einen hier entfernten Server musst du dort von Hand löschen. Die Apps lesen die Datei beim Start, nach einem Switch also neu starten.
+- **Zugangsdaten ändern:** `cd ~/Projects/homelab/nixlab && sops hosts/gusto/mcp.yaml`. Die Änderung gilt ab dem nächsten Serverstart, ohne Switch, denn `mcp-run` liest die Datei im Arbeitsklon. Die HA-URL lässt sich direkt aus der Zwischenablage übernehmen, dabei wird der Host durch den Mesh-Namen ersetzt:
+  `cd ~/Projects/homelab/nixlab && sops set hosts/gusto/mcp.yaml '["homeassistant"]["url"]' "\"$(pbpaste | sed -E 's#^http://[^/]+#http://homeassistant.peer.homelab.example:9583#')\""`
+- **MoneyMoney aus dem Tag gebaut, nicht `npx -y moneymoney-mcp`:** Das `npx` von Upstream holt bei jedem Start die neueste Version samt Abhängigkeits-Bereichen von npm. Für einen Server, der die Bankkonten liest, ist der Bau aus `package-lock.json` fest und lädt beim Start nichts. Ein Update heißt: Version und Hashes anheben (siehe Paketdatei). Bewusst nur lesend: Ohne `--enable-transfers` gibt es das Tool `create_bank_transfer` nicht. Beim ersten Zugriff fragt macOS unter Automation, ob Claude MoneyMoney steuern darf (System Settings → Privacy & Security → Automation). Fehler `DATABASE_LOCKED`: MoneyMoney entsperren.
+
+### Sicherung
+
+- **Arq 7** sichert die ganze Platte in das Garage-Bucket auf aldrin, mit einem eigenen Backup-Plan für gusto (der Plan des vorigen MacBooks bleibt nur zum Wiederherstellen). Verschlüsselungspasswort und Garage-Zugangsdaten liegen in 1Password.
+- **Time Machine** zusätzlich.
+- Zum Neuaufbau braucht gusto keine Sicherung: System und Dotfiles sind dieses Repo, die Schlüssel liegen in 1Password. Die Sicherung ist für Daten.
+
+### Im Alltag
+
+| Aufgabe | Wie |
+| --- | --- |
+| Apps und CLI-Werkzeuge hinzufügen oder entfernen | `apps [suche]` (in jedem Ordner; im Repo auch `just apps`) – eine Runde: suchen, auswählen, Suche ändern, wieder auswählen …, dann ein Switch und ein Commit ([Anleitung](#software-auf-den-macs)); ein Werkzeug mit Konfiguration: `programs.<tool>` in `hosts/gusto/home.nix` |
+| Installieren / deinstallieren wie brew | `apps install <name>…` / `apps uninstall <name>…` (auch `remove`, `rm`, `apps-rm`): Switch und Commit ohne Runde; Casks gehen samt Daten (`zap`) |
+| Sehen, was deklariert ist | `apps-list` |
+| Apps aktualisieren (Homebrew) | `just mac-upgrade` – aktualisiert nur die Tap-Inputs, Switch, `brew upgrade`, Zusammenfassung; danach `flake.lock` committen |
+| System aktualisieren (Nix) | `nix flake update nixpkgs-darwin nix-darwin home-manager` → `just mac-switch` → auch `just mac-switch zorlock` (gleiche Inputs) |
+| NixOS-Host deployen | `just ship <host> "<Nachricht>"` oder `just deploy <host>` – übers Mesh als root |
+| Secrets bearbeiten | `just secrets <host>` (Touch ID für `op`) |
+| Doku | `just docs-serve` (Vorschau), `just docs` (PDFs + öffentliches Repo) |
+| Neuer Klon oder Worktree | einmal `direnv allow` darin |
+
+Alle `mac-*`-Rezepte nehmen den Host als optionalen Parameter (Standard `gusto`; `zorlock` läuft per SSH nach einem `git pull` dort). Neue Dateien muss git kennen (`git add`), bevor ein Switch sie sieht.
+
+### Fehlersuche
+
+| Symptom | Prüfen |
+| --- | --- |
+| `ssh-add -L`: „The agent has no identities“ / „Could not open a connection“ | 1Password läuft und ist entsperrt, Settings → Developer → *Use the SSH agent*; `ls -l ~/.1password/agent.sock`; `echo $SSH_AUTH_SOCK` |
+| ssh bietet den falschen Schlüssel an / „Too many authentication failures“ | `ssh -G <host> \| grep -E 'identityfile\|identityagent'` – genau eine `.pub` aus `~/.ssh/pub/` |
+| Hostkey passt nicht bei einem Lab-Host | Host neu installiert oder Schlüssel getauscht: Inventar aktualisiert? Dann `just mac-switch` (die Hostkeys gehören zum System) |
+| `sops`, `tofu` nicht gefunden | nicht im Repo-Ordner, oder `direnv allow` fehlt |
+| sops: „failed to get the data key“ | `op read "op://<vault>/<item>/password" \| age-keygen -y` muss das `age1…` der Workstation ausgeben |
+| `brew` installiert nichts / Tap fehlt | Taps kommen nur aus `flake.lock` (`mutableTaps = false`); `brew tap` und `brew update` sind nicht der Weg – Input anlegen, `just mac-switch` |
+| Eine Einstellung greift nicht | einmal ab- und anmelden (Eingabequellen, manche Dock-/Finder-Schlüssel) |
+| `.before-hm`-Dateien im Home | Reste vom ersten Switch; vergleichen und löschen |
+| Ein MCP-Server verbindet nicht | im Terminal `mcp-run <server>` starten: hängt es an Touch ID oder sops, fehlt ein Wert in `mcp.yaml`, fehlt der Checkout? Die Desktop-App protokolliert nach `~/Library/Logs/Claude/mcp-server-<name>.log` |
+| `homeassistant` hängt | Port in der URL muss 9583 sein, die Policy verwirft jeden anderen still (Timeout nach 30 s): `sops decrypt --extract '["homeassistant"]["url"]' hosts/gusto/mcp.yaml \| cut -d/ -f3` zeigt nur Host und Port; `nc -z homeassistant.peer.homelab.example 9583`; zeigt `netbird status -d` HA als „Connected“, aber ohne WireGuard-Handshake, steht Rosenpass in der NetBird-App auf HA auf strikt – dort `rosenpass_permissive` einschalten (bis 2026-10-31 gehört Rosenpass dort ganz aus) |
+| NetBird getrennt | Menüleisten-App → Connect; `netbird status -d`; Daemon: `sudo launchctl print system/netbird` |
+
+## gruffi – der Heimrouter
+
+gruffi ist der Router des Heimnetzes: ein GL.iNet Flint 4 (GL-BE14000), seit dem 2026-11-02 mit OpenWrt main statt der GL-Firmware. Er terminiert die PPPoE-Leitung, routet und filtert zwischen den fünf Heimnetzen, verteilt DHCP und Router Advertisements und ist der Switch für die Server. Diese Seite ist die Referenz dafür – was auf ihm läuft, woher das Image kommt, welcher Port wofür ist, was gemessen wurde und was bekannt kaputt ist. Den Plan der Netze (Zonen, Firewall-Matrix, WLANs, Funkplan) beschreibt `docs/plan-heimnetze.md`; die Einrichtung von Grund auf steht in der privaten Anleitung *gruffi aufsetzen*.
+
+### Überblick
+
+| | |
+| --- | --- |
+| Hardware | GL.iNet Flint 4 (GL-BE14000): MT7988A (4 × Cortex-A73), 2 GiB RAM, 64 GB eMMC; WLAN-Modul MT7996/MT7990 an PCIe (Wi-Fi 7, 2,4/5/6 GHz) |
+| System | OpenWrt main, gebaut aus dem PR [openwrt/openwrt#26215](https://github.com/openwrt/openwrt/pull/26215) (GL-BE14000-Unterstützung, John Crispin) plus dem netdev-name-Fix von Nilanka de Silva ([JiaY-shi/openwrt@89988effb0](https://github.com/JiaY-shi/openwrt/commit/89988effb028fce82ab943db5fd11b5a65a118a8)) und einem Kernel mit `IPV6_ROUTER_PREF`/`IPV6_ROUTE_INFO` (Thread, `docs/thread-probe.md`) |
+| Bootloader | GLs eigenes U-Boot (Variante „stock U-Boot“ des PR); seine Web-Recovery ist der Rückweg |
+| Konfiguration | alles beim ersten Boot aus `/etc/uci-defaults/90-gruffi`, erzeugt aus `inventory.json` über `openwrt/gruffi/uci.nix`; keine Konfiguration von Hand |
+| Gebaut | auf ursalia im Container `openwrt-gruffi` (`openwrt/gruffi/build.sh`), geprüft mit `openwrt/gruffi/dryrun.sh` |
+| Eingespielt | `sysupgrade -n` mit dem sysupgrade-Image (frisch, ohne alte Konfiguration) |
+| Zugang | OpenSSH, nur mit gustos Schlüssel (`hosts/gusto/ssh/gruffi.homelab.example.pub`), aus dem mgmt-Netz, von gusto im privaten Netz und über das Mesh |
+| WLAN | seit dem 2026-11-07 von gruffi selbst, 2,4 und 5 GHz, ohne 6 GHz. ap-og (EAP660 HD, Stock) an lan8 ist Cold Standby: Injektor abgezogen, zum Umschalten einstecken |
+| Display | ab dem nächsten Image [glinet-panel-ui](https://github.com/blogic/glinet-panel-ui) von John Crispin (LVGL, ucode; Feed [blogic/feed-blogic](https://github.com/blogic/feed-blogic)), gebaut aus unseren Forks mit Modi public und private, Rotation und PIN-Sperre, bis das upstream ist. Das laufende Image zeichnet noch nichts. Ohne PIN sichtbar: Traffic, System und der QR-Code des Gastnetzes; Seiten und PIN stehen in `glinet_panel` (`uci.nix`, PIN aus sops). Der Stock-U-Boot ist kein Hindernis: Ohne Übergabe vom Bootloader initialisiert `panel-mipi-dbi` das Panel selbst. Es fehlt nur die Boot-Anzeige aus BL2/U-Boot |
+
+### Dateien
+
+| Datei | Inhalt |
+| --- | --- |
+| `openwrt/gruffi/uci.nix` | Alles, was beim ersten Boot gesetzt wird: Portrollen, Bridge und VLANs, Netze, DHCP mit allen Reservierungen, DNS, Firewall-Zonen und -Regeln, PPPoE, SQM, WLANs, Thread-sysctl, avahi; dazu die Erwartungen für den Probelauf (`dryrun`). Leitet Adressen, Pools, Präfixe und Reservierungen aus dem Inventory ab |
+| `openwrt/gruffi/gen-files.sh` | Erzeugt `files/` fürs Image aus `uci.nix` und setzt die Geheimnisse ein (WLAN-Schlüssel, Root-Passwort-Hash aus `secrets.yaml`, sops, Workstation-Schlüssel aus 1Password) |
+| `openwrt/gruffi/secrets.yaml` | sops: WLAN-Schlüssel, Root-Passwort und sein Hash |
+| `openwrt/gruffi/config.seed` | Die Paketauswahl und Optionen des Builds |
+| `openwrt/gruffi/inner.sh` | Läuft im Build-Container: PR-Head holen, Fix cherry-picken, Kernel-Optionen setzen, bauen, `BUILDINFO` schreiben |
+| `openwrt/gruffi/build.sh`, `Containerfile` | Startet den Build auf ursalia (Debian-Container, inkrementell, Zustand in `/var/lib/openwrt-build/gruffi`) |
+| `openwrt/gruffi/node-exporter.init`, `node-exporter-modem.uc`, `node-exporter-dhcp-leases.uc` | Eigener Dienst für den Node-Exporter, der Modem-Collector und der Lease-Collector (siehe [Metriken](#metriken)) |
+| `openwrt/gruffi/dryrun.sh`, `dryrun-guest.sh` | Probelauf mit echten Clients in einer VM auf ursalia (siehe [Änderungen](#änderungen)) |
+
+### Ports und Switches
+
+Drei Wege führen in den SoC: der eingebaute 1G-Switch (MT7988, gmac0), der 2,5G-Switch YT9224 mit dem Vierfach-PHY YT8824 und dem SFP+-Käfig (gmac1, fester 10G-USXGMII-Link, eigener DSA-Baum) und der 10G-Kupferport (RTL8261D, gmac2). Die Namen folgen der Gehäusebeschriftung.
+
+| Port | Switch | Rolle (`uci.nix`) |
+| --- | --- | --- |
+| `wan` (WAN/LAN1, 10GBASE-T) | RTL8261D | mgmt ungetaggt – das Admin-Kabel |
+| `lan2` | YT9224/YT8824 | Gehäuse: WAN/LAN2, an der Link-Buchse des Modems. Uplink: PPPoE auf VLAN 7 (`lan2.7`); ungetaggt das Webinterface des Glasfasermodems 2 (gruffi `203.0.113.202`, Modem `203.0.113.201`, Zone `modem`, nur aus mgmt) |
+| `lan3` | YT9224/YT8824 | server ungetaggt (ursalia) |
+| `lan4` | YT9224/YT8824 | server ungetaggt (zorlock, nach dem Umzug auf den Mac mini M6) |
+| `lan5` | YT9224/YT8824 | Trunk: privat ungetaggt, die übrigen getaggt (Flint 2) |
+| `lan6` | MT7988 | server ungetaggt (SLZB-MR3U); mit dem PoE-Switch (#121) Trunk: mgmt ungetaggt, die übrigen getaggt, dahinter SLZB-MR3U, Home Assistant, Hue Bridge |
+| `lan7` | MT7988 | server ungetaggt (Home Assistant); mit dem PoE-Switch (#121) frei, nicht in der Bridge |
+| `lan8` | MT7988 | Trunk: privat ungetaggt, mgmt/IoT/Gast getaggt (Omada EAP660 HD auf Stock als Cold Standby, #96). Er bleibt auf Stock Omada (2026-11-13). `sw-og-flur` `lan7` steht für ihn bereit |
+| `lan9` | MT7988 | IoT ungetaggt (Hue Bridge); mit dem PoE-Switch (#121) frei, nicht in der Bridge |
+| `sfp` (SFP+) | YT9224 | Trunk: alle getaggt |
+| WDS | – | Versteckte SSID `homelab-wds` (5 GHz, Multi-AP): pro 4addr-Station ein `phy0.1-apN.staN` in `br-lan`, 191 ungetaggt, 193–195 getaggt (`openwrt/wds.nix`; ap-dachboden, br-multy1). Die VXLAN-Bridges und das Backhaul-Netz 196 gibt es seit dem 2026-11-13 nicht mehr (#284, #285) |
+
+Alle LAN-Ports hängen in einer Bridge `br-lan` mit VLAN-Filter; jedes Netz ist ein VLAN darauf (`br-lan.<VLAN>`), die VLAN-IDs und Präfixe kommen aus dem Inventory. STP ist an, gruffi ist Root-Bridge (Priorität 4096, Forward Delay 4 s): ein neu gesteckter Port leitet erst nach etwa 8 s weiter.
+
+### Netze und Dienste
+
+- **DHCP und RA** in allen fünf Netzen (dnsmasq, odhcpd); `dhcpv4=server` muss gesetzt sein – dnsmasq auf main lässt DHCPv4 sonst aus. Die Reservierungen sind alle Inventory-Interfaces mit `ipv4.mode = "reserved"`.
+- **DNS:** mgmt bekommt gruffi selbst, die übrigen Netze AdGuard Home auf ursalia (IPv4 und seine ULA ::53). Die Firewall lässt beide Adressen zu; gruffis dnsmasq beantwortet `.lan` und die LAN-Namen der Dienste, AdGuard leitet sie an ihn weiter.
+- **IPv6 pro Host** (nixlab#221, bisher das Servernetz, `v6Zones` in `uci.nix`): Jeder Host behält eine Interface-ID in der ULA und im /64 des delegierten Präfixes (`ipv6Iid` im Inventar). EUI-64, wo der Host sie selbst bildet, `::<letztes IPv4-Oktett>` per DHCPv6 (`hostid`, M-Flag in der Zone), wo nicht (macOS). Ein dnsmasq-`dynamic-host` pro Host liefert A und AAAA aus den aktuellen Präfixen der Bridge, die Einträge folgen also einem neuen Telekom-Präfix von selbst (`extraconftext`, dafür gibt es noch keine uci-Option); die LAN-Namen der Dienste sind CNAMEs auf ihren Host. Die Regeln pro Host prüfen nur die ID (`dest_ip '::<id>/-64'`), eine Regel für ULA und globale Adresse. Home Assistant wurde mit `ha network update end0 --ipv6-method auto --ipv6-addr-gen-mode eui64` auf EUI-64 umgestellt (ohne `--ipv6-method` lehnt der Supervisor ab: „method 'manual' requires at least an address“).
+- **Firewall** (fw4): Zonen = Netze; die Weiterleitungen und Einzelregeln stehen in `uci.nix` und folgen der Matrix in `docs/plan-heimnetze.md`. mgmt darf ins WAN (Entscheidung 5a vom Flash-Tag).
+- **PPPoE** auf `lan2.7`, IPv6 per DHCPv6-PD (/56); SQM (cake) auf `pppoe-wan`.
+- **Offload:** Flow-Offloading nur in Software. Hardware-Offloading (PPE) ist seit dem 2026-11-07 aus, wie in der GL-Firmware: Flows in der PPE liefen an cake auf `pppoe-wan` und an den Netdev-Zählern (node-exporter, Panel) vorbei, und 300/150 Mbit/s braucht sie nicht. `bridger` (Gerätepaket des GL-BE14000, legt Bridge-Flows zwischen den beiden Switches und dem WLAN in die PPE) ist aus demselben Grund seit dem 2026-11-07 live gestoppt und deaktiviert. `config.seed` lässt es weg; im Image fehlt es erst ab dem nächsten Build, `inner.sh` bricht ab, falls es doch ausgewählt bleibt. Die CPU bridget 2,8 Gbit/s in Software, die Clients haben höchstens 2,5G.
+
+### Metriken
+
+`prometheus-node-exporter-ucode` lauscht auf `198.51.100.1:9100`, nur ursalia kommt per Firewall-Regel `r_node_exporter` dorthin, `r_node_exporter_mgmt` sperrt `mgmt` aus, dessen Zone sonst Eingehendes annimmt. Im Mesh begrenzen die NetBird-Policies den Zugriff (`terraform/netbird/gruffi.tf`), denn NetBird nimmt `wt0` schon vor den Firewall-Zonen an; `r_node_exporter_mesh` wirkt nicht, solange NetBird läuft; vmagent auf ursalia fragt ihn als Job `gruffi` ab (Dashboard „Homelab / Fiber modem“). Seit 2026-11-07, nixlab#178.
+
+- **Eigener Dienst:** `/etc/init.d/node-exporter`, angepasst aus dem [Startskript des Pakets von Andre Heider](https://github.com/openwrt/packages/blob/d4a4de8309c2462d29a48597c711116360a0e8fa/utils/prometheus-node-exporter-ucode/files/init). Der Dienst des Pakets bleibt deaktiviert, so überschreibt ein `apk upgrade` nichts.
+- **Enger Jail:** eigener Benutzer `node-exporter` (UID 9100) statt root, kein `ubus`, von `/etc/config` nur die eigene Datei. `/etc/config/wireless` ist für alle lesbar und enthält die WLAN-Schlüssel, und `network.wireless status` liefert sie ebenfalls.
+- **Weg nach außen:** `/usr/share/nftables.d/chain-pre/output/90-node-exporter.nft` erlaubt diesem Benutzer neue Verbindungen nur zu `203.0.113.201:80`, alles andere wird abgewiesen und gezählt.
+- **Modem-Collector:** `modem.uc` liest `/ONT/client/data/Status.json` (ohne Login, braucht browserähnliche Header, Timeout 3 s) und übernimmt nur Felder aus einer festen Liste. Die Seriennummer steht ebenfalls in der Antwort und wird nie gelesen. `link_status` entfällt: Firmware .001 zeigte bei 2500 Mbit/s 0, seit .013 zeigt es 2500. Die Reihen tragen `host="glasfasermodem-2"`, der Job braucht deshalb `honor_labels`.
+- **Stationen:** `wifi_ap.uc` liest APs und Stationen per nl80211, ohne `ubus` (der `wifi.uc` des Feeds fragt `network.wireless status` ab, dessen Antwort die WLAN-Schlüssel enthält). Dazu `gruffi_pci_devices`: 4 mit laufendem Modul. Die Reihen pro Station tragen die MAC der Clients und zeigen, wer wann zu Hause ist, deshalb hat das Dashboard „Homelab / gruffi Wi-Fi“ keinen Freigabe-Link. Vorlage: [`wifi.uc` in openwrt/packages](https://github.com/openwrt/packages/blob/85ba4cff22728b21527e4bf1e29411e7c68a4a3c/utils/prometheus-node-exporter-ucode/files/extra/wifi.uc).
+- **Leases:** `dhcp_leases.uc` liest `/tmp/dhcp.leases`, die einzige Datei aus `/tmp` im Jail, und braucht weder `ubus` noch root. dnsmasq schreibt die Datei an Ort und Stelle neu, die Einbindung bleibt also gültig. Netze und Pools kommen aus der uci-Sektion `collector dhcp_leases`, abgeleitet aus dem Inventar. Hostnamen der Clients gelten als nicht vertrauenswürdig: nur Buchstaben, Ziffern, `.`, `_` und `-`, höchstens 63 Zeichen. Die Serien tragen MAC und Hostname, das Dashboard „Homelab / gruffi DHCP“ ist also nicht zum öffentlichen Teilen. Alarm `DhcpPoolFilling` über 80 % für 30 Minuten. nixlab#115.
+- **Flows:** Je Bridge `br-lan.191`-`195` exportiert ein `softflowd` IPFIX an ursalia, vor dem NAT. goflow2 läuft dort als Kindprozess von Vector (`hosts/ursalia/flows.nix`), der das Gerät per MAC aus dem Inventar und AS und Land aus DB-IP Lite ergänzt und alles an VictoriaLogs auf grammi schickt, 30 Tage. Die Bytes stimmen mit Offloading an mit conntrack überein (nixlab#59). softflowd setzt `br-lan` in den Promiscuous-Modus. Ein Flow erscheint, wenn er endet, lange jede Minute. Verbindungen zwischen zwei VLANs zählen einmal. Als intern gilt auch gruffis delegiertes IPv6-Präfix: `ipv6_prefix.uc` meldet das per DHCPv6-PD erhaltene (seine unreachable-Route in `/proc/net/ipv6_route`), Vector liest es alle 5 Minuten aus VictoriaMetrics zurück; die Präfixlänge aus dem Inventar ist der Rückfall. Alarme `GruffiPrefixLengthMismatch` (gelieferte Länge weicht vom Inventar ab) und `GruffiNoDelegatedPrefix`. Verbindungen innerhalb eines VLANs sind größtenteils nicht sichtbar. Multicast und Broadcast werden verworfen. `/etc/hotplug.d/iface/90-softflowd` startet ihn neu, wenn ein Netz hochkommt. Alarm `FlowExportStopped`.
+- **Log:** `logd` schickt das Systemlog samt DHCP-Ereignissen per UDP an Vector auf ursalia, der es nur von gruffi annimmt. In VictoriaLogs steht es als `host=gruffi`. Das Dashboard „gruffi DHCP“ zeigt die DHCP-Ereignisse.
+- **Firmware des Modems:** .013 seit 2026-11-07, von Hand eingespielt; das Modem war trotz aktiver Auto-Updates noch auf .001. Der wöchentliche Versions-Check vergleicht `modem_info` mit der neuesten Version in [Telekoms Liste](https://www.telekom.de/hilfe/downloads/firmware-aenderungen-glasfaser-modem-2). Ändert Telekom das Format der PDF, meldet er „unknown“.
+- **Kein Flash nötig gewesen:** Pakete per `apk add` installiert, Dateien per `scp`. `config.seed` und `gen-files.sh` nehmen alles beim nächsten Build mit; `sysupgrade -n` entfernt live installierte Pakete. Der Probelauf prüft nur, wer den Port des Exporters erreicht, nicht den Exporter selbst.
+- **Temperaturen und Lüfter:** `hwmon.uc` liest CPU, die drei mt7996-Sensoren, Drehzahl und PWM aus `sysfs`, unter den Namen des offiziellen node_exporter. Dashboard „gruffi cooling“. Seit dem 2026-11-09 live, nixlab#255.
+
+### Lüfter
+
+[fancontrol von JiaY-shi](https://github.com/JiaY-shi/fancontrol/commit/bdd72939b50a483333a6928f37bddce31259c002) (MIT) regelt den Lüfter stufenlos statt der drei Kernel-Stufen. Es kommt mit dem nächsten Image auf gruffi; bis dahin regelt der Kernel. Die Kurve steht in `fanSettings` in `openwrt/gruffi/uci.nix` (nixlab#255).
+
+- **Kurve:** aus unter 55 °C, dann von PWM 40 (etwa 1430 RPM) linear bis PWM 240 bei 85 °C; aus bei 52 °C. Kein Kick, denn ab PWM 30 läuft der Lüfter aus dem Stillstand an.
+- **Sensor:** nur die CPU-Zone. Die WLAN-Sensoren zeigt das Dashboard; bleiben sie deutlich über der CPU, müsste die Kurve auch ihnen folgen, was einen Patch braucht.
+- **Obergrenze 240:** auch für Sensorausfall und Beenden, deren Standard 255 ist. Der Device Tree von OpenWrt sagt, dass 255 diesen Lüfter anhält. Gemessen lief er 5 s lang mit 5370 RPM, und [Tomato64](https://github.com/tomato64/tomato64/blob/8b144be1b07c406abada39a4a7d4c75e031f587d/tomato64/board/arm64/be14000/linux-patches/00002-mt7988a-glinet-gl-be14000.dts.patch) misst auf der Stock-Firmware ebenfalls keinen Stillstand. Einen Dauerlauf gab es nicht; 240 kostet rund 5 % Drehzahl.
+- **Kernel als Rückfallebene:** `step_wise` bleibt aktiv und schreibt bei jedem Überschreiten eines Trip-Punkts seine Stufe, bis der Daemon sie nach höchstens 2 s korrigiert. Damit das beim Abkühlen nicht stört, setzt `fan-trip` den untersten Trip-Punkt beim Booten von 60 auf `start_temp`. `user_space` wäre ruhiger, aber ohne Daemon kühlte dann niemand nach.
+- **Messen:** Ein Schreibzugriff auf `pwm1` verschiebt auch `cur_state` des Cooling Device. Tests dürfen den alten Wert also nicht daraus lesen.
+- **Last:** Volle CPU-Last ohne Lüfter erreichte in 4 Minuten nur 54,8 °C, ausgehend von 51 °C. Verkehr und WLAN waren dabei nicht dabei.
+
+### Änderungen
+
+Am Gerät wird nichts dauerhaft von Hand geändert – Änderungen gehen in `uci.nix` (oder ins Inventory), dann:
+
+1. `nix develop -c openwrt/gruffi/build.sh` – Build auf ursalia (braucht 1Password für sops).
+2. `nix develop -c openwrt/gruffi/dryrun.sh` – führt das `90-gruffi` des letzten Builds in einer OpenWrt-x86-VM auf ursalia aus (QEMU/KVM ohne Netzwerkkarte und ohne Watchdog-Gerät, die Clients als Namespaces in der VM an veth-Ports in gruffis Namen) und prüft pro Netz: DHCPv4-Lease (Pool, Router, DNS), die erste Reservierung, das RA (ULA-Präfix, DNS) mit `rdisc6`, IPv6 pro Host (M-Flag, hostids, AAAA aus der ULA und aus einem nach dem Start von dnsmasq hinzugefügten Ersatz für das delegierte Präfix, CNAMEs, fw4-Regeln nach Interface-ID), dazu `fw4 check`, die Zahl der DHCP-Bereiche, den Modem-Zugriff pro Zone und dass nur ursalia den Port des Node Exporters erreicht. Mit `--no-dhcpv4` muss er fehlschlagen. Bis nixlab#181 lief der Probelauf in privilegierten Containern, die ursalia über den Hardware-Watchdog zurücksetzen konnten. Die Probeläufe von ap-og und sw-og-flur laufen noch so; der der WLAN-Bridges läuft in zwei VMs (`openwrt/bridge/dryrun.sh`).
+3. Image nach gusto und gruffi, SHA-256 vergleichen, `sysupgrade -T`, dann `sysupgrade -n`.
+4. gruffi wieder im Mesh anmelden: `sysupgrade -n` löscht die Anmeldung, der alte Peer bleibt aber stehen, also zuerst im NetBird-Dashboard löschen. `just netbird-key-gruffi` legt einen neuen Setup-Key in die Zwischenablage, der Befehl zum Anmelden steht in `terraform/netbird/gruffi.tf`. Ohne `--management-url` geht `netbird up` an die NetBird-Cloud.
+
+Für Eingriffe am laufenden Gerät (Testregeln, Reservierungen bis zum nächsten Build): uci setzen, `uci commit`, dann `fw4 reload` bzw. `/etc/init.d/dnsmasq restart`, wenn das reicht. `/etc/init.d/network reload` ist erlaubt (auch `wifi up`, `wifi down` und `wifi reload` lösen ihn aus), danach aber prüfen, ob `lan2` empfängt, zum Beispiel per Ping zum Modem. Am 2026-11-02 empfing `lan2` nach mehreren Reloads nichts mehr, bis zum Neustart; am 2026-11-06 kam das bei 11 Reloads auf einem neueren Image nicht wieder (nixlab#94). Bei Änderungen an `lan2.7` oder `wan` und an Ports mit angeschlossenem Gerät ist das ungetestet, dort lieber neu starten.
+
+### Gemessene Leistung
+
+Gemessen am 2026-11-03 auf dem Image aus PR-Head `e3d333fa67` (xfr und iperf3, 8 s je Lauf, 1/4/8 Streams):
+
+| Weg | Link | Ergebnis |
+| --- | --- | --- |
+| lan4 → lan3, geswitcht | 2,5G | 2,35 Gbit/s in beide Richtungen, 0 Retransmits |
+| lan5 → lan3, geroutet | 2,5G | 2,31–2,34 Gbit/s |
+| wan → lan3, geroutet | 10G | 2,34 Gbit/s (Grenze ist der 2,5G-Partner) |
+| sfp → lan3 mit Cisco SFP-H10GB-CU1M= bzw. MikroTik S+RJ10 | 10G | 2,2–2,35 Gbit/s; das S+RJ10 bekommt 1,5 W und wird 48–55 °C warm |
+| iperf3 gegen gruffi selbst über wan bzw. sfp | 10G | 9,39 bzw. 9,31 Gbit/s von gruffi weg, 4–4,6 Gbit/s zu gruffi hin (gruffis CPU als Empfänger) |
+| zwei 10G-Clients zwischen wan und sfp, ein VLAN (auf sfp getaggt) | 10G | ~2,8 Gbit/s – in Software gebridget (kein Flow in der PPE) |
+
+Die Ports sind damit bis zur Grenze der Partner sauber; die Details stehen in nixlab#94 und im [Bericht im PR](https://github.com/openwrt/openwrt/pull/26215#issuecomment-6609794789).
+
+### Bekannte Probleme
+
+- **WLAN-Modul kann fehlen** (nixlab#93): Vom 2026-11-02 bis 2026-11-06 bekamen beide PCIe-Controller beim Boot keinen Link (`PCIe link down, current LTSSM state: detect.quiet`, Probe -110), auch nach Neustarts. Die erste Stromtrennung von 30 s löste das, danach kam das Modul bei jedem Boot hoch, auch warm und nach 2 s ohne Strom. Der Auslöser ist unbekannt. Falls es wiederkommt: `dmesg` sichern, 30 s stromlos. Ohne Modul ist die Steckdosenleiste nicht erreichbar, dann vor Ort den Taster drücken und ap-og einstecken. Seit 2026-11-07 meldet das der Alarm GruffiWifiMissing, ein Push aus Home Assistant kommt zusätzlich, wenn die Leiste nicht mehr erreichbar ist (nixlab#191).
+- **`network reload` mit Nachprüfung** (nixlab#94, siehe [Änderungen](#änderungen)).
+- **lan4/lan5** empfingen auf älteren Images nichts – behoben im PR durch den MDI-Swap-Patch (`967-54`); ab Head `e3d333fa67` zeigt `ethtool -S lanN` auch die Hardware-Zähler des YT9224 (`967-55`).
+- **Erster Boot nach Stromausfall:** PPPoE braucht oft ein bis zwei PADO-Timeouts (je 35 s), weil die alte Sitzung bei der Telekom noch hängt; nach einem Warmstart steht PPPoE sofort.
+
+### Power-Watchdog
+
+`gruffi-power-watchdog` auf ursalia bemerkt, dass gruffi tot ist, und erreicht die Leiste, an der gruffi hängt, über Bluetooth LE, weil ursalia ohne gruffi keinen Netzweg zu `shelly-strip-og-flur` hat. **Es ist ein Trockenlauf: Er protokolliert, wann er gruffi aus- und wieder einschalten würde, und kann nicht schalten.** Code: `pkgs/gruffi-power-watchdog`, `hosts/ursalia/gruffi-power-watchdog.nix`; Stand und nächste Schritte in nixlab#177.
+
+ursalia (`lan3`), zorlock (`lan4`) und homeassistant (`lan7`) hängen direkt an gruffi, Kabel-Link oder ein anderes LAN-Gerät sagen also nichts über gruffi aus. Das zweite Zeichen ist der WLAN-Zustand der Leiste selbst, über BLE gelesen, denn die Leiste hängt in gruffis WLAN:
+
+| gruffi antwortet auf Ping im LAN | WLAN der Leiste | Bedeutung | Entscheidung |
+| --- | --- | --- | --- |
+| nein, 10 min lang | getrennt, 10 min lang | gruffi aus oder tot | `would-cycle` |
+| nein | verbunden | Kabel, Netzwerkkarte oder gruffi halb am Leben | `lan-down-wifi-up`, nichts |
+| ja | egal | gruffi lebt | `healthy`, nichts |
+
+Bremsen: nichts in den ersten 10 Minuten nach dem Start von ursalia, höchstens eine Aktion in 30 Minuten und 3 insgesamt, danach Stopp bis `gruffi-power-watchdog reset`. BLE ohne Antwort zählt nie als Beleg. Eine tägliche BLE-Abfrage hält den Weg geprüft (Alarm `GruffiWatchdogBleStale`).
+
+**Vor geplanten Arbeiten an gruffi** (Sysupgrade, Flash, längere Wartung), in einer Root-Shell auf ursalia:
+
+```bash
+gruffi-power-watchdog hold 2h "sysupgrade"
+```
+
+```bash
+gruffi-power-watchdog release
+```
+
+Eine Sperre dauert höchstens 24 Stunden und endet von selbst. `gruffi-power-watchdog status` zeigt Sperre und Zähler.
+
+**Leiste koppeln**, einmalig und solange gruffi läuft. Bis dahin scheitert jede BLE-Abfrage, und die Entscheidung bleibt `lan-down-witness-unknown`. BLE-RPC einschalten, Pairing öffnen, dann auf ursalia mit `bluetoothctl` koppeln (`agent NoInputNoOutput`, `default-agent`, `scan le`, `pair 00:00:5E:00:53:19`). Die BLE-Adresse ist die WLAN-MAC der Leiste plus 2.
+
+```bash
+ssh gruffi "wget -qO- 'http://203.0.113.19/rpc/BLE.SetConfig?config=%7B%22rpc%22%3A%7B%22enable%22%3Atrue%7D%7D'"
+```
+
+```bash
+ssh gruffi "wget -qO- 'http://203.0.113.19/rpc/BLE.StartPairing?timeout=180'"
+```
+
+BLE braucht einen längeren Supervision Timeout als der Kernel vorgibt: Mit den standardmäßigen 420 ms rissen bei -84 dBm 6 von 10 Verbindungen mit `Connection Timeout (0x08)` ab, mit 6 s keine (`ConnectionSupervisionTimeout=600`). BlueZ meldet so einen Abriss als ATT-Fehler `0x0e`, die Leiste sendet ihn nicht. RPC läuft über GATT wie bei Mongoose OS' [rpc-gatts](https://github.com/mongoose-os-libs/rpc-gatts/blob/fa706f66f4bf3632c042248dbf0bf98b5dd60f73/README.md) (Cesanta) und in Shellys [BLE-Dokumentation](https://shelly-api-docs.shelly.cloud/gen2/ComponentsAndServices/BLE/) beschrieben.
+
+### Fehlersuche
+
+| Symptom | Ursache und Abhilfe |
+| --- | --- |
+| SSH zu gruffi: „Permission denied (publickey)“ mit „communication with agent failed“ | Der 1Password-SSH-Agent will den Schlüssel `gruffi.homelab.example` (wieder) freigegeben haben – den Dialog in 1Password bestätigen |
+| „Host key verification failed“ nach einem Upgrade | `sysupgrade -n` erzeugt neue Host-Keys; den neuen Fingerabdruck mit dem aus dem Upgrade-Check vergleichen und ins Inventory (`hosts.gruffi.sshHostKeys`) |
+| Aus dem Terminal-Bereich der Claude-App „No route to host“ zu Adressen im LAN | Der App fehlt die macOS-Berechtigung „Local Network“; in Terminal.app geht es |
+| Von gusto am Kabel ins Server-Netz „Connection refused“, obwohl der Partner läuft | `netbird down` löscht die Route des Server-Netzes samt der direkten Route über das Kabel; der Verkehr geht dann über gruffi, der Weiterleitungen innerhalb einer Zone ablehnt. Nach `netbird down` die Netzwerkschnittstelle einmal aus- und einschalten |
+| Ein USB-Adapter schafft nur ~300 Mbit/s | Er hängt mit USB 2.0 an (`ioreg -r -c IOUSBHostDevice -l -w0`, `UsbLinkSpeed` = 480000000) – anderes Kabel oder direkt an den Mac |
+| Kein DHCP in einem Netz | `grep dhcp-range /var/etc/dnsmasq.conf.*` – fehlen Bereiche, fehlt `dhcpv4=server` |
+
+## Inventar
+
+`inventory.json` führt jede Maschine des Labs, ob dieser Flake sie konfiguriert oder nicht: was für ein Gerät es ist (Hersteller, Modell, Seriennummer), wo es steht, wie dieser Ort ans Internet kommt, worauf es läuft oder worin es steckt, woher es Strom bekommt, wie seine Platte nach einem Reboot entsperrt wird, seine Netze, Interfaces und Adressen und seine SSH-Host-Keys. Dazu kommen die Dienste, die darauf laufen oder von außen eingekauft sind, was jeder Dienst braucht, wohin seine Daten gesichert werden, und die Anbieter und Verträge hinter Hosts, Anschlüssen und Diensten. Das sind die Angaben, die in keiner NixOS-Config stehen. Genutzt werden heute die Host-Keys: Die known_hosts jedes Hosts kommt von hier, und `nix flake check` gleicht sie mit den age-Schlüsseln in `.sops.yaml` ab. Der Rest soll später der Gruppierung in der Topologie und den Abhängigkeiten im Alerting dienen (der Uplink ist weg, also nicht für jeden Host dahinter alarmieren).
+
+Was heute drinsteht, zeigt die [Lagekarte](#lagekarte): jeder Host und jeder Dienst nach Standort, mit klickbaren Abhängigkeiten.
+
+| Datei | Aufgabe |
+| --- | --- |
+| `inventory.json` | Die Daten. JSON, damit Nix (`builtins.fromJSON`) und OpenTofu (`jsondecode`) sie beide ohne Umweg lesen. |
+| `inventory.nix` | Format (`spec`), Validierung, abgeleitete Sicht, Generator für das JSON-Schema. In `flake.nix` als `lib.inventory`. |
+| `inventory.schema.json` | JSON-Schema für den Editor (Vervollständigung, Hover-Hilfe, Fehler direkt im Text). Generiert, nie von Hand ändern. |
+| `tests/inventory.nix` | Tests für die Validierung: ein vollständiges Beispielinventar und ein Fall je Regel. |
+| `software.nix` | Was die Dienste betreiben, gelesen aus den Host-Konfigurationen (`lib.software`, `just services`). |
+| `flake.nix` | `lib.inventory`, die Checks und `programs.ssh.knownHosts` für jeden Host (NixOS und nix-darwin). |
+
+Faustregel für den Inhalt: **nur, was sich nicht aus einer Config ableiten lässt.** OS, Architektur, CPU/RAM, Mesh-Adresse und Exporter bleiben draußen; die liest `topology.nix` aus `nixosConfigurations`. Version, Lizenz und Sprache eines Dienstes kommen aus seinem Paket und werden nicht eingetragen. Was ein Dienst *braucht* und wohin seine Daten *gehören*, ist Absicht und keine Config – das steht hier drin (`dependsOn`, `backup`). Jede Beziehung steht **nur in einer Richtung** drin; die Gegenrichtung wird abgeleitet, damit beide nicht auseinanderlaufen können.
+
+### Aufbau
+
+Acht Abschnitte, jeder ein Objekt aus Einträgen mit ID als Schlüssel. IDs bestehen aus Kleinbuchstaben, Ziffern und Bindestrichen (unverändert als Graphviz-Knoten oder Label verwendbar).
+
+```
+owners    ◄──────── hosts.owner
+providers ◄──────── uplinks.provider, sites.provider, services.provider, contracts.provider
+contracts ◄──────── hosts.contracts[], uplinks.contracts[], services.contracts[]
+uplinks   ◄──────── sites.uplinks[]
+sites     ◄──────── hosts.site, networks.site
+networks  ◄──────── hosts.interfaces.<name>.network
+hosts     ◄──────── hosts.runsOn / inside / power / manages[] / unlock.tang[], networks.dhcpServer, services.hosts[]
+services  ◄──────── services.dependsOn[] / uses[] / endpoints[].via / backup[].to
+```
+
+Ein Schlüssel `"$schema": "./inventory.schema.json"` ganz oben ist erlaubt und wird ignoriert; er sagt dem Editor, wo das Schema liegt.
+
+#### owners
+
+Wer ein Gerät administriert: entscheidet, wen man anruft und was man ändern darf.
+
+Alle Felder mit Typ, Standardwert und Bedeutung: [Inventar-Schema → owners](#owners-1).
+
+#### uplinks
+
+Ein Internetanschluss. Mehrere Sites können sich einen teilen (selten), eine Site kann mehrere haben (primär und Backup).
+
+Alle Felder mit Typ, Standardwert und Bedeutung: [Inventar-Schema → uplinks](#uplinks-1).
+
+Alle Felder sind optional, damit ein Anschluss schon eingetragen werden kann, bevor die Details bekannt sind.
+
+#### sites
+
+Ein Ort, an dem Geräte stehen.
+
+Alle Felder mit Typ, Standardwert und Bedeutung: [Inventar-Schema → sites](#sites-1).
+
+#### hosts
+
+Jedes Gerät mit einer Adresse, auf die es ankommt: Server, VMs, Router, APs, KVMs, PDUs, Appliances.
+
+Alle Felder mit Typ, Standardwert und Bedeutung: [Inventar-Schema → hosts](#hosts-2).
+
+##### Gerätearten
+
+| Art | Für |
+| --- | --- |
+| `server` | Physische Maschine mit Diensten |
+| `hypervisor` | Physische Maschine, die VMs/Container für andere betreibt |
+| `vm`, `container` | Virtuell; die einzigen Arten, die `runsOn` haben dürfen |
+| `router`, `switch`, `ap` | Netz (`ap` = WLAN-Access-Point) |
+| `pdu`, `ups` | Strom |
+| `kvm` | IP-KVM, extern oder als Karte im Host; die einzige Art, die `manages` haben darf |
+| `nas`, `workstation`, `laptop` | Wie benannt |
+| `phone`, `tablet`, `watch` | Mobilgeräte: iPhone, iPad, Apple Watch; meist mit `availability: intermittent` |
+| `appliance` | Alles andere mit Adresse: Apple TV, Drucker, … |
+
+Ob ein Host virtuell ist, folgt aus `kind` (`vm`, `container`) – nicht aus `runsOn`. Eine gemietete VM ist eine `vm` ohne `runsOn`: Der Hypervisor des Anbieters steht nicht im Inventar.
+
+#### networks
+
+Ein Layer-2-Netz mit seinem IPv4-Präfix: das Heimnetz, ein VLAN im Hackerspace.
+
+Alle Felder mit Typ, Standardwert und Bedeutung: [Inventar-Schema → networks](#networks-1).
+
+Ein Netz ohne Interface ist erlaubt – es kann vor seinen Geräten eingetragen werden.
+
+#### providers
+
+Eine Firma oder ein Verein, von dem das Lab abhängt: Provider, Hoster, ein von außen eingekaufter Dienst, der Hackerspace.
+
+Alle Felder mit Typ, Standardwert und Bedeutung: [Inventar-Schema → providers](#providers-1).
+
+#### contracts
+
+Was an einen Anbieter bezahlt wird. Ein Anbieter kann mehrere haben – zwei VMs und eine Zusatz-IPv4 beim selben Hoster sind drei Verträge. Hosts, Anschlüsse und Dienste nennen ihre Verträge (`contracts: [...]`); was ein Vertrag abdeckt, wird abgeleitet.
+
+Alle Felder mit Typ, Standardwert und Bedeutung: [Inventar-Schema → contracts](#contracts-1). Die Kosten stehen in ganzen Cent pro Monat, pro Jahr – mit dem Monat, in dem abgebucht wird – oder einmalig, in ihrer eigenen Währung; Summen werden je Währung geführt und nie umgerechnet.
+
+Kunden- und Vertragsnummern gehören **nicht** in `inventory.json`: Sie stehen in `inventory.secrets.yaml` (sops, Workstation- und Admin-Schlüssel), mit der Vertrags-ID als Schlüssel. Nichts liest diese Datei automatisch.
+
+```yaml
+realtox-grammi:
+  customer: "…"
+  contract: "…"
+```
+
+#### services
+
+Was die Hosts betreiben und was von außen eingekauft ist. Die Grundausstattung jedes Hosts (sshd, Exporter, vmagent, Vector, CrowdSec, Mesh-Client) ist hier kein Dienst – sie ist überall gleich und steht in den Modulen.
+
+Alle Felder mit Typ, Standardwert und Bedeutung: [Inventar-Schema → services](#services-1).
+
+**Abhängigkeiten.** `dependsOn` und jedes `via` sind die harten: Zusammen müssen sie zyklenfrei sein, und ein Dienst darf nicht hart von einem weniger kritischen abhängen (ein `core`-Dienst von einem `lab`-Dienst) – entweder den anderen hochstufen oder nach `uses` verschieben. `uses` gehört nicht zur Kette: Ist Pocket ID weg, hält NetBird seine Tunnel und lehnt nur neue Logins ab.
+
+**Backups.** Eine Kopie gilt als *außer Haus*, wenn ihr Ziel auf keinem der eigenen Hosts des Dienstes läuft oder ein Dienst von außen ist. Ein `stateful`-Dienst auf Hosts ohne Kopie außer Haus ist kein Fehler, steht aber unter `gaps` – lokale Snapshots auf derselben Platte sind kein Backup.
+
+### Interfaces
+
+`hosts.<id>.interfaces` ordnet Interface-Namen ihre Daten zu. Der Name ist der des Betriebssystems (`eno1`, `wlp2s0f0`, `en0`); bei einer Appliance ein beliebiges Label (`lan`, `wan`). Ein VLAN-Interface auf einem Trunk (`eno1.20`) ist ein eigener Eintrag; seine VLAN-ID kommt aus seinem Netz.
+
+```json
+"interfaces": {
+  "eno1":    { "mac": "52:54:00:12:34:56", "medium": "ethernet", "speed": 10000,
+               "connector": "sfp-plus", "module": { "kind": "mm", "standard": "10gbase-sr" }, "linkLocal": "eui64",
+               "network": "lan", "ipv4": { "mode": "reserved", "address": "192.0.2.10" } },
+  "eno1.20": { "network": "iot", "linkLocal": "fe80::1234", "ipv4": { "mode": "dhcp" } }
+}
+```
+
+Alle Felder mit Typ, Standardwert und Bedeutung: [Inventar-Schema → hosts](#hosts-2).
+
+**Link-Local.** Nur bei EUI-64 folgt die Adresse aus der MAC (`fe80::` + MAC mit umgedrehtem U/L-Bit und `ff:fe` in der Mitte); das abgeleitete `ipv6LinkLocal` wird dann berechnet. Viele Systeme nutzen stattdessen `stable-privacy` (RFC 7217: stabil, aber nicht berechenbar), auch macOS und tvOS leiten sie nicht aus der MAC ab. Ist die Adresse stabil und bekannt, trägt man sie direkt ein (`"fe80::…"`); genau das macht `just inventory-collect`, wenn sie nicht zu EUI-64 passt. `eui64` braucht eine `mac`; mit einer *lokal verwalteten* WLAN-MAC (private WLAN-Adresse) ist es ein Fehler, weil diese MAC – und damit die Adresse – meist zufällig ist. Eine lokal verwaltete Ethernet-MAC ist in Ordnung (QEMUs `52:54:00:…` ist eine).
+
+**Link.** Was ein Interface höchstens kann, nicht was es aushandelt – das kommt aus den Metriken (`node_network_speed_bytes`), siehe [Monitoring → Alerting](#alerting). Ethernet: `speed` in Mbit/s (`1000`, `2500`, `10000` …, nur die üblichen Stufen), `connector` (`rj45`, `sfp`, `sfp-plus`, `sfp28`, `qsfp-plus`, `qsfp28`) und bei einem Käfig `module`: `kind` (`dac`/`aoc` ein fest konfektioniertes Kabel, `sm`/`mm` ein Transceiver für Singlemode-/Multimode-Faser, `copper` ein RJ45-Transceiver) und optional der aufgedruckte `standard` (`10gbase-sr`, `1000base-lx` …). `speed` ist das, was mit dem Gesteckten geht: höchstens, was Anschluss und Standard tragen. Der Standard legt die Art fest (SR/SX/LRM Multimode, LR/ER/BX Singlemode, `-t` Kupfer; 1000BASE-LX beides, über Multimode mit Mode-Conditioning-Kabel); ein DAC/AOC hat keinen. WLAN: `wifiStandard` (`wifi4` … `wifi7`, `wifi6e` eigens). Alles optional – gepflegt für die eigenen Server und Router, nicht für VMs und Appliances.
+
+**IPv4 – `ipv4.mode`:**
+
+| Modus | Bedeutung | Regeln |
+| --- | --- | --- |
+| `reserved` | Feste DHCP-Lease per MAC (Reservierung auf dem `dhcpServer`) | `address` und `mac` Pflicht; das Netz braucht einen `dhcpServer`. MAC noch nicht nachgeschlagen: der Platzhalter `aa:bb:cc:dd:ee:ff` – wird nie weitergegeben (`mac` in der abgeleiteten Sicht null, nicht in `reservations`), steht unter `pending` |
+| `static` | Auf dem Gerät selbst eingetragen | `address` Pflicht; außerhalb des `dhcpPool` |
+| `dhcp` | Dynamisch | keine `address` |
+
+Jede `address` liegt im `ipv4`-Präfix des Netzes, ist weder Netz- noch Broadcast-Adresse (außer bei /31, /32) und kommt je Netz nur einmal vor. Ein Netz ohne `ipv4` kann keine Adressen aufnehmen.
+
+**IPv6** steht hier nur als Link-Local und als festes Präfix je Netz: DHCPv6-Reservierungen hängen an der DUID, nicht an der MAC, und ein Provider-Präfix (SLAAC) wechselt.
+
+### SSH-Host-Keys
+
+`sshHostKeys` enthält die öffentlichen Host-Keys eines Geräts – verwaltet oder nicht – als `"<typ> <base64>"` ohne Kommentar: `ssh-ed25519`, `ecdsa-sha2-nistp256/384/521` oder `ssh-rsa`. Ein ed25519-Key genügt; andere nur, wenn das Gerät kein ed25519 hat (Dropbear, KVMs). Geprüft wird das Format, ob die Key-Daten zum Typ passen (das Base64 beginnt mit dem kodierten Typnamen) und dass kein Key doppelt vorkommt – so fiele eine geklonte VM auf, die ihren Host-Key behalten hat.
+
+Wohin sie gehen:
+
+| Abnehmer | Wie |
+| --- | --- |
+| Jeder NixOS-Host und zorlock | `programs.ssh.knownHosts` aus `lib.inventory.knownHosts` (in `flake.nix` das Modul `inventoryKnownHosts` in jeder Host-Liste). Deploys und ursalias unbeaufsichtigter Push nach cuckoosegg brauchen kein Trust-on-first-use |
+| gusto (Workstation) | `programs.ssh.knownHosts` wie jeder Host – `/etc/ssh/ssh_known_hosts` nach dem nächsten `just mac-switch` |
+| Eine Workstation außerhalb dieses Repos | `just known-hosts` schreibt `~/.ssh/known_hosts.nixlab`; ssh liest sie mit `UserKnownHostsFile ~/.ssh/known_hosts ~/.ssh/known_hosts.nixlab` unter `Host *` in `~/.ssh/config` |
+| `.sops.yaml` | `checks.inventory-sops`: Für jeden verwalteten Host muss `ssh-to-age` seines ed25519-Keys den age-Empfänger `&<host>` in `.sops.yaml` ergeben. Fängt einen Host-Key, der sich ohne `sops updatekeys` geändert hat (Neuinstallation, Rotation), und einen vertippten Key. Hosts ohne Key werden übersprungen |
+
+Namen je Key: die ID des Hosts, bei verwalteten Hosts `<host>.peer.homelab.example` (der Mesh-Name) und jede feste IPv4-Adresse seiner Interfaces (`static`/`reserved`). Ein Eintrag je Key, benannt `<host>` bzw. `<host>-<n>` bei mehreren Keys.
+
+### Von den Geräten einsammeln
+
+`just inventory-collect` holt, was mühsam abzutippen ist:
+
+- **Verwaltete Hosts**, über das Mesh (root, zorlock als `admin`):
+    - Host-Keys per `ssh-keyscan` (nur der ed25519-Key, wenn es einen gibt);
+    - je Interface Name, MAC, `ethernet`/`wifi` und Link-Local – `eui64`, wenn die Adresse zur MAC passt, sonst die Adresse selbst. Unter Linux jedes Interface mit einem Gerät dahinter (Hardware oder virtio; kein `lo`, Mesh, Tunnel, Bridges, veths), unter macOS die Hardware-Ports ohne Thunderbolt;
+    - bei Hardware, die nicht virtuell ist: `vendor`, `model`, `productId`, `serial`. Unter Linux aus `/sys/class/dmi/id` (Lenovo: Modell aus `product_version`, Maschinentyp aus `product_name`; alle anderen: Modell aus `product_name`), unter macOS aus `system_profiler` (Modell als „Mac mini (M4, 16 GB)“, die Modellkennung als `productId`). Platzhalter wie „To be filled by O.E.M.“ fallen weg.
+- **Nicht verwaltete Geräte**: nur Host-Keys, an ihrer ersten festen IPv4-Adresse – `network`/`ipv4` also vorher eintragen.
+
+| Aufruf | Wirkung |
+| --- | --- |
+| `just inventory-collect` | Alle Geräte; **ergänzt** nur, was fehlt, ein abweichender Wert wird ausgegeben und bleibt |
+| `just inventory-collect ursalia beryl` | Nur diese Geräte |
+| `just inventory-collect --force ursalia` | Übernimmt bei Abweichungen den Wert des Geräts und gibt jeden überschriebenen Wert aus |
+
+Ein geänderter Host-Key soll eine Entscheidung sein, daher `--force` – am besten mit dem Host dazu. Auch `--force` rührt nie an, was das Gerät nicht meldet: `network`, `ipv4`, Notizen und Interfaces, die es nicht mehr hat (die von Hand entfernen).
+
+### Beziehungen
+
+| Feld | Bedeutung | Darf zeigen auf | Abgeleitete Gegenrichtung |
+| --- | --- | --- | --- |
+| `runsOn` | Virtualisierung | `vm` → `hypervisor`; `container` → `hypervisor`, `server`, `nas`, `vm` | `guests` |
+| `inside` | Physischer Einbau (PCIe-Karte, Modul) | jeden Host | `contains` |
+| `power` | Stromversorgung | jeden Host | `powers` |
+| `manages` | Out-of-Band-Zugriff (am KVM eingetragen) | jeden Host außer sich selbst | `managedBy` |
+| `unlock.tang` | Tang-Server für NBDE | jeden Host außer sich selbst | `tangClients` |
+| `interfaces.*.network` | Zugehörigkeit zu einem Netz | ein Netz an der Site des Hosts | `networks.<id>.interfaces` |
+| `networks.dhcpServer` | DHCP für ein Netz | einen Host mit Interface darin | – |
+
+`runsOn`, `inside` und `power` bilden zusammen den Abhängigkeitsgraphen: Ohne was kann ein Host nicht arbeiten? Er muss zyklenfrei sein; das abgeleitete `upstream` eines Hosts ist seine transitive Hülle. `runsOn` und `inside` schließen sich aus.
+
+`inside` sagt nichts über Strom: Ob eine PCIe-KVM-Karte vom Slot ihres Hosts lebt (Standby-Strom) oder von PoE/USB, sagt `power`. Eine Karte, die nur aus dem Slot zieht, bekommt `"power"` auf ihren Host. Dann deutet „Host und KVM beide weg“ auf Strom oder Netz, „Host weg, KVM noch da“ aufs OS – und der KVM ist der Weg hinein.
+
+### Entsperren
+
+```json
+"unlock": { "methods": ["tpm", "nbde"], "threshold": 1, "tang": ["nas"], "fallback": "remote-ssh" }
+```
+
+Alle Felder mit Typ, Standardwert und Bedeutung: [Inventar-Schema → hosts](#hosts-2).
+
+| Fall | `unlock` |
+| --- | --- |
+| Unverschlüsselt | weglassen |
+| TPM, Passphrase an der Konsole als Rückfall | `{"methods": ["tpm"], "fallback": "console"}` |
+| Nur ein Mensch, per SSH (z. B. FileVault) | `{"methods": [], "fallback": "remote-ssh"}` |
+| TPM **oder** Tang | `{"methods": ["tpm", "nbde"], "tang": ["a"]}` |
+| TPM **und** Tang (Platte entsperrt nur im eigenen Netz) | `{"methods": ["tpm", "nbde"], "threshold": 2, "tang": ["a"]}` |
+| Nur Tang, zwei Server | `{"methods": ["nbde"], "tang": ["a", "b"], "fallback": "console"}` |
+
+NBDE ist eine eigene Abhängigkeit: Ein Host, der Tang **braucht** (`nbde` ohne `tpm`, oder `threshold` 2), kommt erst wieder hoch, wenn einer seiner Tang-Server selbst ohne Hilfe läuft. Die Validierung verfolgt diese Ketten. Gibt es einen Host, der nie ohne Mensch hochkäme – zwei Hosts, die gegenseitig ihr einziger Tang-Server sind, oder ein Tang-Server, der selbst an der Passphrase-Abfrage wartet –, ist das ein Fehler. Das abgeleitete `unattendedBoot` sagt je Host, ob er nach Reboot oder Stromausfall von allein wiederkommt.
+
+Nicht geprüft: ob ein Tang-Server wirklich Tang betreibt. Das steht in seiner Config, nicht hier.
+
+### Prüfung
+
+`nix flake check` (oder nur der Inventar-Teil: `just inventory-test`) prüft in drei Stufen. Jede Stufe läuft nur, wenn die vorige nichts gefunden hat, damit aus einem Tippfehler keine zwanzig Folgefehler werden. Jeder Fehler nennt den Pfad:
+
+**1. Struktur** – zuerst die oberste Ebene, allein, dann jeder Eintrag:
+
+- oben nur `$schema` und die acht Abschnitte, alle vorhanden
+- gültige IDs und Interface-Namen, keine unbekannten Felder (fängt Tippfehler), Pflichtfelder vorhanden
+- Typen, Enums, Mindest-/Höchstwerte, Formate (MAC, IPv4-Adresse und -Präfix, IPv6-Präfix, ULA-/48, Link-Local, SSH-Key), keine Duplikate in Listen
+- Referenzen zeigen auf einen vorhandenen Eintrag des richtigen Abschnitts
+
+```
+hosts.vps.critcality: unknown field (known: availability, contracts, criticality, inside, interfaces, kind, managed, manages, model, note, owner, power, productId, runsOn, serial, site, sshHostKeys, unlock, vendor)
+hosts.nas.interfaces.eno1.mac: "52-54-00-12-34-56" is not a lower-case MAC address like aa:bb:cc:dd:ee:ff
+hosts.app.runsOn: "pve2" is not in hosts
+uplinks.fiber-home.asn: expected a whole number, got "AS64496"
+```
+
+**2. Regeln zwischen Einträgen:**
+
+- `runsOn` nur für `vm`/`container` und nur auf einer erlaubten Art; nicht zusammen mit `inside`
+- `manages` nur für `kvm`; nichts zeigt auf sich selbst
+- `runsOn`/`inside`/`power` ohne Zyklen
+- `site` vorhanden oder erbbar; ein ausdrückliches `site` passt zum geerbten
+- jede Site hat einen Uplink; kein Uplink, keine Site, kein Owner ohne Verwendung; IPv6-Details eines Uplinks nur mit `ipv6`
+- `unlock`: mindestens eine Methode oder ein Rückfall; `threshold` ≤ Zahl der Methoden; `tang` genau dann, wenn `nbde`
+- `managed` stimmt mit `flake.nix` überein: Jeder Eintrag aus `nixosConfigurations`/`darwinConfigurations` steht hier als managed, und jeder managed-Eintrag hat eine Konfiguration
+- Hardware: `vendor`/`productId`/`serial` nicht bei `vm`/`container`; keine Seriennummer doppelt
+- SSH-Keys: Key-Daten passen zum Typ, kein Key bei zwei Geräten
+- Interfaces: Netz an der Site des Hosts; `ipv4` braucht ein Netz, `address` je nach Modus, im Präfix, nicht Netz-/Broadcast-Adresse, statisch außerhalb des Pools, je Netz eindeutig; `reserved` braucht `mac` und einen `dhcpServer`; MAC eindeutig und kein Multicast; lokal vergebene MAC nur mit `macLocal` (Provider-VM, Gerät mit fester lokaler MAC), `macLocal` nur bei einer solchen, private WLAN-Adressen gehören nicht ins Inventar; `eui64` braucht eine MAC und keine private WLAN-MAC; `speed`/`connector`/`module` nur bei Ethernet, `wifiStandard` nur bei WLAN; `speed` innerhalb von Anschluss und Standard; `module` nur in einem Käfig, `kind` passend zum Standard, kein Standard bei DAC/AOC
+- Netze: Präfix ohne Host-Bits; Pool im Präfix, Start ≤ Ende, nur mit `ipv4` und `dhcpServer`; `dhcpServer` an der Site und mit Interface im Netz; VLAN-ID je Site eindeutig; `ipv6SubnetId` je Site eindeutig und im delegierten Präfix des primären Anschlusses
+- Dienste: genau eins von `hosts`/`provider`; `package` nur auf verwalteten Hosts und nicht zusammen mit `version`; kein `core`/`service`-Dienst auf einem `intermittent`-Host; kein Verweis auf sich selbst, nichts zugleich in `dependsOn` und `uses`, keine harte Abhängigkeit von einem weniger kritischen Dienst; `dependsOn`/`via` zyklenfrei; `via` bei `proxy`, nicht bei `loopback`; jeder `fqdn` nur einmal je Port; `backup` nur bei `stateful`, `to` Pflicht bei `restic`/`arq`, optional bei `ha-backup`, sonst nicht, und auf ein `stateful`-Ziel; `contracts` nur mit `provider`
+- Verträge: `dueMonth` genau bei `year`; `renews` nicht vor `since`; ein Vertrag, den ein Host, Anschluss oder Dienst nennt, ist mit dessen Anbieter geschlossen (bei einem Host: dem Anbieter seiner Site); kein Anbieter, auf den nichts verweist
+
+```
+hosts.app.runsOn: a vm cannot run on nas (kind nas; allowed: hypervisor)
+hosts: runsOn/inside/power form a cycle through pve, ups1
+hosts.laptop.managed: true, but flake.nix has no configuration of that name
+hosts.router.interfaces.lan.ipv4.address: 192.0.2.150 is static but inside the DHCP pool of network lan
+networks.lan.vlan: 20 is also used by networks.iot at site home
+hosts.router.sshHostKeys[0]: same key as hosts.nas.sshHostKeys[0] - a cloned machine that kept its host key?
+services.auth.dependsOn: docs is lab, less critical than this core service - raise it or move it to uses
+services.proxy: a core service cannot run on laptop (availability intermittent) - make it lab or move it
+services: dependsOn/via form a cycle through notes, proxy
+hosts.vps.contracts: isp-fiber is with isp, the site dc with hoster
+contracts.vps-plan.cost.dueMonth: required with period year - the month it is charged in
+```
+
+**3. Entsperr-Ketten** – siehe [Entsperren](#entsperren):
+
+```
+hosts.nas.unlock: never unlocks unattended - none of its Tang servers (vps) comes up without a human
+```
+
+**Getrennt davon**, als eigener Check, weil er `ssh-to-age` braucht: `checks.inventory-sops` (siehe [SSH-Host-Keys](#ssh-host-keys)).
+
+```
+hosts.cuckoosegg: host key gives age1z9rt…, .sops.yaml has age1z8uz… - host key changed without sops updatekeys, or a wrong key in inventory.json
+```
+
+Das Schema in `inventory.schema.json` deckt nur Stufe 1 ab (ohne Referenzen) und ist für den Editor da; maßgeblich ist die Prüfung in `inventory.nix`. Die Fehlermeldungen sind wie der Code englisch.
+
+### Abgeleitete Sicht
+
+`lib.inventory.inventory` (auf der Konsole: `just inventory`) ist das geprüfte Inventar mit allem Abgeleiteten. Jeder Eintrag bekommt seine `id`, dazu:
+
+| Abschnitt | Abgeleitet |
+| --- | --- |
+| `owners.<id>` | `hosts` – die Hosts, die er administriert |
+| `uplinks.<id>` | `sites` – die Sites an diesem Anschluss |
+| `sites.<id>` | `hosts` – alles dort, geerbte Sites eingeschlossen |
+| `hosts.<id>` | `site` (wirksam, geerbt entlang `runsOn`/`inside`), `virtual`, `uplinks` (seiner Site, primärer zuerst), `guests`, `contains`, `powers`, `managedBy`, `tangClients`, `upstream` (transitiv, nächster zuerst), `unattendedBoot`, `services` (die darauf laufen) |
+| `hosts.<id>.interfaces.<name>` | `name`, `vlan` (aus seinem Netz), `ipv6LinkLocal` (bei `eui64` berechnet, bei fester Adresse wie eingetragen, sonst `null`); in einem Netz mit `ipv6SubnetId` an einem Standort mit `ipv6Ula`: `ipv6Assign`, `ipv6Iid`, `ipv6UlaAddress` – die Interface-ID, die der Host in der ULA und im delegierten Präfix gleichermaßen behält: `eui64` (aus der MAC) bei `linkLocal = "eui64"`, `dhcpv6` (`::<letztes IPv4-Oktett>`) bei einer reservierten Lease mit anderem `linkLocal`, sonst `null` (nixlab#221) |
+| `pending` | jede Platzhalter-MAC, die noch ersetzt werden muss, jeder Vertrag ohne `cost`; `just inventory-test` gibt die Liste aus |
+| `gaps` | erlaubt, aber einen Blick wert: `stateful`-Dienste ohne Backup außer Haus, Verträge, auf die nichts verweist; gibt `just inventory-test` aus |
+| `services.<id>` | `external` (hat einen `provider`), `sites` (seiner Hosts), `requires` (`dependsOn` + `via`), `upstream` (transitiv über `requires`, nächster zuerst), `upstreamHosts` (seine Hosts, die seines Upstreams und alles, worauf diese laufen, worin sie stecken, woher sie Strom bekommen – die Grundlage für Alert-Abhängigkeiten), `neededBy`, `usedBy`, `backup[].offsite`, `offsiteBackup` |
+| `providers.<id>` | `services`, `contracts`, `sites`, `uplinks`, `affects` (was mit ihm ausfällt: Dienste auf Hosts an einer Site, die er betreibt, oder hinter Anschlüssen, die alle seine sind, und alles, was hart von diesen oder seinen eigenen Diensten abhängt), `degrades` (Dienste, die sie oder deren Abhängige nur über `uses` nutzen), `monthly` (je Währung) |
+| `contracts.<id>` | `monthly` (Jahresbetrag durch 12, auf den Cent abgerundet; `null` bei `once` oder ohne Kosten), `covers` (`hosts`, `uplinks`, `services`, die ihn nennen) |
+| `costs` | `monthly` – das Lab pro Monat, je Währung; `byMonth` – zwölf Einträge, was in welchem Kalendermonat abgebucht wird (Monatsbeträge jeden Monat, Jahresbeträge in ihrem `dueMonth`). Einmalzahlungen bleiben draußen |
+| `networks.<id>` | `interfaces` – jedes Interface darin (`host`, `interface`, `mac`, `address`, `mode`); `reservations` – was der `dhcpServer` per MAC vergeben muss (`host`, `interface`, `mac`, `address`), nach Adresse sortiert; `ipv6SubnetHex` – `ipv6SubnetId` in Hex (OpenWrt `ip6hint`); `ipv6Ula` – das `/64` des Netzes im `ipv6Ula` der Site |
+
+Neben `inventory`: `lib.inventory.knownHosts` (der Wert für `programs.ssh.knownHosts`) und `lib.inventory.knownHostsFile` (dasselbe als known_hosts-Text).
+
+Optionale Felder sind in der abgeleiteten Sicht immer vorhanden: Standardwerte eingesetzt (`criticality`, `availability`, `unlock.threshold`), sonst `null` bzw. `[]`. Wer sie nutzt, braucht nie ein `or`.
+
+Ist das Inventar ungültig, wirft `inventory` mit **allen** Fehlern auf einmal; `lib.inventory.errors` ist die Liste selbst (leer, wenn gültig).
+
+### Software-Sicht
+
+`lib.software.services` (auf der Konsole: `just services`, alles mit `just services --json`) folgt dem `package`-Pfad jedes Dienstes in die Konfigurationen seiner Hosts und meldet, was dort ist – nichts wird eingetragen, nichts gebaut:
+
+| Feld | Bedeutung |
+| --- | --- |
+| `name`, `version` | Des Pakets (vom ersten Host; `perHost` hat jeden Host) |
+| `license` | SPDX-IDs aus `meta.license` |
+| `language` | Geschätzt aus dem Bauweg: `goModules` → Go, `cargoDeps` → Rust, die Caches der JS-Builder → JavaScript, ein `dist`-Output → Python, ein C-Compiler im stdenv → C/C++ (`languageGuessed` true), sonst `null` (eine statische Seite) |
+| `dependencies` | Direkte Abhängigkeiten, wie das Paket sie angibt (`name`, `version`): Python-Pakete einer Python-Anwendung, Bibliotheken eines C/C++-Programms. Go- und Rust-Module werden in einem Stück geladen und tauchen nicht auf – die SBOM pro Host hat den vollständigen Closure |
+| `perHost` | Dasselbe pro Host, ohne Abhängigkeiten – Hosts auf unterschiedlichen Pins unterscheiden sich hier |
+
+`checks.inventory-packages` schlägt fehl, wenn ein `package`-Pfad auf einem der Hosts des Dienstes zu keinem Paket führt (umbenannte Option, Host hat den Dienst verloren). Anders als die übrigen Inventar-Checks wertet er die Hosts aus und gehört deshalb nicht zu `just inventory-test`.
+
+**SBOM pro Host.** `just sbom [host …]` (ohne Hosts: jeder verwaltete Host) schreibt den vollständigen Laufzeit-Closure dessen, was ein Host betreibt – `/run/current-system` – als CycloneDX (`sbom/<host>.cdx.json`), SPDX und CSV, erzeugt von sbomnix. Es läuft dort, wo das System ist: auf gusto selbst, auf den anderen über das Mesh, gepinnt auf das eigene nixpkgs des Hosts (der erste Lauf holt es dort, etwa 180 MB, bis zur nächsten GC); ein Linux-System lässt sich auf dem Mac nicht lesen. `sbom/` ist von git ignoriert – die Dateien ändern sich mit jedem Upgrade. Nicht enthalten: nixpkgs-Metadaten wie Lizenzen (die hat sbomnix nur bei einem Flake-Verweis, nicht bei einem laufenden System – die Lizenzen der Dienste stehen in der Software-Sicht) und die Go- und Rust-Module innerhalb eines Pakets.
+
+### Beispiele
+
+Die Beispiele sind das Testinventar aus `tests/inventory.nix`, als JSON geschrieben. Es deckt jedes Feld und jede Beziehung ab.
+
+**Gemietete VM** – virtuell, der Hypervisor des Anbieters steht nicht im Inventar:
+
+```json
+"vps": { "kind": "vm", "site": "dc", "owner": "lab", "managed": true, "criticality": "core" }
+```
+
+**VM auf dem Hypervisor anderer, der an einer USV hängt** – `site` wird von `pve` geerbt:
+
+```json
+"pve":  { "kind": "hypervisor", "site": "home", "owner": "club", "managed": false, "power": "ups1" },
+"ups1": { "kind": "ups", "site": "home", "owner": "lab", "managed": false },
+"app":  { "kind": "vm", "runsOn": "pve", "owner": "lab", "managed": true,
+          "unlock": { "methods": ["nbde"], "tang": ["nas"] } }
+```
+
+Abgeleitet für `app`: `site` = `home`, `upstream` = `["pve", "ups1"]`, `unattendedBoot` = `true` (über die Kette app → nas → vps).
+
+**NAS mit TPM und Tang gemeinsam, darin eine PCIe-KVM-Karte:**
+
+```json
+"nas": { "kind": "nas", "vendor": "Example Corp", "model": "Example NAS", "productId": "EX-1000",
+         "serial": "NAS0001", "site": "home", "owner": "lab", "managed": true,
+         "unlock": { "methods": ["tpm", "nbde"], "threshold": 2, "tang": ["vps"] } },
+"kvmcard": { "kind": "kvm", "inside": "nas", "power": "nas", "manages": ["nas"],
+             "owner": "lab", "managed": false }
+```
+
+Abgeleitet für `nas`: `contains`, `powers` und `managedBy` = `["kvmcard"]`, `tangClients` = `["app"]`.
+
+**Laptop** – offline ist normal, nur ein Mensch entsperrt:
+
+```json
+"laptop": { "kind": "laptop", "site": "home", "owner": "lab", "managed": true,
+            "availability": "intermittent", "unlock": { "methods": [], "fallback": "console" } }
+```
+
+**Netze, eine Reservierung und ein Router** – der Router vergibt die Adresse von `nas` per MAC; seine eigene ist statisch, außerhalb des Pools:
+
+```json
+"networks": {
+  "lan": { "name": "Home LAN", "site": "home", "ipv4": "192.0.2.0/24", "ipv6": "2001:db8:1::/64",
+           "dhcpServer": "router", "dhcpPool": { "start": "192.0.2.100", "end": "192.0.2.199" } },
+  "iot": { "name": "IoT", "site": "home", "vlan": 20, "ipv4": "198.51.100.0/24" }
+},
+"router": { "kind": "router", "site": "home", "owner": "lab", "managed": false,
+            "sshHostKeys": ["ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI…"],
+            "interfaces": { "lan": { "network": "lan", "ipv4": { "mode": "static", "address": "192.0.2.1" } } } }
+```
+
+Abgeleitet: `networks.lan.reservations` = `nas/eno1` (192.0.2.10) und `app/ens18` (192.0.2.11); `nas.interfaces.eno1.ipv6LinkLocal` = `fe80::5054:ff:fe12:3456`, sein `ipv6Iid` = `5054:ff:fe12:3456`; known_hosts-Namen für `nas` = `nas`, `nas.peer.example`, `192.0.2.10`.
+
+**Site mit Hauptanschluss und LTE-Backup:**
+
+```json
+"uplinks": {
+  "fiber-home": { "provider": "isp", "contracts": ["isp-fiber"], "asn": 64496, "medium": "fiber",
+                  "bandwidth": { "down": 1000, "up": 500 }, "ipv4": "cgnat", "ipv6": true },
+  "lte-backup": { "medium": "lte" }
+},
+"sites": {
+  "home": { "city": "Exampletown", "kind": "residential", "uplinks": ["fiber-home", "lte-backup"] }
+}
+```
+
+**Ein Anbieter mit zwei Verträgen an einer VM, der jährliche im März fällig:**
+
+```json
+"providers": { "hoster": { "name": "Example Hosting", "url": "https://hosting.example" } },
+"contracts": {
+  "vps-plan": { "provider": "hoster", "product": "VPS M", "since": "2025-03-01", "renews": "2027-03-01",
+                "cost": { "amount": 12000, "currency": "EUR", "period": "year", "dueMonth": 3 } },
+  "vps-ipv4": { "provider": "hoster", "cost": { "amount": 150, "currency": "EUR", "period": "month" } }
+},
+"vps": { "kind": "vm", "site": "dc", "contracts": ["vps-plan", "vps-ipv4"], … }
+```
+
+Abgeleitet: `contracts.vps-plan.monthly` = `1000`, `providers.hoster.monthly` = `{"EUR": 1150}`; in `costs.byMonth` trägt der März die 120,00.
+
+**Dienste: ein Login, ein Reverse-Proxy, etwas dahinter, ein Backup-Ziel und Mail von außen:**
+
+```json
+"auth":    { "name": "Login", "hosts": ["vps"], "criticality": "core", "package": "services.auth.package",
+             "endpoints": [{ "fqdn": "auth.example.org", "exposure": "public" }], "uses": ["mail"],
+             "data": "stateful", "backup": [{ "method": "restic", "to": "storage" }] },
+"proxy":   { "name": "Reverse proxy", "hosts": ["vps"], "criticality": "core", "data": "stateless", … },
+"docs":    { "name": "Docs", "hosts": ["app", "nas"], "criticality": "lab", "uses": ["auth"], "data": "stateless",
+             "endpoints": [{ "fqdn": "docs.example.org", "exposure": "proxy", "via": "proxy" }] },
+"notes":   { "name": "Notes", "hosts": ["app"], "dependsOn": ["auth"], "data": "stateful",
+             "backup": [{ "method": "pgdump" }, { "method": "restic", "to": "storage" }] },
+"storage": { "name": "S3", "hosts": ["nas"], "version": "2.1", "data": "stateful", "backup": [{ "method": "btrbk" }] },
+"mail":    { "name": "Mail", "provider": "mail", "contracts": ["mail-plan"], "data": "stateful" }
+```
+
+Abgeleitet: `docs.upstreamHosts` = `app, nas, pve, ups1, vps`; `auth.neededBy` = `notes`, `auth.usedBy` = `docs`; `providers.mail.degrades` = `auth`; `gaps` nennt `storage` (nur btrbk auf der eigenen Platte).
+
+**Woanders lesen.** In Nix (eine weitere Flake-Ausgabe, ein Modul über `specialArgs`):
+
+```nix
+self.lib.inventory.inventory.hosts.app.upstream   # [ "pve" "ups1" ]
+```
+
+In OpenTofu – die Rohdaten, ohne abgeleitete Werte und ohne Prüfung (die bleibt bei `nix flake check`):
+
+```hcl
+locals {
+  inventory = jsondecode(file("${path.module}/../../inventory.json"))
+  servers   = [for id, h in local.inventory.hosts : id if h.managed]
+}
+```
+
+### Tests
+
+`tests/inventory.nix` enthält ein vollständiges, erfundenes Inventar (die Beispiele oben) und 98 Fälle. Jeder Fall ändert genau eine Sache und nennt die erwarteten Fehler – exakter Wortlaut und Reihenfolge – oder, bei gültigen Varianten, Werte der abgeleiteten Sicht. Ein Fall schlägt auch fehl, wenn ein kaputtes Inventar `.inventory` nicht werfen lässt.
+
+| Gruppe | Deckt ab |
+| --- | --- |
+| gültig | Basisinventar mit allen abgeleiteten Werten; Container auf einer VM; Tang-Schleife durch `threshold` 1 aufgelöst; Flake-Abgleich abgeschaltet |
+| Uplinks | IPv6-Präfixlänge außerhalb des Bereichs, IPv6-Details ohne IPv6 |
+| Struktur | Unbekannter/fehlender Top-Level-Schlüssel, Tippfehler im Feldnamen, Enum, Pflichtfeld, Typ, Mindestwert, Referenz ins Leere und in den falschen Abschnitt, ungültige ID, Duplikate |
+| Regeln | `runsOn` auf Nicht-Virtuellem und auf falscher Art, `runsOn` + `inside`, `manages` außerhalb eines KVM und auf sich selbst, Selbstbezug, Zyklus, fehlende/nicht erbbare/widersprüchliche `site`, Site ohne Uplink, unbenutzte Einträge, Inventar ≠ Flake |
+| Entsperren | Kein Weg zum Entsperren, `threshold` zu hoch oder ohne Methoden, `nbde` ohne `tang` und umgekehrt, eigener Tang-Server, Tang-Schleife, Tang-Server, der auf einen Menschen wartet |
+| Hardware | `vendor`/`serial` bei einer VM, `model` bei einer VM erlaubt, Seriennummer doppelt; abgeleitete Hardware-Felder und Standardwerte |
+| SSH-Keys | Falsches Format, mit Kommentar, Key-Daten eines anderen Typs, derselbe Key bei zwei Hosts; abgeleitete known_hosts-Einträge und -Datei |
+| Interfaces | MAC-Format, Interface-Name, Link-Local-Wert, MAC doppelt, Multicast-MAC, `eui64` aus privater WLAN-MAC und ohne MAC, Netz an anderer Site, `ipv4` ohne Netz, Adresse je Modus, reserviert ohne MAC oder DHCP-Server, Adresse außerhalb/Broadcast/im Pool/ohne Präfix/doppelt; abgeleitetes Link-Local (EUI-64 einer QEMU-MAC, fest, zufällig) und VLAN |
+| Netze | Präfix-Format, VLAN-Bereich und Duplikat je Site (dieselbe ID an anderer Site erlaubt), Host-Bits, Pool außerhalb/rückwärts/ohne Server, DHCP-Server ohne Interface oder an anderer Site, Subnetz-ID außerhalb des delegierten Präfixes und doppelt je Site, ULA-Format; abgeleitete Reservierungen, Subnetz-Hex und ULA-`/64` |
+| Dienste | Weder/beides von `hosts` und `provider`, leere `hosts`, `package` mit `version`/ohne Hosts/auf nicht verwaltetem Host, kritischer Dienst auf einem zeitweise erreichbaren Host (ein `lab`-Dienst erlaubt), Selbstverweise, `uses` doppelt zu `dependsOn`, schwächere harte Abhängigkeit, Zyklen über `dependsOn` und `via`, Endpoint-Regeln und doppelte Namen, Domain-Format, alle Backup-Regeln; abgeleitete Abhängigkeiten, Upstream-Hosts, Backups außer Haus, `gaps` |
+| Anbieter, Verträge | Vertrag mit falschem Anbieter an Host, Anschluss und Dienst, an einem Anschluss ohne Anbieter, an einem Dienst auf Hosts; `dueMonth`, `renews` vor `since`, Betrag nicht in ganzen Cent, Datumsformat; ungenutzter und unbekannter Anbieter; abgeleitete Summen je Währung und Monat, `pending` bei fehlenden Kosten |
+
+```
+just inventory-test
+```
+
+baut `checks.<system>.inventory` (die echte Datei ist gültig), `inventory-tests` (alle Fälle bestehen), `inventory-schema` (Schema aktuell), `inventory-diagram` (das [Schema-Diagramm](#alle-felder-auf-einen-blick) aktuell) und `inventory-sops` (Host-Keys ↔ `.sops.yaml`). Bei einem Fehler listet die Meldung jeden fehlgeschlagenen Fall mit „want“ und „got“.
+
+**Eine neue Regel** bekommt im selben Commit einen Fall: in `base` mit `set`/`del` genau eine Sache ändern, die exakte Meldung eintragen. **Geänderter Wortlaut** einer Meldung lässt die Tests fehlschlagen – Fall und diese Seite zusammen anpassen.
+
+### Abläufe
+
+| Was | Schritte |
+| --- | --- |
+| Neuer Host / neues Gerät | Eintrag in `inventory.json` (bei einem Flake-Host `"managed": true` – sonst schlägt `nix flake check` ohnehin fehl), `just inventory-collect`, `network`/`ipv4` von Hand, `just inventory-test` |
+| Host-Key geändert (Neuinstallation) | `just inventory-collect --force <host>`, `.sops.yaml` + `sops updatekeys` (siehe [Schlüssel rotieren](#schlüssel-rotieren)), deployen, `just known-hosts` |
+| Neue DHCP-Reservierung | Interface mit `mac`, `network`, `ipv4.mode: reserved` + `address`; die Liste für den Router: `networks.<id>.reservations` in `just inventory` |
+| Details eines Anschlusses nachtragen | Felder in `uplinks.<id>`, sonst nichts zu tun |
+| Neuer Dienst | Eintrag in `services` mit `hosts` (und `package` auf verwaltetem Host) oder `provider`, `endpoints`, `dependsOn`/`uses`, `data`, `backup`; `just inventory-test` – ein fehlendes Backup außer Haus erscheint unter „worth a look“ |
+| Neuer Vertrag | Eintrag in `contracts`, die ID in `contracts` des Hosts, Anschlusses oder Dienstes, den er bezahlt; Kunden-/Vertragsnummer in `inventory.secrets.yaml` (`sops inventory.secrets.yaml`) |
+| Neues Feld oder neue Geräteart | `spec` in `inventory.nix`, dann `just inventory-schema` und `just inventory-diagram`, ein Testfall in `tests/inventory.nix`, diese Seite (de/en); `docs/inventory-example.json`, wenn das Beispiel der [Schema-Seite](#inventar-schema) es zeigen soll |
+| Ansehen | `just inventory` |
+
+## Inventar-Schema
+
+`inventory.json` folgt einem festen Format: acht Abschnitte, jeder ein Objekt aus Einträgen mit ID als Schlüssel, jedes Feld mit einem Typ, manche davon Verweise in einen anderen Abschnitt. Diese Seite ist die vollständige Referenz dieses Formats – jedes Feld mit Typ, ob es Pflicht ist, seinem Standardwert und seiner Bedeutung, ein Beispiel pro Abschnitt und ein ganzes Beispiel-Inventar. *Wozu* das Inventar da ist, wie es geprüft wird und was daraus abgeleitet wird, steht unter [Inventar](#inventar).
+
+Das Format ist an genau einer Stelle definiert, in `spec` in `inventory.nix`. Alles auf dieser Seite, was ein Feld beschreibt, wird daraus erzeugt und kann deshalb nicht von dem abweichen, was die Prüfung tatsächlich prüft:
+
+| Erzeugt | Aus | Aktuell gehalten durch |
+| --- | --- | --- |
+| `inventory.schema.json` – JSON Schema für den Editor | `spec` | `just inventory-schema`, `checks.inventory-schema` |
+| Die Feldtabellen unten | `inventory.schema.json` | den Doku-Build (`docs/gen-reference.py`) |
+| Das Diagramm aller Felder | `spec` | `just inventory-diagram`, `checks.inventory-diagram` |
+| Die Beispiele unten | `docs/inventory-example.json` | den Doku-Build; ein Test (`tests/inventory.nix`) hält die Datei gültig |
+
+Die Feldbeschreibungen in den Tabellen sind englisch – sie stehen so im Schema und erscheinen genauso als Hover-Hilfe im Editor.
+
+### Überblick
+
+Die Pfeile zeigen von dem Feld, das den Verweis enthält, auf den Abschnitt, den es nennt. Verweise eines Abschnitts auf sich selbst stehen in seinem Kasten (↺). Jeder Kasten führt zu seinem Abschnitt weiter unten.
+
+<figure class="nx-diagram">
+<svg viewBox="0 0 680 416" role="img" aria-label="Die acht Abschnitte von inventory.json und die Felder, die von einem auf einen anderen verweisen" xmlns="http://www.w3.org/2000/svg">
+<style>.nx-t{font-family:'DejaVu Sans',sans-serif;font-size:14px;font-weight:bold;fill:#2c2c2a}.nx-s{font-family:'DejaVu Sans',sans-serif;font-size:11px;fill:#5f5e5a}.nx-line{fill:none;stroke:#888780;stroke-width:1.4}.nx-gray rect{fill:#f1efe8;stroke:#888780}.nx-gray .nx-t{fill:#2c2c2a}.nx-gray .nx-s{fill:#5f5e5a}.nx-purple rect{fill:#eeedfe;stroke:#534ab7}.nx-purple .nx-t{fill:#26215c}.nx-purple .nx-s{fill:#534ab7}.nx-coral rect{fill:#faece7;stroke:#993c1d}.nx-coral .nx-t{fill:#4a1b0c}.nx-coral .nx-s{fill:#993c1d}</style>
+<path class="nx-line" d="M260 48 H180"/><path class="nx-line" d="M186 44 L180 48 L186 52"/>
+<text class="nx-s" x="220" y="42" text-anchor="middle">owner</text>
+<path class="nx-line" d="M500 40 H420"/><path class="nx-line" d="M426 36 L420 40 L426 44"/>
+<text class="nx-s" x="460" y="34" text-anchor="middle">hosts[]</text>
+<path class="nx-line" d="M420 66 H450 V198 H500"/><path class="nx-line" d="M494 194 L500 198 L494 202"/>
+<text class="nx-s" x="456" y="130" text-anchor="start">contracts[]</text>
+<path class="nx-line" d="M340 76 V170"/><path class="nx-line" d="M336 164 L340 170 L344 164"/>
+<text class="nx-s" x="346" y="128" text-anchor="start">site</text>
+<path class="nx-line" d="M290 76 V130 H120 V170"/><path class="nx-line" d="M116 164 L120 170 L124 164"/>
+<text class="nx-s" x="205" y="147" text-anchor="middle">interfaces.*.network</text>
+<path class="nx-line" d="M80 170 V110 H275 V76"/><path class="nx-line" d="M271 82 L275 76 L279 82"/>
+<text class="nx-s" x="178" y="104" text-anchor="middle">dhcpServer</text>
+<path class="nx-line" d="M180 198 H260"/><path class="nx-line" d="M254 194 L260 198 L254 202"/>
+<text class="nx-s" x="220" y="192" text-anchor="middle">site</text>
+<path class="nx-line" d="M300 226 V270 H100 V320"/><path class="nx-line" d="M96 314 L100 320 L104 314"/>
+<text class="nx-s" x="200" y="264" text-anchor="middle">uplinks[]</text>
+<path class="nx-line" d="M340 226 V320"/><path class="nx-line" d="M336 314 L340 320 L344 314"/>
+<text class="nx-s" x="346" y="290" text-anchor="start">provider</text>
+<path class="nx-line" d="M180 348 H260"/><path class="nx-line" d="M254 344 L260 348 L254 352"/>
+<text class="nx-s" x="220" y="342" text-anchor="middle">provider</text>
+<path class="nx-line" d="M580 226 V348 H420"/><path class="nx-line" d="M426 344 L420 348 L426 352"/>
+<text class="nx-s" x="574" y="290" text-anchor="end">provider</text>
+<path class="nx-line" d="M560 76 V170"/><path class="nx-line" d="M556 164 L560 170 L564 164"/>
+<text class="nx-s" x="566" y="128" text-anchor="start">contracts[]</text>
+<path class="nx-line" d="M660 48 H670 V364 H420"/><path class="nx-line" d="M426 360 L420 364 L426 368"/>
+<text class="nx-s" x="540" y="380" text-anchor="middle">provider</text>
+<path class="nx-line" d="M100 376 V400 H610 V226"/><path class="nx-line" d="M606 232 L610 226 L614 232"/>
+<text class="nx-s" x="360" y="395" text-anchor="middle">contracts[]</text>
+<a data-target="owners" tabindex="0" role="link" class="nx-gray"><rect x="20" y="20" width="160" height="56" rx="8" stroke-width="1"/><text class="nx-t" x="100" y="44" text-anchor="middle">owners</text><text class="nx-s" x="100" y="62" text-anchor="middle">wer administriert</text></a>
+<a data-target="hosts" tabindex="0" role="link" class="nx-gray"><rect x="260" y="20" width="160" height="56" rx="8" stroke-width="1"/><text class="nx-t" x="340" y="44" text-anchor="middle">hosts</text><text class="nx-s" x="340" y="62" text-anchor="middle">↺ runsOn, power …</text></a>
+<a data-target="services" tabindex="0" role="link" class="nx-purple"><rect x="500" y="20" width="160" height="56" rx="8" stroke-width="1"/><text class="nx-t" x="580" y="44" text-anchor="middle">services</text><text class="nx-s" x="580" y="62" text-anchor="middle">↺ dependsOn, uses …</text></a>
+<a data-target="networks" tabindex="0" role="link" class="nx-gray"><rect x="20" y="170" width="160" height="56" rx="8" stroke-width="1"/><text class="nx-t" x="100" y="194" text-anchor="middle">networks</text><text class="nx-s" x="100" y="212" text-anchor="middle">Layer 2 + Präfix</text></a>
+<a data-target="sites" tabindex="0" role="link" class="nx-gray"><rect x="260" y="170" width="160" height="56" rx="8" stroke-width="1"/><text class="nx-t" x="340" y="194" text-anchor="middle">sites</text><text class="nx-s" x="340" y="212" text-anchor="middle">wo etwas steht</text></a>
+<a data-target="contracts" tabindex="0" role="link" class="nx-coral"><rect x="500" y="170" width="160" height="56" rx="8" stroke-width="1"/><text class="nx-t" x="580" y="194" text-anchor="middle">contracts</text><text class="nx-s" x="580" y="212" text-anchor="middle">was bezahlt wird</text></a>
+<a data-target="uplinks" tabindex="0" role="link" class="nx-gray"><rect x="20" y="320" width="160" height="56" rx="8" stroke-width="1"/><text class="nx-t" x="100" y="344" text-anchor="middle">uplinks</text><text class="nx-s" x="100" y="362" text-anchor="middle">Internetanschlüsse</text></a>
+<a data-target="providers" tabindex="0" role="link" class="nx-coral"><rect x="260" y="320" width="160" height="56" rx="8" stroke-width="1"/><text class="nx-t" x="340" y="344" text-anchor="middle">providers</text><text class="nx-s" x="340" y="362" text-anchor="middle">Firmen, Vereine</text></a>
+</svg>
+</figure>
+
+### Alle Felder auf einen Blick
+
+Jeder Abschnitt mit allen Feldern – **fett** sind Pflichtfelder, verschachtelte Objekte ausgeschrieben (`unlock.methods`, `endpoints[].fqdn`, `interfaces.<name>.mac`), und jedes Verweisfeld hat seinen Pfeil (Verweise innerhalb eines Abschnitts nur in der Typspalte: `→ hosts`).
+
+<figure class="nx-diagram nx-diagram-wide">
+<svg
+ viewBox="0.00 0.00 1389.00 1135.96" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<g id="graph0" class="graph" transform="scale(1 1) rotate(0) translate(4 1131.96)">
+<title>inventory</title>
+<g id="node1" class="node">
+<title>contracts</title>
+<polygon fill="#f1efe8" stroke="none" points="1243.75,-725.21 1110.75,-725.21 1110.75,-492.71 1243.75,-492.71 1243.75,-725.21"/>
+<polygon fill="#f1efe8" stroke="none" points="1110.75,-492.71 1110.75,-725.21 1243.75,-725.21 1243.75,-492.71 1110.75,-492.71"/>
+<g id="a_node1_0"><a data-target="contracts" tabindex="0" role="link"><title>contracts</title>
+<polygon fill="#d3d1c7" stroke="none" points="1110.75,-705.96 1110.75,-725.21 1243.75,-725.21 1243.75,-705.96 1110.75,-705.96"/>
+<polygon fill="none" stroke="#b4b2a9" points="1110.75,-705.96 1110.75,-725.21 1243.75,-725.21 1243.75,-705.96 1110.75,-705.96"/>
+<text text-anchor="start" x="1155.88" y="-712.71" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">contracts</text>
+</a>
+</g>
+<g id="a_node1_1"><a data-target="contracts-cost" tabindex="0" role="link"><title>contracts.cost</title>
+<polygon fill="none" stroke="#b4b2a9" points="1110.75,-686.71 1110.75,-705.96 1183.25,-705.96 1183.25,-686.71 1110.75,-686.71"/>
+<text text-anchor="start" x="1114.75" y="-692.46" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">cost</text>
+</a>
+</g>
+<g id="a_node1_2"><a data-target="contracts-cost" tabindex="0" role="link"><title>contracts.cost</title>
+<polygon fill="none" stroke="#b4b2a9" points="1183.25,-686.71 1183.25,-705.96 1243.75,-705.96 1243.75,-686.71 1183.25,-686.71"/>
+<text text-anchor="start" x="1187.25" y="-692.46" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">object</text>
+</a>
+</g>
+<g id="a_node1_3"><a data-target="contracts-cost-amount" tabindex="0" role="link"><title>contracts.cost.amount</title>
+<polygon fill="none" stroke="#b4b2a9" points="1110.75,-667.46 1110.75,-686.71 1183.25,-686.71 1183.25,-667.46 1110.75,-667.46"/>
+<text text-anchor="start" x="1114.75" y="-674.21" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">cost.amount</text>
+</a>
+</g>
+<g id="a_node1_4"><a data-target="contracts-cost-amount" tabindex="0" role="link"><title>contracts.cost.amount</title>
+<polygon fill="none" stroke="#b4b2a9" points="1183.25,-667.46 1183.25,-686.71 1243.75,-686.71 1243.75,-667.46 1183.25,-667.46"/>
+<text text-anchor="start" x="1187.25" y="-673.21" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">integer</text>
+</a>
+</g>
+<g id="a_node1_5"><a data-target="contracts-cost-currency" tabindex="0" role="link"><title>contracts.cost.currency</title>
+<polygon fill="none" stroke="#b4b2a9" points="1110.75,-648.21 1110.75,-667.46 1183.25,-667.46 1183.25,-648.21 1110.75,-648.21"/>
+<text text-anchor="start" x="1114.75" y="-654.96" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">cost.currency</text>
+</a>
+</g>
+<g id="a_node1_6"><a data-target="contracts-cost-currency" tabindex="0" role="link"><title>contracts.cost.currency</title>
+<polygon fill="none" stroke="#b4b2a9" points="1183.25,-648.21 1183.25,-667.46 1243.75,-667.46 1243.75,-648.21 1183.25,-648.21"/>
+<text text-anchor="start" x="1187.25" y="-653.96" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">enum</text>
+</a>
+</g>
+<g id="a_node1_7"><a data-target="contracts-cost-duemonth" tabindex="0" role="link"><title>contracts.cost.dueMonth</title>
+<polygon fill="none" stroke="#b4b2a9" points="1110.75,-628.96 1110.75,-648.21 1183.25,-648.21 1183.25,-628.96 1110.75,-628.96"/>
+<text text-anchor="start" x="1114.75" y="-634.71" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">cost.dueMonth</text>
+</a>
+</g>
+<g id="a_node1_8"><a data-target="contracts-cost-duemonth" tabindex="0" role="link"><title>contracts.cost.dueMonth</title>
+<polygon fill="none" stroke="#b4b2a9" points="1183.25,-628.96 1183.25,-648.21 1243.75,-648.21 1243.75,-628.96 1183.25,-628.96"/>
+<text text-anchor="start" x="1187.25" y="-634.71" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">integer</text>
+</a>
+</g>
+<g id="a_node1_9"><a data-target="contracts-cost-period" tabindex="0" role="link"><title>contracts.cost.period</title>
+<polygon fill="none" stroke="#b4b2a9" points="1110.75,-609.71 1110.75,-628.96 1183.25,-628.96 1183.25,-609.71 1110.75,-609.71"/>
+<text text-anchor="start" x="1114.75" y="-616.46" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">cost.period</text>
+</a>
+</g>
+<g id="a_node1_10"><a data-target="contracts-cost-period" tabindex="0" role="link"><title>contracts.cost.period</title>
+<polygon fill="none" stroke="#b4b2a9" points="1183.25,-609.71 1183.25,-628.96 1243.75,-628.96 1243.75,-609.71 1183.25,-609.71"/>
+<text text-anchor="start" x="1187.25" y="-615.46" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">enum</text>
+</a>
+</g>
+<g id="a_node1_11"><a data-target="contracts-note" tabindex="0" role="link"><title>contracts.note</title>
+<polygon fill="none" stroke="#b4b2a9" points="1110.75,-590.46 1110.75,-609.71 1183.25,-609.71 1183.25,-590.46 1110.75,-590.46"/>
+<text text-anchor="start" x="1114.75" y="-596.21" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">note</text>
+</a>
+</g>
+<g id="a_node1_12"><a data-target="contracts-note" tabindex="0" role="link"><title>contracts.note</title>
+<polygon fill="none" stroke="#b4b2a9" points="1183.25,-590.46 1183.25,-609.71 1243.75,-609.71 1243.75,-590.46 1183.25,-590.46"/>
+<text text-anchor="start" x="1187.25" y="-596.21" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
+</a>
+</g>
+<g id="a_node1_13"><a data-target="contracts-notice" tabindex="0" role="link"><title>contracts.notice</title>
+<polygon fill="none" stroke="#b4b2a9" points="1110.75,-571.21 1110.75,-590.46 1183.25,-590.46 1183.25,-571.21 1110.75,-571.21"/>
+<text text-anchor="start" x="1114.75" y="-576.96" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">notice</text>
+</a>
+</g>
+<g id="a_node1_14"><a data-target="contracts-notice" tabindex="0" role="link"><title>contracts.notice</title>
+<polygon fill="none" stroke="#b4b2a9" points="1183.25,-571.21 1183.25,-590.46 1243.75,-590.46 1243.75,-571.21 1183.25,-571.21"/>
+<text text-anchor="start" x="1187.25" y="-576.96" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
+</a>
+</g>
+<g id="a_node1_15"><a data-target="contracts-product" tabindex="0" role="link"><title>contracts.product</title>
+<polygon fill="none" stroke="#b4b2a9" points="1110.75,-551.96 1110.75,-571.21 1183.25,-571.21 1183.25,-551.96 1110.75,-551.96"/>
+<text text-anchor="start" x="1114.75" y="-557.71" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">product</text>
+</a>
+</g>
+<g id="a_node1_16"><a data-target="contracts-product" tabindex="0" role="link"><title>contracts.product</title>
+<polygon fill="none" stroke="#b4b2a9" points="1183.25,-551.96 1183.25,-571.21 1243.75,-571.21 1243.75,-551.96 1183.25,-551.96"/>
+<text text-anchor="start" x="1187.25" y="-557.71" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
+</a>
+</g>
+<g id="a_node1_17"><a data-target="contracts-provider" tabindex="0" role="link"><title>contracts.provider</title>
+<polygon fill="none" stroke="#b4b2a9" points="1110.75,-531.21 1110.75,-551.96 1183.25,-551.96 1183.25,-531.21 1110.75,-531.21"/>
+<text text-anchor="start" x="1114.75" y="-538.71" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">provider</text>
+</a>
+</g>
+<g id="a_node1_18"><a data-target="contracts-provider" tabindex="0" role="link"><title>contracts.provider</title>
+<polygon fill="none" stroke="#b4b2a9" points="1183.25,-531.21 1183.25,-551.96 1243.75,-551.96 1243.75,-531.21 1183.25,-531.21"/>
+<text text-anchor="start" x="1187.25" y="-538.46" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">→ providers</text>
+</a>
+</g>
+<g id="a_node1_19"><a data-target="contracts-renews" tabindex="0" role="link"><title>contracts.renews</title>
+<polygon fill="none" stroke="#b4b2a9" points="1110.75,-511.96 1110.75,-531.21 1183.25,-531.21 1183.25,-511.96 1110.75,-511.96"/>
+<text text-anchor="start" x="1114.75" y="-517.71" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">renews</text>
+</a>
+</g>
+<g id="a_node1_20"><a data-target="contracts-renews" tabindex="0" role="link"><title>contracts.renews</title>
+<polygon fill="none" stroke="#b4b2a9" points="1183.25,-511.96 1183.25,-531.21 1243.75,-531.21 1243.75,-511.96 1183.25,-511.96"/>
+<text text-anchor="start" x="1187.25" y="-517.71" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
+</a>
+</g>
+<g id="a_node1_21"><a data-target="contracts-since" tabindex="0" role="link"><title>contracts.since</title>
+<polygon fill="none" stroke="#b4b2a9" points="1110.75,-492.71 1110.75,-511.96 1183.25,-511.96 1183.25,-492.71 1110.75,-492.71"/>
+<text text-anchor="start" x="1114.75" y="-498.46" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">since</text>
+</a>
+</g>
+<g id="a_node1_22"><a data-target="contracts-since" tabindex="0" role="link"><title>contracts.since</title>
+<polygon fill="none" stroke="#b4b2a9" points="1183.25,-492.71 1183.25,-511.96 1243.75,-511.96 1243.75,-492.71 1183.25,-492.71"/>
+<text text-anchor="start" x="1187.25" y="-498.46" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
+</a>
+</g>
+</g>
+<g id="node5" class="node">
+<title>providers</title>
+<polygon fill="#f1efe8" stroke="none" points="1381,-309.09 1308.75,-309.09 1308.75,-212.84 1381,-212.84 1381,-309.09"/>
+<polygon fill="#f1efe8" stroke="none" points="1308.75,-212.84 1308.75,-309.09 1381,-309.09 1381,-212.84 1308.75,-212.84"/>
+<g id="a_node5_23"><a data-target="providers" tabindex="0" role="link"><title>providers</title>
+<polygon fill="#d3d1c7" stroke="none" points="1308.75,-289.84 1308.75,-309.09 1381,-309.09 1381,-289.84 1308.75,-289.84"/>
+<polygon fill="none" stroke="#b4b2a9" points="1308.75,-289.84 1308.75,-309.09 1381,-309.09 1381,-289.84 1308.75,-289.84"/>
+<text text-anchor="start" x="1322.75" y="-296.59" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">providers</text>
+</a>
+</g>
+<g id="a_node5_24"><a data-target="providers-contact" tabindex="0" role="link"><title>providers.contact</title>
+<polygon fill="none" stroke="#b4b2a9" points="1308.75,-270.59 1308.75,-289.84 1349,-289.84 1349,-270.59 1308.75,-270.59"/>
+<text text-anchor="start" x="1312.75" y="-276.34" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">contact</text>
+</a>
+</g>
+<g id="a_node5_25"><a data-target="providers-contact" tabindex="0" role="link"><title>providers.contact</title>
+<polygon fill="none" stroke="#b4b2a9" points="1349,-270.59 1349,-289.84 1381,-289.84 1381,-270.59 1349,-270.59"/>
+<text text-anchor="start" x="1353" y="-276.34" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
+</a>
+</g>
+<g id="a_node5_26"><a data-target="providers-name" tabindex="0" role="link"><title>providers.name</title>
+<polygon fill="none" stroke="#b4b2a9" points="1308.75,-251.34 1308.75,-270.59 1349,-270.59 1349,-251.34 1308.75,-251.34"/>
+<text text-anchor="start" x="1312.75" y="-258.09" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">name</text>
+</a>
+</g>
+<g id="a_node5_27"><a data-target="providers-name" tabindex="0" role="link"><title>providers.name</title>
+<polygon fill="none" stroke="#b4b2a9" points="1349,-251.34 1349,-270.59 1381,-270.59 1381,-251.34 1349,-251.34"/>
+<text text-anchor="start" x="1353" y="-257.09" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
+</a>
+</g>
+<g id="a_node5_28"><a data-target="providers-note" tabindex="0" role="link"><title>providers.note</title>
+<polygon fill="none" stroke="#b4b2a9" points="1308.75,-232.09 1308.75,-251.34 1349,-251.34 1349,-232.09 1308.75,-232.09"/>
+<text text-anchor="start" x="1312.75" y="-237.84" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">note</text>
+</a>
+</g>
+<g id="a_node5_29"><a data-target="providers-note" tabindex="0" role="link"><title>providers.note</title>
+<polygon fill="none" stroke="#b4b2a9" points="1349,-232.09 1349,-251.34 1381,-251.34 1381,-232.09 1349,-232.09"/>
+<text text-anchor="start" x="1353" y="-237.84" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
+</a>
+</g>
+<g id="a_node5_30"><a data-target="providers-url" tabindex="0" role="link"><title>providers.url</title>
+<polygon fill="none" stroke="#b4b2a9" points="1308.75,-212.84 1308.75,-232.09 1349,-232.09 1349,-212.84 1308.75,-212.84"/>
+<text text-anchor="start" x="1312.75" y="-218.59" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">url</text>
+</a>
+</g>
+<g id="a_node5_31"><a data-target="providers-url" tabindex="0" role="link"><title>providers.url</title>
+<polygon fill="none" stroke="#b4b2a9" points="1349,-212.84 1349,-232.09 1381,-232.09 1381,-212.84 1349,-212.84"/>
+<text text-anchor="start" x="1353" y="-218.59" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
+</a>
+</g>
+</g>
+<g id="edge1" class="edge">
+<title>contracts:e&#45;&gt;providers:h</title>
+<path fill="none" stroke="#888780" stroke-width="1.1" d="M1243.75,-541.59C1352.56,-541.59 1204.58,-310.68 1301.35,-299.86"/>
+<polygon fill="#888780" stroke="#888780" stroke-width="1.1" points="1301.21,-301.97 1307.09,-299.55 1300.98,-297.77 1301.21,-301.97"/>
+</g>
+<g id="node2" class="node">
+<title>hosts</title>
+<polygon fill="#f1efe8" stroke="none" points="474.25,-850.71 239.25,-850.71 239.25,-67.21 474.25,-67.21 474.25,-850.71"/>
+<polygon fill="#f1efe8" stroke="none" points="239.25,-67.21 239.25,-850.71 474.25,-850.71 474.25,-67.21 239.25,-67.21"/>
+<g id="a_node2_32"><a data-target="hosts" tabindex="0" role="link"><title>hosts</title>
+<polygon fill="#d3d1c7" stroke="none" points="239.25,-831.46 239.25,-850.71 474.25,-850.71 474.25,-831.46 239.25,-831.46"/>
+<polygon fill="none" stroke="#b4b2a9" points="239.25,-831.46 239.25,-850.71 474.25,-850.71 474.25,-831.46 239.25,-831.46"/>
+<text text-anchor="start" x="344" y="-838.21" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">hosts</text>
+</a>
+</g>
+<g id="a_node2_33"><a data-target="hosts-availability" tabindex="0" role="link"><title>hosts.availability</title>
+<polygon fill="none" stroke="#b4b2a9" points="239.25,-812.21 239.25,-831.46 404,-831.46 404,-812.21 239.25,-812.21"/>
+<text text-anchor="start" x="243.25" y="-817.96" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">availability</text>
+</a>
+</g>
+<g id="a_node2_34"><a data-target="hosts-availability" tabindex="0" role="link"><title>hosts.availability</title>
+<polygon fill="none" stroke="#b4b2a9" points="404,-812.21 404,-831.46 474.25,-831.46 474.25,-812.21 404,-812.21"/>
+<text text-anchor="start" x="408" y="-817.96" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">enum</text>
+</a>
+</g>
+<g id="a_node2_35"><a data-target="hosts-contracts" tabindex="0" role="link"><title>hosts.contracts</title>
+<polygon fill="none" stroke="#b4b2a9" points="239.25,-791.46 239.25,-812.21 404,-812.21 404,-791.46 239.25,-791.46"/>
+<text text-anchor="start" x="243.25" y="-797.96" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">contracts</text>
+</a>
+</g>
+<g id="a_node2_36"><a data-target="hosts-contracts" tabindex="0" role="link"><title>hosts.contracts</title>
+<polygon fill="none" stroke="#b4b2a9" points="404,-791.46 404,-812.21 474.25,-812.21 474.25,-791.46 404,-791.46"/>
+<text text-anchor="start" x="408" y="-798.71" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">[→ contracts]</text>
+</a>
+</g>
+<g id="a_node2_37"><a data-target="hosts-criticality" tabindex="0" role="link"><title>hosts.criticality</title>
+<polygon fill="none" stroke="#b4b2a9" points="239.25,-772.21 239.25,-791.46 404,-791.46 404,-772.21 239.25,-772.21"/>
+<text text-anchor="start" x="243.25" y="-777.96" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">criticality</text>
+</a>
+</g>
+<g id="a_node2_38"><a data-target="hosts-criticality" tabindex="0" role="link"><title>hosts.criticality</title>
+<polygon fill="none" stroke="#b4b2a9" points="404,-772.21 404,-791.46 474.25,-791.46 474.25,-772.21 404,-772.21"/>
+<text text-anchor="start" x="408" y="-777.96" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">enum</text>
+</a>
+</g>
+<g id="a_node2_39"><a data-target="hosts-description" tabindex="0" role="link"><title>hosts.description</title>
+<polygon fill="none" stroke="#b4b2a9" points="239.25,-752.96 239.25,-772.21 404,-772.21 404,-752.96 239.25,-752.96"/>
+<text text-anchor="start" x="243.25" y="-758.71" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">description</text>
+</a>
+</g>
+<g id="a_node2_40"><a data-target="hosts-description" tabindex="0" role="link"><title>hosts.description</title>
+<polygon fill="none" stroke="#b4b2a9" points="404,-752.96 404,-772.21 474.25,-772.21 474.25,-752.96 404,-752.96"/>
+<text text-anchor="start" x="408" y="-758.71" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
+</a>
+</g>
+<g id="a_node2_41"><a data-target="hosts-inside" tabindex="0" role="link"><title>hosts.inside</title>
+<polygon fill="none" stroke="#b4b2a9" points="239.25,-732.21 239.25,-752.96 404,-752.96 404,-732.21 239.25,-732.21"/>
+<text text-anchor="start" x="243.25" y="-738.71" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">inside</text>
+</a>
+</g>
+<g id="a_node2_42"><a data-target="hosts-inside" tabindex="0" role="link"><title>hosts.inside</title>
+<polygon fill="none" stroke="#b4b2a9" points="404,-732.21 404,-752.96 474.25,-752.96 474.25,-732.21 404,-732.21"/>
+<text text-anchor="start" x="408" y="-739.46" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">→ hosts</text>
+</a>
+</g>
+<g id="a_node2_43"><a data-target="hosts-interfaces" tabindex="0" role="link"><title>hosts.interfaces</title>
+<polygon fill="none" stroke="#b4b2a9" points="239.25,-712.96 239.25,-732.21 404,-732.21 404,-712.96 239.25,-712.96"/>
+<text text-anchor="start" x="243.25" y="-718.71" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">interfaces</text>
+</a>
+</g>
+<g id="a_node2_44"><a data-target="hosts-interfaces" tabindex="0" role="link"><title>hosts.interfaces</title>
+<polygon fill="none" stroke="#b4b2a9" points="404,-712.96 404,-732.21 474.25,-732.21 474.25,-712.96 404,-712.96"/>
+<text text-anchor="start" x="408" y="-718.71" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">{name: object}</text>
+</a>
+</g>
+<g id="a_node2_45"><a data-target="hosts-interfaces-name-connector" tabindex="0" role="link"><title>hosts.interfaces.&lt;name&gt;.connector</title>
+<polygon fill="none" stroke="#b4b2a9" points="239.25,-693.71 239.25,-712.96 404,-712.96 404,-693.71 239.25,-693.71"/>
+<text text-anchor="start" x="243.25" y="-699.46" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">interfaces.&lt;name&gt;.connector</text>
+</a>
+</g>
+<g id="a_node2_46"><a data-target="hosts-interfaces-name-connector" tabindex="0" role="link"><title>hosts.interfaces.&lt;name&gt;.connector</title>
+<polygon fill="none" stroke="#b4b2a9" points="404,-693.71 404,-712.96 474.25,-712.96 474.25,-693.71 404,-693.71"/>
+<text text-anchor="start" x="408" y="-699.46" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">enum</text>
+</a>
+</g>
+<g id="a_node2_47"><a data-target="hosts-interfaces-name-ipv4" tabindex="0" role="link"><title>hosts.interfaces.&lt;name&gt;.ipv4</title>
+<polygon fill="none" stroke="#b4b2a9" points="239.25,-674.46 239.25,-693.71 404,-693.71 404,-674.46 239.25,-674.46"/>
+<text text-anchor="start" x="243.25" y="-680.21" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">interfaces.&lt;name&gt;.ipv4</text>
+</a>
+</g>
+<g id="a_node2_48"><a data-target="hosts-interfaces-name-ipv4" tabindex="0" role="link"><title>hosts.interfaces.&lt;name&gt;.ipv4</title>
+<polygon fill="none" stroke="#b4b2a9" points="404,-674.46 404,-693.71 474.25,-693.71 474.25,-674.46 404,-674.46"/>
+<text text-anchor="start" x="408" y="-680.21" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">object</text>
+</a>
+</g>
+<g id="a_node2_49"><a data-target="hosts-interfaces-name-ipv4-address" tabindex="0" role="link"><title>hosts.interfaces.&lt;name&gt;.ipv4.address</title>
+<polygon fill="none" stroke="#b4b2a9" points="239.25,-655.21 239.25,-674.46 404,-674.46 404,-655.21 239.25,-655.21"/>
+<text text-anchor="start" x="243.25" y="-660.96" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">interfaces.&lt;name&gt;.ipv4.address</text>
+</a>
+</g>
+<g id="a_node2_50"><a data-target="hosts-interfaces-name-ipv4-address" tabindex="0" role="link"><title>hosts.interfaces.&lt;name&gt;.ipv4.address</title>
+<polygon fill="none" stroke="#b4b2a9" points="404,-655.21 404,-674.46 474.25,-674.46 474.25,-655.21 404,-655.21"/>
+<text text-anchor="start" x="408" y="-660.96" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
+</a>
+</g>
+<g id="a_node2_51"><a data-target="hosts-interfaces-name-ipv4-mode" tabindex="0" role="link"><title>hosts.interfaces.&lt;name&gt;.ipv4.mode</title>
+<polygon fill="none" stroke="#b4b2a9" points="239.25,-635.96 239.25,-655.21 404,-655.21 404,-635.96 239.25,-635.96"/>
+<text text-anchor="start" x="243.25" y="-642.71" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">interfaces.&lt;name&gt;.ipv4.mode</text>
+</a>
+</g>
+<g id="a_node2_52"><a data-target="hosts-interfaces-name-ipv4-mode" tabindex="0" role="link"><title>hosts.interfaces.&lt;name&gt;.ipv4.mode</title>
+<polygon fill="none" stroke="#b4b2a9" points="404,-635.96 404,-655.21 474.25,-655.21 474.25,-635.96 404,-635.96"/>
+<text text-anchor="start" x="408" y="-641.71" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">enum</text>
+</a>
+</g>
+<g id="a_node2_53"><a data-target="hosts-interfaces-name-linklocal" tabindex="0" role="link"><title>hosts.interfaces.&lt;name&gt;.linkLocal</title>
+<polygon fill="none" stroke="#b4b2a9" points="239.25,-616.71 239.25,-635.96 404,-635.96 404,-616.71 239.25,-616.71"/>
+<text text-anchor="start" x="243.25" y="-622.46" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">interfaces.&lt;name&gt;.linkLocal</text>
+</a>
+</g>
+<g id="a_node2_54"><a data-target="hosts-interfaces-name-linklocal" tabindex="0" role="link"><title>hosts.interfaces.&lt;name&gt;.linkLocal</title>
+<polygon fill="none" stroke="#b4b2a9" points="404,-616.71 404,-635.96 474.25,-635.96 474.25,-616.71 404,-616.71"/>
+<text text-anchor="start" x="408" y="-622.46" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
+</a>
+</g>
+<g id="a_node2_55"><a data-target="hosts-interfaces-name-mac" tabindex="0" role="link"><title>hosts.interfaces.&lt;name&gt;.mac</title>
+<polygon fill="none" stroke="#b4b2a9" points="239.25,-597.46 239.25,-616.71 404,-616.71 404,-597.46 239.25,-597.46"/>
+<text text-anchor="start" x="243.25" y="-603.21" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">interfaces.&lt;name&gt;.mac</text>
+</a>
+</g>
+<g id="a_node2_56"><a data-target="hosts-interfaces-name-mac" tabindex="0" role="link"><title>hosts.interfaces.&lt;name&gt;.mac</title>
+<polygon fill="none" stroke="#b4b2a9" points="404,-597.46 404,-616.71 474.25,-616.71 474.25,-597.46 404,-597.46"/>
+<text text-anchor="start" x="408" y="-603.21" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
+</a>
+</g>
+<g id="a_node2_57"><a data-target="hosts-interfaces-name-maclocal" tabindex="0" role="link"><title>hosts.interfaces.&lt;name&gt;.macLocal</title>
+<polygon fill="none" stroke="#b4b2a9" points="239.25,-578.21 239.25,-597.46 404,-597.46 404,-578.21 239.25,-578.21"/>
+<text text-anchor="start" x="243.25" y="-583.96" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">interfaces.&lt;name&gt;.macLocal</text>
+</a>
+</g>
+<g id="a_node2_58"><a data-target="hosts-interfaces-name-maclocal" tabindex="0" role="link"><title>hosts.interfaces.&lt;name&gt;.macLocal</title>
+<polygon fill="none" stroke="#b4b2a9" points="404,-578.21 404,-597.46 474.25,-597.46 474.25,-578.21 404,-578.21"/>
+<text text-anchor="start" x="408" y="-583.96" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">boolean</text>
+</a>
+</g>
+<g id="a_node2_59"><a data-target="hosts-interfaces-name-medium" tabindex="0" role="link"><title>hosts.interfaces.&lt;name&gt;.medium</title>
+<polygon fill="none" stroke="#b4b2a9" points="239.25,-558.96 239.25,-578.21 404,-578.21 404,-558.96 239.25,-558.96"/>
+<text text-anchor="start" x="243.25" y="-564.71" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">interfaces.&lt;name&gt;.medium</text>
+</a>
+</g>
+<g id="a_node2_60"><a data-target="hosts-interfaces-name-medium" tabindex="0" role="link"><title>hosts.interfaces.&lt;name&gt;.medium</title>
+<polygon fill="none" stroke="#b4b2a9" points="404,-558.96 404,-578.21 474.25,-578.21 474.25,-558.96 404,-558.96"/>
+<text text-anchor="start" x="408" y="-564.71" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">enum</text>
+</a>
+</g>
+<g id="a_node2_61"><a data-target="hosts-interfaces-name-module" tabindex="0" role="link"><title>hosts.interfaces.&lt;name&gt;.module</title>
+<polygon fill="none" stroke="#b4b2a9" points="239.25,-539.71 239.25,-558.96 404,-558.96 404,-539.71 239.25,-539.71"/>
+<text text-anchor="start" x="243.25" y="-545.46" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">interfaces.&lt;name&gt;.module</text>
+</a>
+</g>
+<g id="a_node2_62"><a data-target="hosts-interfaces-name-module" tabindex="0" role="link"><title>hosts.interfaces.&lt;name&gt;.module</title>
+<polygon fill="none" stroke="#b4b2a9" points="404,-539.71 404,-558.96 474.25,-558.96 474.25,-539.71 404,-539.71"/>
+<text text-anchor="start" x="408" y="-545.46" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">object</text>
+</a>
+</g>
+<g id="a_node2_63"><a data-target="hosts-interfaces-name-module-kind" tabindex="0" role="link"><title>hosts.interfaces.&lt;name&gt;.module.kind</title>
+<polygon fill="none" stroke="#b4b2a9" points="239.25,-520.46 239.25,-539.71 404,-539.71 404,-520.46 239.25,-520.46"/>
+<text text-anchor="start" x="243.25" y="-527.21" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">interfaces.&lt;name&gt;.module.kind</text>
+</a>
+</g>
+<g id="a_node2_64"><a data-target="hosts-interfaces-name-module-kind" tabindex="0" role="link"><title>hosts.interfaces.&lt;name&gt;.module.kind</title>
+<polygon fill="none" stroke="#b4b2a9" points="404,-520.46 404,-539.71 474.25,-539.71 474.25,-520.46 404,-520.46"/>
+<text text-anchor="start" x="408" y="-526.21" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">enum</text>
+</a>
+</g>
+<g id="a_node2_65"><a data-target="hosts-interfaces-name-module-standard" tabindex="0" role="link"><title>hosts.interfaces.&lt;name&gt;.module.standard</title>
+<polygon fill="none" stroke="#b4b2a9" points="239.25,-501.21 239.25,-520.46 404,-520.46 404,-501.21 239.25,-501.21"/>
+<text text-anchor="start" x="243.25" y="-506.96" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">interfaces.&lt;name&gt;.module.standard</text>
+</a>
+</g>
+<g id="a_node2_66"><a data-target="hosts-interfaces-name-module-standard" tabindex="0" role="link"><title>hosts.interfaces.&lt;name&gt;.module.standard</title>
+<polygon fill="none" stroke="#b4b2a9" points="404,-501.21 404,-520.46 474.25,-520.46 474.25,-501.21 404,-501.21"/>
+<text text-anchor="start" x="408" y="-506.96" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">enum</text>
+</a>
+</g>
+<g id="a_node2_67"><a data-target="hosts-interfaces-name-network" tabindex="0" role="link"><title>hosts.interfaces.&lt;name&gt;.network</title>
+<polygon fill="none" stroke="#b4b2a9" points="239.25,-480.46 239.25,-501.21 404,-501.21 404,-480.46 239.25,-480.46"/>
+<text text-anchor="start" x="243.25" y="-486.96" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">interfaces.&lt;name&gt;.network</text>
+</a>
+</g>
+<g id="a_node2_68"><a data-target="hosts-interfaces-name-network" tabindex="0" role="link"><title>hosts.interfaces.&lt;name&gt;.network</title>
+<polygon fill="none" stroke="#b4b2a9" points="404,-480.46 404,-501.21 474.25,-501.21 474.25,-480.46 404,-480.46"/>
+<text text-anchor="start" x="408" y="-487.71" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">→ networks</text>
+</a>
+</g>
+<g id="a_node2_69"><a data-target="hosts-interfaces-name-note" tabindex="0" role="link"><title>hosts.interfaces.&lt;name&gt;.note</title>
+<polygon fill="none" stroke="#b4b2a9" points="239.25,-461.21 239.25,-480.46 404,-480.46 404,-461.21 239.25,-461.21"/>
+<text text-anchor="start" x="243.25" y="-466.96" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">interfaces.&lt;name&gt;.note</text>
+</a>
+</g>
+<g id="a_node2_70"><a data-target="hosts-interfaces-name-note" tabindex="0" role="link"><title>hosts.interfaces.&lt;name&gt;.note</title>
+<polygon fill="none" stroke="#b4b2a9" points="404,-461.21 404,-480.46 474.25,-480.46 474.25,-461.21 404,-461.21"/>
+<text text-anchor="start" x="408" y="-466.96" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
+</a>
+</g>
+<g id="a_node2_71"><a data-target="hosts-interfaces-name-speed" tabindex="0" role="link"><title>hosts.interfaces.&lt;name&gt;.speed</title>
+<polygon fill="none" stroke="#b4b2a9" points="239.25,-441.96 239.25,-461.21 404,-461.21 404,-441.96 239.25,-441.96"/>
+<text text-anchor="start" x="243.25" y="-447.71" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">interfaces.&lt;name&gt;.speed</text>
+</a>
+</g>
+<g id="a_node2_72"><a data-target="hosts-interfaces-name-speed" tabindex="0" role="link"><title>hosts.interfaces.&lt;name&gt;.speed</title>
+<polygon fill="none" stroke="#b4b2a9" points="404,-441.96 404,-461.21 474.25,-461.21 474.25,-441.96 404,-441.96"/>
+<text text-anchor="start" x="408" y="-447.71" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">enum</text>
+</a>
+</g>
+<g id="a_node2_73"><a data-target="hosts-interfaces-name-wifistandard" tabindex="0" role="link"><title>hosts.interfaces.&lt;name&gt;.wifiStandard</title>
+<polygon fill="none" stroke="#b4b2a9" points="239.25,-422.71 239.25,-441.96 404,-441.96 404,-422.71 239.25,-422.71"/>
+<text text-anchor="start" x="243.25" y="-428.46" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">interfaces.&lt;name&gt;.wifiStandard</text>
+</a>
+</g>
+<g id="a_node2_74"><a data-target="hosts-interfaces-name-wifistandard" tabindex="0" role="link"><title>hosts.interfaces.&lt;name&gt;.wifiStandard</title>
+<polygon fill="none" stroke="#b4b2a9" points="404,-422.71 404,-441.96 474.25,-441.96 474.25,-422.71 404,-422.71"/>
+<text text-anchor="start" x="408" y="-428.46" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">enum</text>
+</a>
+</g>
+<g id="a_node2_75"><a data-target="hosts-kind" tabindex="0" role="link"><title>hosts.kind</title>
+<polygon fill="none" stroke="#b4b2a9" points="239.25,-403.46 239.25,-422.71 404,-422.71 404,-403.46 239.25,-403.46"/>
+<text text-anchor="start" x="243.25" y="-410.21" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">kind</text>
+</a>
+</g>
+<g id="a_node2_76"><a data-target="hosts-kind" tabindex="0" role="link"><title>hosts.kind</title>
+<polygon fill="none" stroke="#b4b2a9" points="404,-403.46 404,-422.71 474.25,-422.71 474.25,-403.46 404,-403.46"/>
+<text text-anchor="start" x="408" y="-409.21" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">enum</text>
+</a>
+</g>
+<g id="a_node2_77"><a data-target="hosts-managed" tabindex="0" role="link"><title>hosts.managed</title>
+<polygon fill="none" stroke="#b4b2a9" points="239.25,-384.21 239.25,-403.46 404,-403.46 404,-384.21 239.25,-384.21"/>
+<text text-anchor="start" x="243.25" y="-390.96" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">managed</text>
+</a>
+</g>
+<g id="a_node2_78"><a data-target="hosts-managed" tabindex="0" role="link"><title>hosts.managed</title>
+<polygon fill="none" stroke="#b4b2a9" points="404,-384.21 404,-403.46 474.25,-403.46 474.25,-384.21 404,-384.21"/>
+<text text-anchor="start" x="408" y="-389.96" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">boolean</text>
+</a>
+</g>
+<g id="a_node2_79"><a data-target="hosts-manages" tabindex="0" role="link"><title>hosts.manages</title>
+<polygon fill="none" stroke="#b4b2a9" points="239.25,-363.46 239.25,-384.21 404,-384.21 404,-363.46 239.25,-363.46"/>
+<text text-anchor="start" x="243.25" y="-369.96" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">manages</text>
+</a>
+</g>
+<g id="a_node2_80"><a data-target="hosts-manages" tabindex="0" role="link"><title>hosts.manages</title>
+<polygon fill="none" stroke="#b4b2a9" points="404,-363.46 404,-384.21 474.25,-384.21 474.25,-363.46 404,-363.46"/>
+<text text-anchor="start" x="408" y="-370.71" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">[→ hosts]</text>
+</a>
+</g>
+<g id="a_node2_81"><a data-target="hosts-model" tabindex="0" role="link"><title>hosts.model</title>
+<polygon fill="none" stroke="#b4b2a9" points="239.25,-344.21 239.25,-363.46 404,-363.46 404,-344.21 239.25,-344.21"/>
+<text text-anchor="start" x="243.25" y="-349.96" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">model</text>
+</a>
+</g>
+<g id="a_node2_82"><a data-target="hosts-model" tabindex="0" role="link"><title>hosts.model</title>
+<polygon fill="none" stroke="#b4b2a9" points="404,-344.21 404,-363.46 474.25,-363.46 474.25,-344.21 404,-344.21"/>
+<text text-anchor="start" x="408" y="-349.96" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
+</a>
+</g>
+<g id="a_node2_83"><a data-target="hosts-note" tabindex="0" role="link"><title>hosts.note</title>
+<polygon fill="none" stroke="#b4b2a9" points="239.25,-324.96 239.25,-344.21 404,-344.21 404,-324.96 239.25,-324.96"/>
+<text text-anchor="start" x="243.25" y="-330.71" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">note</text>
+</a>
+</g>
+<g id="a_node2_84"><a data-target="hosts-note" tabindex="0" role="link"><title>hosts.note</title>
+<polygon fill="none" stroke="#b4b2a9" points="404,-324.96 404,-344.21 474.25,-344.21 474.25,-324.96 404,-324.96"/>
+<text text-anchor="start" x="408" y="-330.71" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
+</a>
+</g>
+<g id="a_node2_85"><a data-target="hosts-owner" tabindex="0" role="link"><title>hosts.owner</title>
+<polygon fill="none" stroke="#b4b2a9" points="239.25,-304.21 239.25,-324.96 404,-324.96 404,-304.21 239.25,-304.21"/>
+<text text-anchor="start" x="243.25" y="-311.71" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">owner</text>
+</a>
+</g>
+<g id="a_node2_86"><a data-target="hosts-owner" tabindex="0" role="link"><title>hosts.owner</title>
+<polygon fill="none" stroke="#b4b2a9" points="404,-304.21 404,-324.96 474.25,-324.96 474.25,-304.21 404,-304.21"/>
+<text text-anchor="start" x="408" y="-311.46" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">→ owners</text>
+</a>
+</g>
+<g id="a_node2_87"><a data-target="hosts-power" tabindex="0" role="link"><title>hosts.power</title>
+<polygon fill="none" stroke="#b4b2a9" points="239.25,-283.46 239.25,-304.21 404,-304.21 404,-283.46 239.25,-283.46"/>
+<text text-anchor="start" x="243.25" y="-289.96" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">power</text>
+</a>
+</g>
+<g id="a_node2_88"><a data-target="hosts-power" tabindex="0" role="link"><title>hosts.power</title>
+<polygon fill="none" stroke="#b4b2a9" points="404,-283.46 404,-304.21 474.25,-304.21 474.25,-283.46 404,-283.46"/>
+<text text-anchor="start" x="408" y="-290.71" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">→ hosts</text>
+</a>
+</g>
+<g id="a_node2_89"><a data-target="hosts-productid" tabindex="0" role="link"><title>hosts.productId</title>
+<polygon fill="none" stroke="#b4b2a9" points="239.25,-264.21 239.25,-283.46 404,-283.46 404,-264.21 239.25,-264.21"/>
+<text text-anchor="start" x="243.25" y="-269.96" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">productId</text>
+</a>
+</g>
+<g id="a_node2_90"><a data-target="hosts-productid" tabindex="0" role="link"><title>hosts.productId</title>
+<polygon fill="none" stroke="#b4b2a9" points="404,-264.21 404,-283.46 474.25,-283.46 474.25,-264.21 404,-264.21"/>
+<text text-anchor="start" x="408" y="-269.96" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
+</a>
+</g>
+<g id="a_node2_91"><a data-target="hosts-runson" tabindex="0" role="link"><title>hosts.runsOn</title>
+<polygon fill="none" stroke="#b4b2a9" points="239.25,-243.46 239.25,-264.21 404,-264.21 404,-243.46 239.25,-243.46"/>
+<text text-anchor="start" x="243.25" y="-249.96" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">runsOn</text>
+</a>
+</g>
+<g id="a_node2_92"><a data-target="hosts-runson" tabindex="0" role="link"><title>hosts.runsOn</title>
+<polygon fill="none" stroke="#b4b2a9" points="404,-243.46 404,-264.21 474.25,-264.21 474.25,-243.46 404,-243.46"/>
+<text text-anchor="start" x="408" y="-250.71" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">→ hosts</text>
+</a>
+</g>
+<g id="a_node2_93"><a data-target="hosts-serial" tabindex="0" role="link"><title>hosts.serial</title>
+<polygon fill="none" stroke="#b4b2a9" points="239.25,-224.21 239.25,-243.46 404,-243.46 404,-224.21 239.25,-224.21"/>
+<text text-anchor="start" x="243.25" y="-229.96" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">serial</text>
+</a>
+</g>
+<g id="a_node2_94"><a data-target="hosts-serial" tabindex="0" role="link"><title>hosts.serial</title>
+<polygon fill="none" stroke="#b4b2a9" points="404,-224.21 404,-243.46 474.25,-243.46 474.25,-224.21 404,-224.21"/>
+<text text-anchor="start" x="408" y="-229.96" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
+</a>
+</g>
+<g id="a_node2_95"><a data-target="hosts-site" tabindex="0" role="link"><title>hosts.site</title>
+<polygon fill="none" stroke="#b4b2a9" points="239.25,-203.46 239.25,-224.21 404,-224.21 404,-203.46 239.25,-203.46"/>
+<text text-anchor="start" x="243.25" y="-209.96" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">site</text>
+</a>
+</g>
+<g id="a_node2_96"><a data-target="hosts-site" tabindex="0" role="link"><title>hosts.site</title>
+<polygon fill="none" stroke="#b4b2a9" points="404,-203.46 404,-224.21 474.25,-224.21 474.25,-203.46 404,-203.46"/>
+<text text-anchor="start" x="408" y="-210.71" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">→ sites</text>
+</a>
+</g>
+<g id="a_node2_97"><a data-target="hosts-sshhostkeys" tabindex="0" role="link"><title>hosts.sshHostKeys</title>
+<polygon fill="none" stroke="#b4b2a9" points="239.25,-184.21 239.25,-203.46 404,-203.46 404,-184.21 239.25,-184.21"/>
+<text text-anchor="start" x="243.25" y="-189.96" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">sshHostKeys</text>
+</a>
+</g>
+<g id="a_node2_98"><a data-target="hosts-sshhostkeys" tabindex="0" role="link"><title>hosts.sshHostKeys</title>
+<polygon fill="none" stroke="#b4b2a9" points="404,-184.21 404,-203.46 474.25,-203.46 474.25,-184.21 404,-184.21"/>
+<text text-anchor="start" x="408" y="-189.96" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">[string]</text>
+</a>
+</g>
+<g id="a_node2_99"><a data-target="hosts-unlock" tabindex="0" role="link"><title>hosts.unlock</title>
+<polygon fill="none" stroke="#b4b2a9" points="239.25,-164.96 239.25,-184.21 404,-184.21 404,-164.96 239.25,-164.96"/>
+<text text-anchor="start" x="243.25" y="-170.71" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">unlock</text>
+</a>
+</g>
+<g id="a_node2_100"><a data-target="hosts-unlock" tabindex="0" role="link"><title>hosts.unlock</title>
+<polygon fill="none" stroke="#b4b2a9" points="404,-164.96 404,-184.21 474.25,-184.21 474.25,-164.96 404,-164.96"/>
+<text text-anchor="start" x="408" y="-170.71" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">object</text>
+</a>
+</g>
+<g id="a_node2_101"><a data-target="hosts-unlock-fallback" tabindex="0" role="link"><title>hosts.unlock.fallback</title>
+<polygon fill="none" stroke="#b4b2a9" points="239.25,-145.71 239.25,-164.96 404,-164.96 404,-145.71 239.25,-145.71"/>
+<text text-anchor="start" x="243.25" y="-151.46" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">unlock.fallback</text>
+</a>
+</g>
+<g id="a_node2_102"><a data-target="hosts-unlock-fallback" tabindex="0" role="link"><title>hosts.unlock.fallback</title>
+<polygon fill="none" stroke="#b4b2a9" points="404,-145.71 404,-164.96 474.25,-164.96 474.25,-145.71 404,-145.71"/>
+<text text-anchor="start" x="408" y="-151.46" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">enum</text>
+</a>
+</g>
+<g id="a_node2_103"><a data-target="hosts-unlock-methods" tabindex="0" role="link"><title>hosts.unlock.methods</title>
+<polygon fill="none" stroke="#b4b2a9" points="239.25,-126.46 239.25,-145.71 404,-145.71 404,-126.46 239.25,-126.46"/>
+<text text-anchor="start" x="243.25" y="-133.21" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">unlock.methods</text>
+</a>
+</g>
+<g id="a_node2_104"><a data-target="hosts-unlock-methods" tabindex="0" role="link"><title>hosts.unlock.methods</title>
+<polygon fill="none" stroke="#b4b2a9" points="404,-126.46 404,-145.71 474.25,-145.71 474.25,-126.46 404,-126.46"/>
+<text text-anchor="start" x="408" y="-132.21" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">[enum]</text>
+</a>
+</g>
+<g id="a_node2_105"><a data-target="hosts-unlock-tang" tabindex="0" role="link"><title>hosts.unlock.tang</title>
+<polygon fill="none" stroke="#b4b2a9" points="239.25,-105.71 239.25,-126.46 404,-126.46 404,-105.71 239.25,-105.71"/>
+<text text-anchor="start" x="243.25" y="-112.21" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">unlock.tang</text>
+</a>
+</g>
+<g id="a_node2_106"><a data-target="hosts-unlock-tang" tabindex="0" role="link"><title>hosts.unlock.tang</title>
+<polygon fill="none" stroke="#b4b2a9" points="404,-105.71 404,-126.46 474.25,-126.46 474.25,-105.71 404,-105.71"/>
+<text text-anchor="start" x="408" y="-112.96" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">[→ hosts]</text>
+</a>
+</g>
+<g id="a_node2_107"><a data-target="hosts-unlock-threshold" tabindex="0" role="link"><title>hosts.unlock.threshold</title>
+<polygon fill="none" stroke="#b4b2a9" points="239.25,-86.46 239.25,-105.71 404,-105.71 404,-86.46 239.25,-86.46"/>
+<text text-anchor="start" x="243.25" y="-92.21" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">unlock.threshold</text>
+</a>
+</g>
+<g id="a_node2_108"><a data-target="hosts-unlock-threshold" tabindex="0" role="link"><title>hosts.unlock.threshold</title>
+<polygon fill="none" stroke="#b4b2a9" points="404,-86.46 404,-105.71 474.25,-105.71 474.25,-86.46 404,-86.46"/>
+<text text-anchor="start" x="408" y="-92.21" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">integer</text>
+</a>
+</g>
+<g id="a_node2_109"><a data-target="hosts-vendor" tabindex="0" role="link"><title>hosts.vendor</title>
+<polygon fill="none" stroke="#b4b2a9" points="239.25,-67.21 239.25,-86.46 404,-86.46 404,-67.21 239.25,-67.21"/>
+<text text-anchor="start" x="243.25" y="-72.96" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">vendor</text>
+</a>
+</g>
+<g id="a_node2_110"><a data-target="hosts-vendor" tabindex="0" role="link"><title>hosts.vendor</title>
+<polygon fill="none" stroke="#b4b2a9" points="404,-67.21 404,-86.46 474.25,-86.46 474.25,-67.21 404,-67.21"/>
+<text text-anchor="start" x="408" y="-72.96" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
+</a>
+</g>
+</g>
+<g id="edge2" class="edge">
+<title>hosts:e&#45;&gt;contracts:h</title>
+<path fill="none" stroke="#888780" stroke-width="1.1" d="M474.25,-801.84C757.22,-801.84 824.11,-717.1 1103.27,-715.61"/>
+<polygon fill="#888780" stroke="#888780" stroke-width="1.1" points="1103.09,-717.71 1109.09,-715.59 1103.08,-713.51 1103.09,-717.71"/>
+</g>
+<g id="node3" class="node">
+<title>networks</title>
+<polygon fill="#f1efe8" stroke="none" points="660.25,-679.96 539.25,-679.96 539.25,-445.96 660.25,-445.96 660.25,-679.96"/>
+<polygon fill="#f1efe8" stroke="none" points="539.25,-445.96 539.25,-679.96 660.25,-679.96 660.25,-445.96 539.25,-445.96"/>
+<g id="a_node3_111"><a data-target="networks" tabindex="0" role="link"><title>networks</title>
+<polygon fill="#d3d1c7" stroke="none" points="539.25,-660.71 539.25,-679.96 660.25,-679.96 660.25,-660.71 539.25,-660.71"/>
+<polygon fill="none" stroke="#b4b2a9" points="539.25,-660.71 539.25,-679.96 660.25,-679.96 660.25,-660.71 539.25,-660.71"/>
+<text text-anchor="start" x="578.75" y="-667.46" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">networks</text>
+</a>
+</g>
+<g id="a_node3_112"><a data-target="networks-dhcppool" tabindex="0" role="link"><title>networks.dhcpPool</title>
+<polygon fill="none" stroke="#b4b2a9" points="539.25,-641.46 539.25,-660.71 615.5,-660.71 615.5,-641.46 539.25,-641.46"/>
+<text text-anchor="start" x="543.25" y="-647.21" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">dhcpPool</text>
+</a>
+</g>
+<g id="a_node3_113"><a data-target="networks-dhcppool" tabindex="0" role="link"><title>networks.dhcpPool</title>
+<polygon fill="none" stroke="#b4b2a9" points="615.5,-641.46 615.5,-660.71 660.25,-660.71 660.25,-641.46 615.5,-641.46"/>
+<text text-anchor="start" x="619.5" y="-647.21" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">object</text>
+</a>
+</g>
+<g id="a_node3_114"><a data-target="networks-dhcppool-end" tabindex="0" role="link"><title>networks.dhcpPool.end</title>
+<polygon fill="none" stroke="#b4b2a9" points="539.25,-622.21 539.25,-641.46 615.5,-641.46 615.5,-622.21 539.25,-622.21"/>
+<text text-anchor="start" x="543.25" y="-628.96" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">dhcpPool.end</text>
+</a>
+</g>
+<g id="a_node3_115"><a data-target="networks-dhcppool-end" tabindex="0" role="link"><title>networks.dhcpPool.end</title>
+<polygon fill="none" stroke="#b4b2a9" points="615.5,-622.21 615.5,-641.46 660.25,-641.46 660.25,-622.21 615.5,-622.21"/>
+<text text-anchor="start" x="619.5" y="-627.96" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
+</a>
+</g>
+<g id="a_node3_116"><a data-target="networks-dhcppool-start" tabindex="0" role="link"><title>networks.dhcpPool.start</title>
+<polygon fill="none" stroke="#b4b2a9" points="539.25,-602.96 539.25,-622.21 615.5,-622.21 615.5,-602.96 539.25,-602.96"/>
+<text text-anchor="start" x="543.25" y="-609.71" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">dhcpPool.start</text>
+</a>
+</g>
+<g id="a_node3_117"><a data-target="networks-dhcppool-start" tabindex="0" role="link"><title>networks.dhcpPool.start</title>
+<polygon fill="none" stroke="#b4b2a9" points="615.5,-602.96 615.5,-622.21 660.25,-622.21 660.25,-602.96 615.5,-602.96"/>
+<text text-anchor="start" x="619.5" y="-608.71" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
+</a>
+</g>
+<g id="a_node3_118"><a data-target="networks-dhcpserver" tabindex="0" role="link"><title>networks.dhcpServer</title>
+<polygon fill="none" stroke="#b4b2a9" points="539.25,-582.21 539.25,-602.96 615.5,-602.96 615.5,-582.21 539.25,-582.21"/>
+<text text-anchor="start" x="543.25" y="-588.71" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">dhcpServer</text>
+</a>
+</g>
+<g id="a_node3_119"><a data-target="networks-dhcpserver" tabindex="0" role="link"><title>networks.dhcpServer</title>
+<polygon fill="none" stroke="#b4b2a9" points="615.5,-582.21 615.5,-602.96 660.25,-602.96 660.25,-582.21 615.5,-582.21"/>
+<text text-anchor="start" x="619.5" y="-589.46" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">→ hosts</text>
+</a>
+</g>
+<g id="a_node3_120"><a data-target="networks-ipv4" tabindex="0" role="link"><title>networks.ipv4</title>
+<polygon fill="none" stroke="#b4b2a9" points="539.25,-562.96 539.25,-582.21 615.5,-582.21 615.5,-562.96 539.25,-562.96"/>
+<text text-anchor="start" x="543.25" y="-568.71" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">ipv4</text>
+</a>
+</g>
+<g id="a_node3_121"><a data-target="networks-ipv4" tabindex="0" role="link"><title>networks.ipv4</title>
+<polygon fill="none" stroke="#b4b2a9" points="615.5,-562.96 615.5,-582.21 660.25,-582.21 660.25,-562.96 615.5,-562.96"/>
+<text text-anchor="start" x="619.5" y="-568.71" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
+</a>
+</g>
+<g id="a_node3_122"><a data-target="networks-ipv6" tabindex="0" role="link"><title>networks.ipv6</title>
+<polygon fill="none" stroke="#b4b2a9" points="539.25,-543.71 539.25,-562.96 615.5,-562.96 615.5,-543.71 539.25,-543.71"/>
+<text text-anchor="start" x="543.25" y="-549.46" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">ipv6</text>
+</a>
+</g>
+<g id="a_node3_123"><a data-target="networks-ipv6" tabindex="0" role="link"><title>networks.ipv6</title>
+<polygon fill="none" stroke="#b4b2a9" points="615.5,-543.71 615.5,-562.96 660.25,-562.96 660.25,-543.71 615.5,-543.71"/>
+<text text-anchor="start" x="619.5" y="-549.46" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
+</a>
+</g>
+<g id="a_node3_124"><a data-target="networks-ipv6subnetid" tabindex="0" role="link"><title>networks.ipv6SubnetId</title>
+<polygon fill="none" stroke="#b4b2a9" points="539.25,-524.46 539.25,-543.71 615.5,-543.71 615.5,-524.46 539.25,-524.46"/>
+<text text-anchor="start" x="543.25" y="-530.21" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">ipv6SubnetId</text>
+</a>
+</g>
+<g id="a_node3_125"><a data-target="networks-ipv6subnetid" tabindex="0" role="link"><title>networks.ipv6SubnetId</title>
+<polygon fill="none" stroke="#b4b2a9" points="615.5,-524.46 615.5,-543.71 660.25,-543.71 660.25,-524.46 615.5,-524.46"/>
+<text text-anchor="start" x="619.5" y="-530.21" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">integer</text>
+</a>
+</g>
+<g id="a_node3_126"><a data-target="networks-name" tabindex="0" role="link"><title>networks.name</title>
+<polygon fill="none" stroke="#b4b2a9" points="539.25,-505.21 539.25,-524.46 615.5,-524.46 615.5,-505.21 539.25,-505.21"/>
+<text text-anchor="start" x="543.25" y="-511.96" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">name</text>
+</a>
+</g>
+<g id="a_node3_127"><a data-target="networks-name" tabindex="0" role="link"><title>networks.name</title>
+<polygon fill="none" stroke="#b4b2a9" points="615.5,-505.21 615.5,-524.46 660.25,-524.46 660.25,-505.21 615.5,-505.21"/>
+<text text-anchor="start" x="619.5" y="-510.96" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
+</a>
+</g>
+<g id="a_node3_128"><a data-target="networks-note" tabindex="0" role="link"><title>networks.note</title>
+<polygon fill="none" stroke="#b4b2a9" points="539.25,-485.96 539.25,-505.21 615.5,-505.21 615.5,-485.96 539.25,-485.96"/>
+<text text-anchor="start" x="543.25" y="-491.71" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">note</text>
+</a>
+</g>
+<g id="a_node3_129"><a data-target="networks-note" tabindex="0" role="link"><title>networks.note</title>
+<polygon fill="none" stroke="#b4b2a9" points="615.5,-485.96 615.5,-505.21 660.25,-505.21 660.25,-485.96 615.5,-485.96"/>
+<text text-anchor="start" x="619.5" y="-491.71" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
+</a>
+</g>
+<g id="a_node3_130"><a data-target="networks-site" tabindex="0" role="link"><title>networks.site</title>
+<polygon fill="none" stroke="#b4b2a9" points="539.25,-465.21 539.25,-485.96 615.5,-485.96 615.5,-465.21 539.25,-465.21"/>
+<text text-anchor="start" x="543.25" y="-472.71" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">site</text>
+</a>
+</g>
+<g id="a_node3_131"><a data-target="networks-site" tabindex="0" role="link"><title>networks.site</title>
+<polygon fill="none" stroke="#b4b2a9" points="615.5,-465.21 615.5,-485.96 660.25,-485.96 660.25,-465.21 615.5,-465.21"/>
+<text text-anchor="start" x="619.5" y="-472.46" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">→ sites</text>
+</a>
+</g>
+<g id="a_node3_132"><a data-target="networks-vlan" tabindex="0" role="link"><title>networks.vlan</title>
+<polygon fill="none" stroke="#b4b2a9" points="539.25,-445.96 539.25,-465.21 615.5,-465.21 615.5,-445.96 539.25,-445.96"/>
+<text text-anchor="start" x="543.25" y="-451.71" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">vlan</text>
+</a>
+</g>
+<g id="a_node3_133"><a data-target="networks-vlan" tabindex="0" role="link"><title>networks.vlan</title>
+<polygon fill="none" stroke="#b4b2a9" points="615.5,-445.96 615.5,-465.21 660.25,-465.21 660.25,-445.96 615.5,-445.96"/>
+<text text-anchor="start" x="619.5" y="-451.71" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">integer</text>
+</a>
+</g>
+</g>
+<g id="edge3" class="edge">
+<title>hosts:e&#45;&gt;networks:h</title>
+<path fill="none" stroke="#888780" stroke-width="1.1" d="M474.25,-490.84C556.45,-490.84 460.76,-659.3 531.84,-669.82"/>
+<polygon fill="#888780" stroke="#888780" stroke-width="1.1" points="531.46,-671.9 537.59,-670.22 531.75,-667.71 531.46,-671.9"/>
+</g>
+<g id="node4" class="node">
+<title>owners</title>
+<polygon fill="#f1efe8" stroke="none" points="635.88,-325.46 563.62,-325.46 563.62,-248.46 635.88,-248.46 635.88,-325.46"/>
+<polygon fill="#f1efe8" stroke="none" points="563.62,-248.46 563.62,-325.46 635.88,-325.46 635.88,-248.46 563.62,-248.46"/>
+<g id="a_node4_134"><a data-target="owners" tabindex="0" role="link"><title>owners</title>
+<polygon fill="#d3d1c7" stroke="none" points="563.62,-306.21 563.62,-325.46 635.88,-325.46 635.88,-306.21 563.62,-306.21"/>
+<polygon fill="none" stroke="#b4b2a9" points="563.62,-306.21 563.62,-325.46 635.88,-325.46 635.88,-306.21 563.62,-306.21"/>
+<text text-anchor="start" x="582.88" y="-312.96" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">owners</text>
+</a>
+</g>
+<g id="a_node4_135"><a data-target="owners-contact" tabindex="0" role="link"><title>owners.contact</title>
+<polygon fill="none" stroke="#b4b2a9" points="563.62,-286.96 563.62,-306.21 603.88,-306.21 603.88,-286.96 563.62,-286.96"/>
+<text text-anchor="start" x="567.62" y="-292.71" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">contact</text>
+</a>
+</g>
+<g id="a_node4_136"><a data-target="owners-contact" tabindex="0" role="link"><title>owners.contact</title>
+<polygon fill="none" stroke="#b4b2a9" points="603.88,-286.96 603.88,-306.21 635.88,-306.21 635.88,-286.96 603.88,-286.96"/>
+<text text-anchor="start" x="607.88" y="-292.71" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
+</a>
+</g>
+<g id="a_node4_137"><a data-target="owners-name" tabindex="0" role="link"><title>owners.name</title>
+<polygon fill="none" stroke="#b4b2a9" points="563.62,-267.71 563.62,-286.96 603.88,-286.96 603.88,-267.71 563.62,-267.71"/>
+<text text-anchor="start" x="567.62" y="-274.46" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">name</text>
+</a>
+</g>
+<g id="a_node4_138"><a data-target="owners-name" tabindex="0" role="link"><title>owners.name</title>
+<polygon fill="none" stroke="#b4b2a9" points="603.88,-267.71 603.88,-286.96 635.88,-286.96 635.88,-267.71 603.88,-267.71"/>
+<text text-anchor="start" x="607.88" y="-273.46" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
+</a>
+</g>
+<g id="a_node4_139"><a data-target="owners-note" tabindex="0" role="link"><title>owners.note</title>
+<polygon fill="none" stroke="#b4b2a9" points="563.62,-248.46 563.62,-267.71 603.88,-267.71 603.88,-248.46 563.62,-248.46"/>
+<text text-anchor="start" x="567.62" y="-254.21" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">note</text>
+</a>
+</g>
+<g id="a_node4_140"><a data-target="owners-note" tabindex="0" role="link"><title>owners.note</title>
+<polygon fill="none" stroke="#b4b2a9" points="603.88,-248.46 603.88,-267.71 635.88,-267.71 635.88,-248.46 603.88,-248.46"/>
+<text text-anchor="start" x="607.88" y="-254.21" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
+</a>
+</g>
+</g>
+<g id="edge4" class="edge">
+<title>hosts:e&#45;&gt;owners:h</title>
+<path fill="none" stroke="#888780" stroke-width="1.1" d="M474.25,-314.59C510.92,-314.59 521.91,-315.68 555.17,-315.82"/>
+<polygon fill="#888780" stroke="#888780" stroke-width="1.1" points="554.96,-317.92 560.96,-315.84 554.96,-313.72 554.96,-317.92"/>
+</g>
+<g id="node7" class="node">
+<title>sites</title>
+<polygon fill="#f1efe8" stroke="none" points="828.25,-485.84 725.25,-485.84 725.25,-348.09 828.25,-348.09 828.25,-485.84"/>
+<polygon fill="#f1efe8" stroke="none" points="725.25,-348.09 725.25,-485.84 828.25,-485.84 828.25,-348.09 725.25,-348.09"/>
+<g id="a_node7_141"><a data-target="sites" tabindex="0" role="link"><title>sites</title>
+<polygon fill="#d3d1c7" stroke="none" points="725.25,-466.59 725.25,-485.84 828.25,-485.84 828.25,-466.59 725.25,-466.59"/>
+<polygon fill="none" stroke="#b4b2a9" points="725.25,-466.59 725.25,-485.84 828.25,-485.84 828.25,-466.59 725.25,-466.59"/>
+<text text-anchor="start" x="765.88" y="-473.34" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">sites</text>
+</a>
+</g>
+<g id="a_node7_142"><a data-target="sites-city" tabindex="0" role="link"><title>sites.city</title>
+<polygon fill="none" stroke="#b4b2a9" points="725.25,-447.34 725.25,-466.59 767.75,-466.59 767.75,-447.34 725.25,-447.34"/>
+<text text-anchor="start" x="729.25" y="-454.09" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">city</text>
+</a>
+</g>
+<g id="a_node7_143"><a data-target="sites-city" tabindex="0" role="link"><title>sites.city</title>
+<polygon fill="none" stroke="#b4b2a9" points="767.75,-447.34 767.75,-466.59 828.25,-466.59 828.25,-447.34 767.75,-447.34"/>
+<text text-anchor="start" x="771.75" y="-453.09" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
+</a>
+</g>
+<g id="a_node7_144"><a data-target="sites-ipv6ula" tabindex="0" role="link"><title>sites.ipv6Ula</title>
+<polygon fill="none" stroke="#b4b2a9" points="725.25,-428.09 725.25,-447.34 767.75,-447.34 767.75,-428.09 725.25,-428.09"/>
+<text text-anchor="start" x="729.25" y="-433.84" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">ipv6Ula</text>
+</a>
+</g>
+<g id="a_node7_145"><a data-target="sites-ipv6ula" tabindex="0" role="link"><title>sites.ipv6Ula</title>
+<polygon fill="none" stroke="#b4b2a9" points="767.75,-428.09 767.75,-447.34 828.25,-447.34 828.25,-428.09 767.75,-428.09"/>
+<text text-anchor="start" x="771.75" y="-433.84" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
+</a>
+</g>
+<g id="a_node7_146"><a data-target="sites-kind" tabindex="0" role="link"><title>sites.kind</title>
+<polygon fill="none" stroke="#b4b2a9" points="725.25,-408.84 725.25,-428.09 767.75,-428.09 767.75,-408.84 725.25,-408.84"/>
+<text text-anchor="start" x="729.25" y="-415.59" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">kind</text>
+</a>
+</g>
+<g id="a_node7_147"><a data-target="sites-kind" tabindex="0" role="link"><title>sites.kind</title>
+<polygon fill="none" stroke="#b4b2a9" points="767.75,-408.84 767.75,-428.09 828.25,-428.09 828.25,-408.84 767.75,-408.84"/>
+<text text-anchor="start" x="771.75" y="-414.59" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">enum</text>
+</a>
+</g>
+<g id="a_node7_148"><a data-target="sites-note" tabindex="0" role="link"><title>sites.note</title>
+<polygon fill="none" stroke="#b4b2a9" points="725.25,-389.59 725.25,-408.84 767.75,-408.84 767.75,-389.59 725.25,-389.59"/>
+<text text-anchor="start" x="729.25" y="-395.34" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">note</text>
+</a>
+</g>
+<g id="a_node7_149"><a data-target="sites-note" tabindex="0" role="link"><title>sites.note</title>
+<polygon fill="none" stroke="#b4b2a9" points="767.75,-389.59 767.75,-408.84 828.25,-408.84 828.25,-389.59 767.75,-389.59"/>
+<text text-anchor="start" x="771.75" y="-395.34" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
+</a>
+</g>
+<g id="a_node7_150"><a data-target="sites-provider" tabindex="0" role="link"><title>sites.provider</title>
+<polygon fill="none" stroke="#b4b2a9" points="725.25,-368.84 725.25,-389.59 767.75,-389.59 767.75,-368.84 725.25,-368.84"/>
+<text text-anchor="start" x="729.25" y="-375.34" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">provider</text>
+</a>
+</g>
+<g id="a_node7_151"><a data-target="sites-provider" tabindex="0" role="link"><title>sites.provider</title>
+<polygon fill="none" stroke="#b4b2a9" points="767.75,-368.84 767.75,-389.59 828.25,-389.59 828.25,-368.84 767.75,-368.84"/>
+<text text-anchor="start" x="771.75" y="-376.09" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">→ providers</text>
+</a>
+</g>
+<g id="a_node7_152"><a data-target="sites-uplinks" tabindex="0" role="link"><title>sites.uplinks</title>
+<polygon fill="none" stroke="#b4b2a9" points="725.25,-348.09 725.25,-368.84 767.75,-368.84 767.75,-348.09 725.25,-348.09"/>
+<text text-anchor="start" x="729.25" y="-355.59" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">uplinks</text>
+</a>
+</g>
+<g id="a_node7_153"><a data-target="sites-uplinks" tabindex="0" role="link"><title>sites.uplinks</title>
+<polygon fill="none" stroke="#b4b2a9" points="767.75,-348.09 767.75,-368.84 828.25,-368.84 828.25,-348.09 767.75,-348.09"/>
+<text text-anchor="start" x="771.75" y="-355.34" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">[→ uplinks]</text>
+</a>
+</g>
+</g>
+<g id="edge5" class="edge">
+<title>hosts:e&#45;&gt;sites:h</title>
+<path fill="none" stroke="#888780" stroke-width="1.1" d="M474.25,-213.84C557.61,-213.84 597.4,-183.2 660.25,-237.96 740.98,-308.31 621.59,-468.16 717.63,-475.92"/>
+<polygon fill="#888780" stroke="#888780" stroke-width="1.1" points="717.51,-478.02 723.59,-476.15 717.67,-473.82 717.51,-478.02"/>
+</g>
+<g id="edge6" class="edge">
+<title>networks:e&#45;&gt;hosts:h</title>
+<path fill="none" stroke="#888780" stroke-width="1.1" d="M661.25,-592.59C700.09,-592.59 679.23,-646.08 660.25,-679.96 629.21,-735.37 586.16,-713.16 539.25,-755.96 506.01,-786.3 520.07,-835.35 481.49,-840.63"/>
+<polygon fill="#888780" stroke="#888780" stroke-width="1.1" points="481.77,-838.5 475.91,-840.98 482.03,-842.7 481.77,-838.5"/>
+</g>
+<g id="edge7" class="edge">
+<title>networks:e&#45;&gt;sites:h</title>
+<path fill="none" stroke="#888780" stroke-width="1.1" d="M660.25,-475.59C686.43,-475.59 694.82,-476.1 717.66,-476.2"/>
+<polygon fill="#888780" stroke="#888780" stroke-width="1.1" points="717.58,-478.3 723.59,-476.21 717.59,-474.1 717.58,-478.3"/>
+</g>
+<g id="node6" class="node">
+<title>services</title>
+<polygon fill="#f1efe8" stroke="none" points="174.25,-1127.96 0,-1127.96 0,-539.96 174.25,-539.96 174.25,-1127.96"/>
+<polygon fill="#f1efe8" stroke="none" points="0,-539.96 0,-1127.96 174.25,-1127.96 174.25,-539.96 0,-539.96"/>
+<g id="a_node6_154"><a data-target="services" tabindex="0" role="link"><title>services</title>
+<polygon fill="#d3d1c7" stroke="none" points="0,-1108.71 0,-1127.96 174.25,-1127.96 174.25,-1108.71 0,-1108.71"/>
+<polygon fill="none" stroke="#b4b2a9" points="0,-1108.71 0,-1127.96 174.25,-1127.96 174.25,-1108.71 0,-1108.71"/>
+<text text-anchor="start" x="68" y="-1115.46" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">services</text>
+</a>
+</g>
+<g id="a_node6_155"><a data-target="services-backup" tabindex="0" role="link"><title>services.backup</title>
+<polygon fill="none" stroke="#b4b2a9" points="0,-1089.46 0,-1108.71 107,-1108.71 107,-1089.46 0,-1089.46"/>
+<text text-anchor="start" x="4" y="-1095.21" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">backup</text>
+</a>
+</g>
+<g id="a_node6_156"><a data-target="services-backup" tabindex="0" role="link"><title>services.backup</title>
+<polygon fill="none" stroke="#b4b2a9" points="107,-1089.46 107,-1108.71 174.25,-1108.71 174.25,-1089.46 107,-1089.46"/>
+<text text-anchor="start" x="111" y="-1095.21" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">[object]</text>
+</a>
+</g>
+<g id="a_node6_157"><a data-target="services-backup-interval" tabindex="0" role="link"><title>services.backup[].interval</title>
+<polygon fill="none" stroke="#b4b2a9" points="0,-1070.21 0,-1089.46 107,-1089.46 107,-1070.21 0,-1070.21"/>
+<text text-anchor="start" x="4" y="-1075.96" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">backup[].interval</text>
+</a>
+</g>
+<g id="a_node6_158"><a data-target="services-backup-interval" tabindex="0" role="link"><title>services.backup[].interval</title>
+<polygon fill="none" stroke="#b4b2a9" points="107,-1070.21 107,-1089.46 174.25,-1089.46 174.25,-1070.21 107,-1070.21"/>
+<text text-anchor="start" x="111" y="-1075.96" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">enum</text>
+</a>
+</g>
+<g id="a_node6_159"><a data-target="services-backup-keep" tabindex="0" role="link"><title>services.backup[].keep</title>
+<polygon fill="none" stroke="#b4b2a9" points="0,-1050.96 0,-1070.21 107,-1070.21 107,-1050.96 0,-1050.96"/>
+<text text-anchor="start" x="4" y="-1056.71" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">backup[].keep</text>
+</a>
+</g>
+<g id="a_node6_160"><a data-target="services-backup-keep" tabindex="0" role="link"><title>services.backup[].keep</title>
+<polygon fill="none" stroke="#b4b2a9" points="107,-1050.96 107,-1070.21 174.25,-1070.21 174.25,-1050.96 107,-1050.96"/>
+<text text-anchor="start" x="111" y="-1056.71" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">object</text>
+</a>
+</g>
+<g id="a_node6_161"><a data-target="services-backup-keep-all" tabindex="0" role="link"><title>services.backup[].keep.all</title>
+<polygon fill="none" stroke="#b4b2a9" points="0,-1031.71 0,-1050.96 107,-1050.96 107,-1031.71 0,-1031.71"/>
+<text text-anchor="start" x="4" y="-1037.46" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">backup[].keep.all</text>
+</a>
+</g>
+<g id="a_node6_162"><a data-target="services-backup-keep-all" tabindex="0" role="link"><title>services.backup[].keep.all</title>
+<polygon fill="none" stroke="#b4b2a9" points="107,-1031.71 107,-1050.96 174.25,-1050.96 174.25,-1031.71 107,-1031.71"/>
+<text text-anchor="start" x="111" y="-1037.46" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">boolean</text>
+</a>
+</g>
+<g id="a_node6_163"><a data-target="services-backup-keep-daily" tabindex="0" role="link"><title>services.backup[].keep.daily</title>
+<polygon fill="none" stroke="#b4b2a9" points="0,-1012.46 0,-1031.71 107,-1031.71 107,-1012.46 0,-1012.46"/>
+<text text-anchor="start" x="4" y="-1018.21" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">backup[].keep.daily</text>
+</a>
+</g>
+<g id="a_node6_164"><a data-target="services-backup-keep-daily" tabindex="0" role="link"><title>services.backup[].keep.daily</title>
+<polygon fill="none" stroke="#b4b2a9" points="107,-1012.46 107,-1031.71 174.25,-1031.71 174.25,-1012.46 107,-1012.46"/>
+<text text-anchor="start" x="111" y="-1018.21" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">integer</text>
+</a>
+</g>
+<g id="a_node6_165"><a data-target="services-backup-keep-last" tabindex="0" role="link"><title>services.backup[].keep.last</title>
+<polygon fill="none" stroke="#b4b2a9" points="0,-993.21 0,-1012.46 107,-1012.46 107,-993.21 0,-993.21"/>
+<text text-anchor="start" x="4" y="-998.96" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">backup[].keep.last</text>
+</a>
+</g>
+<g id="a_node6_166"><a data-target="services-backup-keep-last" tabindex="0" role="link"><title>services.backup[].keep.last</title>
+<polygon fill="none" stroke="#b4b2a9" points="107,-993.21 107,-1012.46 174.25,-1012.46 174.25,-993.21 107,-993.21"/>
+<text text-anchor="start" x="111" y="-998.96" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">integer</text>
+</a>
+</g>
+<g id="a_node6_167"><a data-target="services-backup-keep-monthly" tabindex="0" role="link"><title>services.backup[].keep.monthly</title>
+<polygon fill="none" stroke="#b4b2a9" points="0,-973.96 0,-993.21 107,-993.21 107,-973.96 0,-973.96"/>
+<text text-anchor="start" x="4" y="-979.71" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">backup[].keep.monthly</text>
+</a>
+</g>
+<g id="a_node6_168"><a data-target="services-backup-keep-monthly" tabindex="0" role="link"><title>services.backup[].keep.monthly</title>
+<polygon fill="none" stroke="#b4b2a9" points="107,-973.96 107,-993.21 174.25,-993.21 174.25,-973.96 107,-973.96"/>
+<text text-anchor="start" x="111" y="-979.71" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">integer</text>
+</a>
+</g>
+<g id="a_node6_169"><a data-target="services-backup-keep-weekly" tabindex="0" role="link"><title>services.backup[].keep.weekly</title>
+<polygon fill="none" stroke="#b4b2a9" points="0,-954.71 0,-973.96 107,-973.96 107,-954.71 0,-954.71"/>
+<text text-anchor="start" x="4" y="-960.46" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">backup[].keep.weekly</text>
+</a>
+</g>
+<g id="a_node6_170"><a data-target="services-backup-keep-weekly" tabindex="0" role="link"><title>services.backup[].keep.weekly</title>
+<polygon fill="none" stroke="#b4b2a9" points="107,-954.71 107,-973.96 174.25,-973.96 174.25,-954.71 107,-954.71"/>
+<text text-anchor="start" x="111" y="-960.46" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">integer</text>
+</a>
+</g>
+<g id="a_node6_171"><a data-target="services-backup-method" tabindex="0" role="link"><title>services.backup[].method</title>
+<polygon fill="none" stroke="#b4b2a9" points="0,-935.46 0,-954.71 107,-954.71 107,-935.46 0,-935.46"/>
+<text text-anchor="start" x="4" y="-942.21" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">backup[].method</text>
+</a>
+</g>
+<g id="a_node6_172"><a data-target="services-backup-method" tabindex="0" role="link"><title>services.backup[].method</title>
+<polygon fill="none" stroke="#b4b2a9" points="107,-935.46 107,-954.71 174.25,-954.71 174.25,-935.46 107,-935.46"/>
+<text text-anchor="start" x="111" y="-941.21" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">enum</text>
+</a>
+</g>
+<g id="a_node6_173"><a data-target="services-backup-note" tabindex="0" role="link"><title>services.backup[].note</title>
+<polygon fill="none" stroke="#b4b2a9" points="0,-916.21 0,-935.46 107,-935.46 107,-916.21 0,-916.21"/>
+<text text-anchor="start" x="4" y="-921.96" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">backup[].note</text>
+</a>
+</g>
+<g id="a_node6_174"><a data-target="services-backup-note" tabindex="0" role="link"><title>services.backup[].note</title>
+<polygon fill="none" stroke="#b4b2a9" points="107,-916.21 107,-935.46 174.25,-935.46 174.25,-916.21 107,-916.21"/>
+<text text-anchor="start" x="111" y="-921.96" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
+</a>
+</g>
+<g id="a_node6_175"><a data-target="services-backup-to" tabindex="0" role="link"><title>services.backup[].to</title>
+<polygon fill="none" stroke="#b4b2a9" points="0,-895.46 0,-916.21 107,-916.21 107,-895.46 0,-895.46"/>
+<text text-anchor="start" x="4" y="-901.96" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">backup[].to</text>
+</a>
+</g>
+<g id="a_node6_176"><a data-target="services-backup-to" tabindex="0" role="link"><title>services.backup[].to</title>
+<polygon fill="none" stroke="#b4b2a9" points="107,-895.46 107,-916.21 174.25,-916.21 174.25,-895.46 107,-895.46"/>
+<text text-anchor="start" x="111" y="-902.71" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">→ services</text>
+</a>
+</g>
+<g id="a_node6_177"><a data-target="services-contracts" tabindex="0" role="link"><title>services.contracts</title>
+<polygon fill="none" stroke="#b4b2a9" points="0,-874.71 0,-895.46 107,-895.46 107,-874.71 0,-874.71"/>
+<text text-anchor="start" x="4" y="-881.21" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">contracts</text>
+</a>
+</g>
+<g id="a_node6_178"><a data-target="services-contracts" tabindex="0" role="link"><title>services.contracts</title>
+<polygon fill="none" stroke="#b4b2a9" points="107,-874.71 107,-895.46 174.25,-895.46 174.25,-874.71 107,-874.71"/>
+<text text-anchor="start" x="111" y="-881.96" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">[→ contracts]</text>
+</a>
+</g>
+<g id="a_node6_179"><a data-target="services-criticality" tabindex="0" role="link"><title>services.criticality</title>
+<polygon fill="none" stroke="#b4b2a9" points="0,-855.46 0,-874.71 107,-874.71 107,-855.46 0,-855.46"/>
+<text text-anchor="start" x="4" y="-861.21" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">criticality</text>
+</a>
+</g>
+<g id="a_node6_180"><a data-target="services-criticality" tabindex="0" role="link"><title>services.criticality</title>
+<polygon fill="none" stroke="#b4b2a9" points="107,-855.46 107,-874.71 174.25,-874.71 174.25,-855.46 107,-855.46"/>
+<text text-anchor="start" x="111" y="-861.21" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">enum</text>
+</a>
+</g>
+<g id="a_node6_181"><a data-target="services-data" tabindex="0" role="link"><title>services.data</title>
+<polygon fill="none" stroke="#b4b2a9" points="0,-836.21 0,-855.46 107,-855.46 107,-836.21 0,-836.21"/>
+<text text-anchor="start" x="4" y="-842.96" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">data</text>
+</a>
+</g>
+<g id="a_node6_182"><a data-target="services-data" tabindex="0" role="link"><title>services.data</title>
+<polygon fill="none" stroke="#b4b2a9" points="107,-836.21 107,-855.46 174.25,-855.46 174.25,-836.21 107,-836.21"/>
+<text text-anchor="start" x="111" y="-841.96" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">enum</text>
+</a>
+</g>
+<g id="a_node6_183"><a data-target="services-dependson" tabindex="0" role="link"><title>services.dependsOn</title>
+<polygon fill="none" stroke="#b4b2a9" points="0,-815.46 0,-836.21 107,-836.21 107,-815.46 0,-815.46"/>
+<text text-anchor="start" x="4" y="-821.96" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">dependsOn</text>
+</a>
+</g>
+<g id="a_node6_184"><a data-target="services-dependson" tabindex="0" role="link"><title>services.dependsOn</title>
+<polygon fill="none" stroke="#b4b2a9" points="107,-815.46 107,-836.21 174.25,-836.21 174.25,-815.46 107,-815.46"/>
+<text text-anchor="start" x="111" y="-822.71" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">[→ services]</text>
+</a>
+</g>
+<g id="a_node6_185"><a data-target="services-endpoints" tabindex="0" role="link"><title>services.endpoints</title>
+<polygon fill="none" stroke="#b4b2a9" points="0,-796.21 0,-815.46 107,-815.46 107,-796.21 0,-796.21"/>
+<text text-anchor="start" x="4" y="-801.96" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">endpoints</text>
+</a>
+</g>
+<g id="a_node6_186"><a data-target="services-endpoints" tabindex="0" role="link"><title>services.endpoints</title>
+<polygon fill="none" stroke="#b4b2a9" points="107,-796.21 107,-815.46 174.25,-815.46 174.25,-796.21 107,-796.21"/>
+<text text-anchor="start" x="111" y="-801.96" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">[object]</text>
+</a>
+</g>
+<g id="a_node6_187"><a data-target="services-endpoints-exposure" tabindex="0" role="link"><title>services.endpoints[].exposure</title>
+<polygon fill="none" stroke="#b4b2a9" points="0,-776.96 0,-796.21 107,-796.21 107,-776.96 0,-776.96"/>
+<text text-anchor="start" x="4" y="-783.71" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">endpoints[].exposure</text>
+</a>
+</g>
+<g id="a_node6_188"><a data-target="services-endpoints-exposure" tabindex="0" role="link"><title>services.endpoints[].exposure</title>
+<polygon fill="none" stroke="#b4b2a9" points="107,-776.96 107,-796.21 174.25,-796.21 174.25,-776.96 107,-776.96"/>
+<text text-anchor="start" x="111" y="-782.71" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">enum</text>
+</a>
+</g>
+<g id="a_node6_189"><a data-target="services-endpoints-fqdn" tabindex="0" role="link"><title>services.endpoints[].fqdn</title>
+<polygon fill="none" stroke="#b4b2a9" points="0,-757.71 0,-776.96 107,-776.96 107,-757.71 0,-757.71"/>
+<text text-anchor="start" x="4" y="-764.46" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">endpoints[].fqdn</text>
+</a>
+</g>
+<g id="a_node6_190"><a data-target="services-endpoints-fqdn" tabindex="0" role="link"><title>services.endpoints[].fqdn</title>
+<polygon fill="none" stroke="#b4b2a9" points="107,-757.71 107,-776.96 174.25,-776.96 174.25,-757.71 107,-757.71"/>
+<text text-anchor="start" x="111" y="-763.46" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
+</a>
+</g>
+<g id="a_node6_191"><a data-target="services-endpoints-note" tabindex="0" role="link"><title>services.endpoints[].note</title>
+<polygon fill="none" stroke="#b4b2a9" points="0,-738.46 0,-757.71 107,-757.71 107,-738.46 0,-738.46"/>
+<text text-anchor="start" x="4" y="-744.21" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">endpoints[].note</text>
+</a>
+</g>
+<g id="a_node6_192"><a data-target="services-endpoints-note" tabindex="0" role="link"><title>services.endpoints[].note</title>
+<polygon fill="none" stroke="#b4b2a9" points="107,-738.46 107,-757.71 174.25,-757.71 174.25,-738.46 107,-738.46"/>
+<text text-anchor="start" x="111" y="-744.21" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
+</a>
+</g>
+<g id="a_node6_193"><a data-target="services-endpoints-port" tabindex="0" role="link"><title>services.endpoints[].port</title>
+<polygon fill="none" stroke="#b4b2a9" points="0,-719.21 0,-738.46 107,-738.46 107,-719.21 0,-719.21"/>
+<text text-anchor="start" x="4" y="-724.96" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">endpoints[].port</text>
+</a>
+</g>
+<g id="a_node6_194"><a data-target="services-endpoints-port" tabindex="0" role="link"><title>services.endpoints[].port</title>
+<polygon fill="none" stroke="#b4b2a9" points="107,-719.21 107,-738.46 174.25,-738.46 174.25,-719.21 107,-719.21"/>
+<text text-anchor="start" x="111" y="-724.96" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">integer</text>
+</a>
+</g>
+<g id="a_node6_195"><a data-target="services-endpoints-via" tabindex="0" role="link"><title>services.endpoints[].via</title>
+<polygon fill="none" stroke="#b4b2a9" points="0,-698.46 0,-719.21 107,-719.21 107,-698.46 0,-698.46"/>
+<text text-anchor="start" x="4" y="-704.96" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">endpoints[].via</text>
+</a>
+</g>
+<g id="a_node6_196"><a data-target="services-endpoints-via" tabindex="0" role="link"><title>services.endpoints[].via</title>
+<polygon fill="none" stroke="#b4b2a9" points="107,-698.46 107,-719.21 174.25,-719.21 174.25,-698.46 107,-698.46"/>
+<text text-anchor="start" x="111" y="-705.71" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">→ services</text>
+</a>
+</g>
+<g id="a_node6_197"><a data-target="services-hosts" tabindex="0" role="link"><title>services.hosts</title>
+<polygon fill="none" stroke="#b4b2a9" points="0,-677.71 0,-698.46 107,-698.46 107,-677.71 0,-677.71"/>
+<text text-anchor="start" x="4" y="-684.21" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">hosts</text>
+</a>
+</g>
+<g id="a_node6_198"><a data-target="services-hosts" tabindex="0" role="link"><title>services.hosts</title>
+<polygon fill="none" stroke="#b4b2a9" points="107,-677.71 107,-698.46 174.25,-698.46 174.25,-677.71 107,-677.71"/>
+<text text-anchor="start" x="111" y="-684.96" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">[→ hosts]</text>
+</a>
+</g>
+<g id="a_node6_199"><a data-target="services-name" tabindex="0" role="link"><title>services.name</title>
+<polygon fill="none" stroke="#b4b2a9" points="0,-658.46 0,-677.71 107,-677.71 107,-658.46 0,-658.46"/>
+<text text-anchor="start" x="4" y="-665.21" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">name</text>
+</a>
+</g>
+<g id="a_node6_200"><a data-target="services-name" tabindex="0" role="link"><title>services.name</title>
+<polygon fill="none" stroke="#b4b2a9" points="107,-658.46 107,-677.71 174.25,-677.71 174.25,-658.46 107,-658.46"/>
+<text text-anchor="start" x="111" y="-664.21" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
+</a>
+</g>
+<g id="a_node6_201"><a data-target="services-note" tabindex="0" role="link"><title>services.note</title>
+<polygon fill="none" stroke="#b4b2a9" points="0,-639.21 0,-658.46 107,-658.46 107,-639.21 0,-639.21"/>
+<text text-anchor="start" x="4" y="-644.96" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">note</text>
+</a>
+</g>
+<g id="a_node6_202"><a data-target="services-note" tabindex="0" role="link"><title>services.note</title>
+<polygon fill="none" stroke="#b4b2a9" points="107,-639.21 107,-658.46 174.25,-658.46 174.25,-639.21 107,-639.21"/>
+<text text-anchor="start" x="111" y="-644.96" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
+</a>
+</g>
+<g id="a_node6_203"><a data-target="services-package" tabindex="0" role="link"><title>services.package</title>
+<polygon fill="none" stroke="#b4b2a9" points="0,-619.96 0,-639.21 107,-639.21 107,-619.96 0,-619.96"/>
+<text text-anchor="start" x="4" y="-625.71" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">package</text>
+</a>
+</g>
+<g id="a_node6_204"><a data-target="services-package" tabindex="0" role="link"><title>services.package</title>
+<polygon fill="none" stroke="#b4b2a9" points="107,-619.96 107,-639.21 174.25,-639.21 174.25,-619.96 107,-619.96"/>
+<text text-anchor="start" x="111" y="-625.71" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
+</a>
+</g>
+<g id="a_node6_205"><a data-target="services-provider" tabindex="0" role="link"><title>services.provider</title>
+<polygon fill="none" stroke="#b4b2a9" points="0,-599.21 0,-619.96 107,-619.96 107,-599.21 0,-599.21"/>
+<text text-anchor="start" x="4" y="-605.71" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">provider</text>
+</a>
+</g>
+<g id="a_node6_206"><a data-target="services-provider" tabindex="0" role="link"><title>services.provider</title>
+<polygon fill="none" stroke="#b4b2a9" points="107,-599.21 107,-619.96 174.25,-619.96 174.25,-599.21 107,-599.21"/>
+<text text-anchor="start" x="111" y="-606.46" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">→ providers</text>
+</a>
+</g>
+<g id="a_node6_207"><a data-target="services-software" tabindex="0" role="link"><title>services.software</title>
+<polygon fill="none" stroke="#b4b2a9" points="0,-579.96 0,-599.21 107,-599.21 107,-579.96 0,-579.96"/>
+<text text-anchor="start" x="4" y="-585.71" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">software</text>
+</a>
+</g>
+<g id="a_node6_208"><a data-target="services-software" tabindex="0" role="link"><title>services.software</title>
+<polygon fill="none" stroke="#b4b2a9" points="107,-579.96 107,-599.21 174.25,-599.21 174.25,-579.96 107,-579.96"/>
+<text text-anchor="start" x="111" y="-585.71" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
+</a>
+</g>
+<g id="a_node6_209"><a data-target="services-uses" tabindex="0" role="link"><title>services.uses</title>
+<polygon fill="none" stroke="#b4b2a9" points="0,-559.21 0,-579.96 107,-579.96 107,-559.21 0,-559.21"/>
+<text text-anchor="start" x="4" y="-565.71" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">uses</text>
+</a>
+</g>
+<g id="a_node6_210"><a data-target="services-uses" tabindex="0" role="link"><title>services.uses</title>
+<polygon fill="none" stroke="#b4b2a9" points="107,-559.21 107,-579.96 174.25,-579.96 174.25,-559.21 107,-559.21"/>
+<text text-anchor="start" x="111" y="-566.46" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">[→ services]</text>
+</a>
+</g>
+<g id="a_node6_211"><a data-target="services-version" tabindex="0" role="link"><title>services.version</title>
+<polygon fill="none" stroke="#b4b2a9" points="0,-539.96 0,-559.21 107,-559.21 107,-539.96 0,-539.96"/>
+<text text-anchor="start" x="4" y="-545.71" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">version</text>
+</a>
+</g>
+<g id="a_node6_212"><a data-target="services-version" tabindex="0" role="link"><title>services.version</title>
+<polygon fill="none" stroke="#b4b2a9" points="107,-539.96 107,-559.21 174.25,-559.21 174.25,-539.96 107,-539.96"/>
+<text text-anchor="start" x="111" y="-545.71" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
+</a>
+</g>
+</g>
+<g id="edge8" class="edge">
+<title>services:e&#45;&gt;contracts:h</title>
+<path fill="none" stroke="#888780" stroke-width="1.1" d="M174.25,-885.09C362.92,-885.09 410.08,-884.96 598.75,-884.96 598.75,-884.96 598.75,-884.96 777.75,-884.96 797.17,-884.96 1053.54,-736.72 1103.51,-717.61"/>
+<polygon fill="#888780" stroke="#888780" stroke-width="1.1" points="1103.93,-719.67 1109.15,-716.04 1102.8,-715.63 1103.93,-719.67"/>
+</g>
+<g id="edge9" class="edge">
+<title>services:e&#45;&gt;hosts:h</title>
+<path fill="none" stroke="#888780" stroke-width="1.1" d="M174.25,-688.09C245.39,-688.09 171.29,-829.94 231.66,-840.47"/>
+<polygon fill="#888780" stroke="#888780" stroke-width="1.1" points="231.44,-842.56 237.59,-840.96 231.78,-838.38 231.44,-842.56"/>
+</g>
+<g id="edge10" class="edge">
+<title>services:e&#45;&gt;providers:h</title>
+<path fill="none" stroke="#888780" stroke-width="1.1" d="M174.25,-609.59C298.12,-609.59 149.37,-141.21 239.25,-55.96 355.42,54.21 438.65,-32.96 598.75,-32.96 598.75,-32.96 598.75,-32.96 970.5,-32.96 1098.09,-32.96 1151.85,-32.46 1243.75,-120.96 1302.66,-177.7 1229.2,-292.03 1301.31,-299.12"/>
+<polygon fill="#888780" stroke="#888780" stroke-width="1.1" points="1301,-301.21 1307.09,-299.39 1301.19,-297.01 1301,-301.21"/>
+</g>
+<g id="edge11" class="edge">
+<title>sites:e&#45;&gt;providers:h</title>
+<path fill="none" stroke="#888780" stroke-width="1.1" d="M828.25,-379.21C924.92,-379.21 950.13,-393.16 1045.75,-378.96 1164.06,-361.4 1185.77,-301.97 1301.36,-299.54"/>
+<polygon fill="#888780" stroke="#888780" stroke-width="1.1" points="1301.11,-301.64 1307.09,-299.48 1301.06,-297.44 1301.11,-301.64"/>
+</g>
+<g id="node8" class="node">
+<title>uplinks</title>
+<polygon fill="#f1efe8" stroke="none" points="1045.75,-368.21 893.25,-368.21 893.25,-95.71 1045.75,-95.71 1045.75,-368.21"/>
+<polygon fill="#f1efe8" stroke="none" points="893.25,-95.71 893.25,-368.21 1045.75,-368.21 1045.75,-95.71 893.25,-95.71"/>
+<g id="a_node8_213"><a data-target="uplinks" tabindex="0" role="link"><title>uplinks</title>
+<polygon fill="#d3d1c7" stroke="none" points="893.25,-348.96 893.25,-368.21 1045.75,-368.21 1045.75,-348.96 893.25,-348.96"/>
+<polygon fill="none" stroke="#b4b2a9" points="893.25,-348.96 893.25,-368.21 1045.75,-368.21 1045.75,-348.96 893.25,-348.96"/>
+<text text-anchor="start" x="952.25" y="-355.71" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">uplinks</text>
+</a>
+</g>
+<g id="a_node8_214"><a data-target="uplinks-asn" tabindex="0" role="link"><title>uplinks.asn</title>
+<polygon fill="none" stroke="#b4b2a9" points="893.25,-329.71 893.25,-348.96 978.5,-348.96 978.5,-329.71 893.25,-329.71"/>
+<text text-anchor="start" x="897.25" y="-335.46" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">asn</text>
+</a>
+</g>
+<g id="a_node8_215"><a data-target="uplinks-asn" tabindex="0" role="link"><title>uplinks.asn</title>
+<polygon fill="none" stroke="#b4b2a9" points="978.5,-329.71 978.5,-348.96 1045.75,-348.96 1045.75,-329.71 978.5,-329.71"/>
+<text text-anchor="start" x="982.5" y="-335.46" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">integer</text>
+</a>
+</g>
+<g id="a_node8_216"><a data-target="uplinks-bandwidth" tabindex="0" role="link"><title>uplinks.bandwidth</title>
+<polygon fill="none" stroke="#b4b2a9" points="893.25,-310.46 893.25,-329.71 978.5,-329.71 978.5,-310.46 893.25,-310.46"/>
+<text text-anchor="start" x="897.25" y="-316.21" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">bandwidth</text>
+</a>
+</g>
+<g id="a_node8_217"><a data-target="uplinks-bandwidth" tabindex="0" role="link"><title>uplinks.bandwidth</title>
+<polygon fill="none" stroke="#b4b2a9" points="978.5,-310.46 978.5,-329.71 1045.75,-329.71 1045.75,-310.46 978.5,-310.46"/>
+<text text-anchor="start" x="982.5" y="-316.21" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">object</text>
+</a>
+</g>
+<g id="a_node8_218"><a data-target="uplinks-bandwidth-down" tabindex="0" role="link"><title>uplinks.bandwidth.down</title>
+<polygon fill="none" stroke="#b4b2a9" points="893.25,-291.21 893.25,-310.46 978.5,-310.46 978.5,-291.21 893.25,-291.21"/>
+<text text-anchor="start" x="897.25" y="-297.96" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">bandwidth.down</text>
+</a>
+</g>
+<g id="a_node8_219"><a data-target="uplinks-bandwidth-down" tabindex="0" role="link"><title>uplinks.bandwidth.down</title>
+<polygon fill="none" stroke="#b4b2a9" points="978.5,-291.21 978.5,-310.46 1045.75,-310.46 1045.75,-291.21 978.5,-291.21"/>
+<text text-anchor="start" x="982.5" y="-296.96" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">integer</text>
+</a>
+</g>
+<g id="a_node8_220"><a data-target="uplinks-bandwidth-up" tabindex="0" role="link"><title>uplinks.bandwidth.up</title>
+<polygon fill="none" stroke="#b4b2a9" points="893.25,-271.96 893.25,-291.21 978.5,-291.21 978.5,-271.96 893.25,-271.96"/>
+<text text-anchor="start" x="897.25" y="-278.71" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">bandwidth.up</text>
+</a>
+</g>
+<g id="a_node8_221"><a data-target="uplinks-bandwidth-up" tabindex="0" role="link"><title>uplinks.bandwidth.up</title>
+<polygon fill="none" stroke="#b4b2a9" points="978.5,-271.96 978.5,-291.21 1045.75,-291.21 1045.75,-271.96 978.5,-271.96"/>
+<text text-anchor="start" x="982.5" y="-277.71" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">integer</text>
+</a>
+</g>
+<g id="a_node8_222"><a data-target="uplinks-contracts" tabindex="0" role="link"><title>uplinks.contracts</title>
+<polygon fill="none" stroke="#b4b2a9" points="893.25,-251.21 893.25,-271.96 978.5,-271.96 978.5,-251.21 893.25,-251.21"/>
+<text text-anchor="start" x="897.25" y="-257.71" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">contracts</text>
+</a>
+</g>
+<g id="a_node8_223"><a data-target="uplinks-contracts" tabindex="0" role="link"><title>uplinks.contracts</title>
+<polygon fill="none" stroke="#b4b2a9" points="978.5,-251.21 978.5,-271.96 1045.75,-271.96 1045.75,-251.21 978.5,-251.21"/>
+<text text-anchor="start" x="982.5" y="-258.46" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">[→ contracts]</text>
+</a>
+</g>
+<g id="a_node8_224"><a data-target="uplinks-ipv4" tabindex="0" role="link"><title>uplinks.ipv4</title>
+<polygon fill="none" stroke="#b4b2a9" points="893.25,-231.96 893.25,-251.21 978.5,-251.21 978.5,-231.96 893.25,-231.96"/>
+<text text-anchor="start" x="897.25" y="-237.71" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">ipv4</text>
+</a>
+</g>
+<g id="a_node8_225"><a data-target="uplinks-ipv4" tabindex="0" role="link"><title>uplinks.ipv4</title>
+<polygon fill="none" stroke="#b4b2a9" points="978.5,-231.96 978.5,-251.21 1045.75,-251.21 1045.75,-231.96 978.5,-231.96"/>
+<text text-anchor="start" x="982.5" y="-237.71" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">enum</text>
+</a>
+</g>
+<g id="a_node8_226"><a data-target="uplinks-ipv4static" tabindex="0" role="link"><title>uplinks.ipv4Static</title>
+<polygon fill="none" stroke="#b4b2a9" points="893.25,-212.71 893.25,-231.96 978.5,-231.96 978.5,-212.71 893.25,-212.71"/>
+<text text-anchor="start" x="897.25" y="-218.46" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">ipv4Static</text>
+</a>
+</g>
+<g id="a_node8_227"><a data-target="uplinks-ipv4static" tabindex="0" role="link"><title>uplinks.ipv4Static</title>
+<polygon fill="none" stroke="#b4b2a9" points="978.5,-212.71 978.5,-231.96 1045.75,-231.96 1045.75,-212.71 978.5,-212.71"/>
+<text text-anchor="start" x="982.5" y="-218.46" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">boolean</text>
+</a>
+</g>
+<g id="a_node8_228"><a data-target="uplinks-ipv6" tabindex="0" role="link"><title>uplinks.ipv6</title>
+<polygon fill="none" stroke="#b4b2a9" points="893.25,-193.46 893.25,-212.71 978.5,-212.71 978.5,-193.46 893.25,-193.46"/>
+<text text-anchor="start" x="897.25" y="-199.21" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">ipv6</text>
+</a>
+</g>
+<g id="a_node8_229"><a data-target="uplinks-ipv6" tabindex="0" role="link"><title>uplinks.ipv6</title>
+<polygon fill="none" stroke="#b4b2a9" points="978.5,-193.46 978.5,-212.71 1045.75,-212.71 1045.75,-193.46 978.5,-193.46"/>
+<text text-anchor="start" x="982.5" y="-199.21" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">boolean</text>
+</a>
+</g>
+<g id="a_node8_230"><a data-target="uplinks-ipv6prefixlength" tabindex="0" role="link"><title>uplinks.ipv6PrefixLength</title>
+<polygon fill="none" stroke="#b4b2a9" points="893.25,-174.21 893.25,-193.46 978.5,-193.46 978.5,-174.21 893.25,-174.21"/>
+<text text-anchor="start" x="897.25" y="-179.96" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">ipv6PrefixLength</text>
+</a>
+</g>
+<g id="a_node8_231"><a data-target="uplinks-ipv6prefixlength" tabindex="0" role="link"><title>uplinks.ipv6PrefixLength</title>
+<polygon fill="none" stroke="#b4b2a9" points="978.5,-174.21 978.5,-193.46 1045.75,-193.46 1045.75,-174.21 978.5,-174.21"/>
+<text text-anchor="start" x="982.5" y="-179.96" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">integer</text>
+</a>
+</g>
+<g id="a_node8_232"><a data-target="uplinks-ipv6static" tabindex="0" role="link"><title>uplinks.ipv6Static</title>
+<polygon fill="none" stroke="#b4b2a9" points="893.25,-154.96 893.25,-174.21 978.5,-174.21 978.5,-154.96 893.25,-154.96"/>
+<text text-anchor="start" x="897.25" y="-160.71" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">ipv6Static</text>
+</a>
+</g>
+<g id="a_node8_233"><a data-target="uplinks-ipv6static" tabindex="0" role="link"><title>uplinks.ipv6Static</title>
+<polygon fill="none" stroke="#b4b2a9" points="978.5,-154.96 978.5,-174.21 1045.75,-174.21 1045.75,-154.96 978.5,-154.96"/>
+<text text-anchor="start" x="982.5" y="-160.71" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">boolean</text>
+</a>
+</g>
+<g id="a_node8_234"><a data-target="uplinks-medium" tabindex="0" role="link"><title>uplinks.medium</title>
+<polygon fill="none" stroke="#b4b2a9" points="893.25,-135.71 893.25,-154.96 978.5,-154.96 978.5,-135.71 893.25,-135.71"/>
+<text text-anchor="start" x="897.25" y="-141.46" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">medium</text>
+</a>
+</g>
+<g id="a_node8_235"><a data-target="uplinks-medium" tabindex="0" role="link"><title>uplinks.medium</title>
+<polygon fill="none" stroke="#b4b2a9" points="978.5,-135.71 978.5,-154.96 1045.75,-154.96 1045.75,-135.71 978.5,-135.71"/>
+<text text-anchor="start" x="982.5" y="-141.46" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">enum</text>
+</a>
+</g>
+<g id="a_node8_236"><a data-target="uplinks-note" tabindex="0" role="link"><title>uplinks.note</title>
+<polygon fill="none" stroke="#b4b2a9" points="893.25,-116.46 893.25,-135.71 978.5,-135.71 978.5,-116.46 893.25,-116.46"/>
+<text text-anchor="start" x="897.25" y="-122.21" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">note</text>
+</a>
+</g>
+<g id="a_node8_237"><a data-target="uplinks-note" tabindex="0" role="link"><title>uplinks.note</title>
+<polygon fill="none" stroke="#b4b2a9" points="978.5,-116.46 978.5,-135.71 1045.75,-135.71 1045.75,-116.46 978.5,-116.46"/>
+<text text-anchor="start" x="982.5" y="-122.21" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
+</a>
+</g>
+<g id="a_node8_238"><a data-target="uplinks-provider" tabindex="0" role="link"><title>uplinks.provider</title>
+<polygon fill="none" stroke="#b4b2a9" points="893.25,-95.71 893.25,-116.46 978.5,-116.46 978.5,-95.71 893.25,-95.71"/>
+<text text-anchor="start" x="897.25" y="-102.21" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">provider</text>
+</a>
+</g>
+<g id="a_node8_239"><a data-target="uplinks-provider" tabindex="0" role="link"><title>uplinks.provider</title>
+<polygon fill="none" stroke="#b4b2a9" points="978.5,-95.71 978.5,-116.46 1045.75,-116.46 1045.75,-95.71 978.5,-95.71"/>
+<text text-anchor="start" x="982.5" y="-102.96" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">→ providers</text>
+</a>
+</g>
+</g>
+<g id="edge12" class="edge">
+<title>sites:e&#45;&gt;uplinks:h</title>
+<path fill="none" stroke="#888780" stroke-width="1.1" d="M828.25,-358.46C854.43,-358.46 862.82,-358.57 885.66,-358.59"/>
+<polygon fill="#888780" stroke="#888780" stroke-width="1.1" points="885.58,-360.69 891.59,-358.59 885.59,-356.49 885.58,-360.69"/>
+</g>
+<g id="edge13" class="edge">
+<title>uplinks:e&#45;&gt;contracts:h</title>
+<path fill="none" stroke="#888780" stroke-width="1.1" d="M1045.75,-261.59C1247,-261.59 915.53,-704.14 1103.25,-715.37"/>
+<polygon fill="#888780" stroke="#888780" stroke-width="1.1" points="1103.03,-717.47 1109.09,-715.54 1103.15,-713.27 1103.03,-717.47"/>
+</g>
+<g id="edge14" class="edge">
+<title>uplinks:e&#45;&gt;providers:h</title>
+<path fill="none" stroke="#888780" stroke-width="1.1" d="M1045.75,-106.09C1188.28,-106.09 1164.57,-292.73 1301.26,-299.29"/>
+<polygon fill="#888780" stroke="#888780" stroke-width="1.1" points="1301.04,-301.38 1307.09,-299.43 1301.14,-297.18 1301.04,-301.38"/>
+</g>
+</g>
+</svg>
+</figure>
+
+Ein Klick auf den Kopf eines Abschnitts führt zu seinem Abschnitt weiter unten, ein Klick auf ein Feld zu seiner Zeile in der Feldtabelle; anderswo öffnet sich das Diagramm vergrößert. Als Datei: [inventory-schema.svg](site/de/assets/diagrams/inventory-schema.svg).
+
+### Konventionen
+
+**IDs.** Einträge haben eine ID als Schlüssel: Kleinbuchstaben, Ziffern und Bindestriche, am Anfang ein Buchstabe oder eine Ziffer (`grammi`, `realtox-dus`, `home-private`). Ein Verweisfeld enthält eine solche ID und muss einen vorhandenen Eintrag des richtigen Abschnitts nennen.
+
+**Pflicht und optional.** Ein Feld ist optional, wenn die Tabelle nicht *Pflicht* sagt. Fehlende optionale Felder füllt die abgeleitete Sicht auf – mit dem Standardwert aus der Tabelle, sonst `null` oder `[]` –, damit ein Nutzer der Daten nie `or` schreiben muss.
+
+**Unbekannte Felder sind Fehler.** Ein Tippfehler (`critcality`) wird mit der Liste der bekannten Felder gemeldet, im Editor sofort und in `nix flake check`.
+
+**Eine Richtung.** Jede Beziehung steht dort, wo sie beginnt (`hosts.runsOn`, `services.dependsOn`, `hosts.contracts`); die Gegenrichtung (`guests`, `neededBy`, `covers`) wird abgeleitet.
+
+**Formate.** Strings mit einem Format werden dagegen geprüft:
+
+| Format | Beispiel | Verwendet von |
+| --- | --- | --- |
+| IPv4-Adresse | `192.0.2.10` | `interfaces.<name>.ipv4.address`, `dhcpPool` |
+| IPv4-Präfix (ohne Host-Bits) | `192.0.2.0/24` | `networks.ipv4` |
+| IPv6-Präfix | `2001:db8:1::/64` | `networks.ipv6` |
+| ULA-/48 (in `fd00::/8`) | `fd12:3456:789a::/48` | `sites.ipv6Ula` |
+| MAC-Adresse, Kleinbuchstaben | `52:54:00:12:34:56` | `interfaces.<name>.mac` |
+| Link-Local | `eui64`, `stable-privacy`, `random` oder `fe80::1234` | `interfaces.<name>.linkLocal` |
+| SSH-Public-Key ohne Kommentar | `ssh-ed25519 AAAAC3Nz…` | `hosts.sshHostKeys` |
+| Datum | `2026-10-22` | `contracts.since`, `contracts.renews` |
+| Domainname, Kleinbuchstaben | `cloud.example.org` | `services.endpoints[].fqdn` |
+| Interface-Name | `eno1`, `eno1.20`, `wlp2s0f0` | Schlüssel von `hosts.interfaces` |
+
+**Geld** steht in ganzen Cent (`899` = 8,99) – keine Kommazahlen, keine Rundung.
+
+**Was das Schema nicht ausdrücken kann.** Ein JSON Schema prüft einen Eintrag für sich. Alles zwischen Einträgen – Verweise, Zyklen, Adressen innerhalb eines Präfixes, ein Vertrag mit dem richtigen Anbieter – prüft nur `inventory.nix`; jeder Abschnitt unten nennt diese Regeln kurz, [Prüfung](#prüfung) hat sie alle.
+
+### owners
+
+Wer ein Gerät administriert – wen man anruft und was geändert werden darf.
+
+| Feld | Typ | | Bedeutung (aus dem Schema, englisch) |
+| --- | --- | --- | --- |
+| <span id="owners-contact"></span>`contact` | String |  | Who to talk to when this owner's devices are affected. |
+| <span id="owners-name"></span>`name` | String | Pflicht | Display name. |
+| <span id="owners-note"></span>`note` | String |  | Free text: anything worth knowing that has no field of its own. |
+
+```json
+{
+  "owners": {
+    "lab": {
+      "name": "Example lab",
+      "contact": "admin@example.org"
+    },
+    "club": {
+      "name": "Example hackerspace",
+      "note": "Root on their hypervisor is root on our VM there."
+    }
+  }
+}
+```
+
+Regel über das Schema hinaus: Jeder Owner hat mindestens einen Host.
+
+### providers
+
+Eine Firma oder ein Verein, von dem das Lab abhängt: Provider, Hoster, ein von außen eingekaufter Dienst, der Hackerspace.
+
+| Feld | Typ | | Bedeutung (aus dem Schema, englisch) |
+| --- | --- | --- | --- |
+| <span id="providers-contact"></span>`contact` | String |  | How to reach them (support address, phone, ticket system). |
+| <span id="providers-name"></span>`name` | String | Pflicht | Display name of the company or club. |
+| <span id="providers-note"></span>`note` | String |  | Free text: anything worth knowing that has no field of its own. |
+| <span id="providers-url"></span>`url` | String |  | Website or customer portal. |
+
+```json
+{
+  "providers": {
+    "isp": {
+      "name": "Example ISP",
+      "url": "https://isp.example"
+    },
+    "hoster": {
+      "name": "Example Hosting",
+      "url": "https://hosting.example",
+      "contact": "support@hosting.example"
+    },
+    "club": {
+      "name": "Example hackerspace"
+    },
+    "mailco": {
+      "name": "Example Mail"
+    }
+  }
+}
+```
+
+Regel über das Schema hinaus: Auf jeden Anbieter verweist etwas – eine Site, ein Anschluss, ein Dienst oder ein Vertrag.
+
+### contracts
+
+Was an einen Anbieter bezahlt wird. Ein Anbieter kann mehrere haben; ein Host, Anschluss oder Dienst nennt die, über die er bezahlt wird.
+
+| Feld | Typ | | Bedeutung (aus dem Schema, englisch) |
+| --- | --- | --- | --- |
+| <span id="contracts-cost"></span>`cost` | Objekt |  | What it costs. Leave it out until known - the contract is then listed in pending. |
+| <span id="contracts-cost-amount"></span>`cost.amount` | Ganzzahl ≥ 0 | Pflicht | Amount per period in cents (899 = 8.99) - whole numbers only. |
+| <span id="contracts-cost-currency"></span>`cost.currency` | eins von `EUR` `USD` `CHF` `GBP` | Pflicht | Currency of amount. Totals are kept per currency, never converted. |
+| <span id="contracts-cost-duemonth"></span>`cost.dueMonth` | Ganzzahl 1–12 |  | Only with period year, and required there: the month (1-12) the yearly amount is charged in. |
+| <span id="contracts-cost-period"></span>`cost.period` | eins von `month` `year` `once` | Pflicht | How often amount is charged. |
+| <span id="contracts-note"></span>`note` | String |  | Free text: anything worth knowing that has no field of its own. |
+| <span id="contracts-notice"></span>`notice` | String |  | Notice period, as the contract words it. |
+| <span id="contracts-product"></span>`product` | String |  | Product or plan name as the provider calls it. |
+| <span id="contracts-provider"></span>`provider` | ID aus [providers](#providers-1) | Pflicht | Who the contract is with. |
+| <span id="contracts-renews"></span>`renews` | String: a date like 2026-10-22 |  | Next date the contract renews or ends unless cancelled. |
+| <span id="contracts-since"></span>`since` | String: a date like 2026-10-22 |  | Start of the contract. |
+
+```json
+{
+  "contracts": {
+    "fiber": {
+      "provider": "isp",
+      "product": "Fiber 600",
+      "cost": {
+        "amount": 4995,
+        "currency": "EUR",
+        "period": "month"
+      },
+      "since": "2024-05-01",
+      "notice": "1 month"
+    },
+    "vps": {
+      "provider": "hoster",
+      "product": "VPS M",
+      "cost": {
+        "amount": 12000,
+        "currency": "EUR",
+        "period": "year",
+        "dueMonth": 3
+      },
+      "since": "2025-03-01",
+      "renews": "2027-03-01"
+    },
+    "vps-ipv4": {
+      "provider": "hoster",
+      "product": "Additional IPv4",
+      "cost": {
+        "amount": 150,
+        "currency": "EUR",
+        "period": "month"
+      }
+    },
+    "mail": {
+      "provider": "mailco",
+      "cost": {
+        "amount": 3000,
+        "currency": "USD",
+        "period": "year",
+        "dueMonth": 11
+      }
+    }
+  }
+}
+```
+
+Regeln über das Schema hinaus: `cost.dueMonth` genau bei `period` `year`; `renews` nicht vor `since`; ein Vertrag, den ein Host, Anschluss oder Dienst nennt, ist mit dessen Anbieter geschlossen (bei einem Host: dem Anbieter seiner Site). Ein Vertrag ohne `cost` steht unter `pending`, einer, den nichts nennt, unter `gaps`.
+
+### uplinks
+
+Ein Internetanschluss. Alle Felder sind optional, damit ein Anschluss eingetragen werden kann, bevor seine Details bekannt sind.
+
+| Feld | Typ | | Bedeutung (aus dem Schema, englisch) |
+| --- | --- | --- | --- |
+| <span id="uplinks-asn"></span>`asn` | Ganzzahl ≥ 1 |  | Autonomous system number of the provider's network, without the AS prefix. |
+| <span id="uplinks-bandwidth"></span>`bandwidth` | Objekt |  | Booked bandwidth in Mbit/s. |
+| <span id="uplinks-bandwidth-down"></span>`bandwidth.down` | Ganzzahl ≥ 1 | Pflicht | Downstream in Mbit/s. |
+| <span id="uplinks-bandwidth-up"></span>`bandwidth.up` | Ganzzahl ≥ 1 | Pflicht | Upstream in Mbit/s. |
+| <span id="uplinks-contracts"></span>`contracts` | Liste von ID aus [contracts](#contracts-1), ohne Duplikate |  | The contracts this is paid for by (a rented VM, its extra IPv4, a line, a plan). |
+| <span id="uplinks-ipv4"></span>`ipv4` | eins von `public` `cgnat` `none` |  | What the line gives for IPv4. |
+| <span id="uplinks-ipv4static"></span>`ipv4Static` | Boolean |  | Whether the public IPv4 address is fixed. Only meaningful with ipv4 = public. |
+| <span id="uplinks-ipv6"></span>`ipv6` | Boolean |  | Whether the line has native IPv6. |
+| <span id="uplinks-ipv6prefixlength"></span>`ipv6PrefixLength` | Ganzzahl 1–128 |  | Size of the IPv6 prefix the provider delegates (e.g. 56 for a /56). Only with ipv6. |
+| <span id="uplinks-ipv6static"></span>`ipv6Static` | Boolean |  | Whether the delegated IPv6 prefix is fixed. Only with ipv6. |
+| <span id="uplinks-medium"></span>`medium` | eins von `fiber` `dsl` `cable` `lte` `satellite` `datacenter` |  | Kind of line. |
+| <span id="uplinks-note"></span>`note` | String |  | Free text: anything worth knowing that has no field of its own. |
+| <span id="uplinks-provider"></span>`provider` | ID aus [providers](#providers-1) |  | Internet provider (for a data centre: the hoster). |
+
+```json
+{
+  "uplinks": {
+    "home-fiber": {
+      "provider": "isp",
+      "contracts": [
+        "fiber"
+      ],
+      "asn": 64496,
+      "medium": "fiber",
+      "bandwidth": {
+        "down": 600,
+        "up": 300
+      },
+      "ipv4": "public",
+      "ipv4Static": false,
+      "ipv6": true,
+      "ipv6PrefixLength": 56,
+      "ipv6Static": false
+    },
+    "home-lte": {
+      "medium": "lte",
+      "ipv4": "cgnat",
+      "note": "Backup line, USB stick on the router."
+    },
+    "club-line": {
+      "medium": "cable",
+      "ipv4": "public",
+      "ipv4Static": true,
+      "ipv6": true
+    },
+    "dc": {
+      "provider": "hoster",
+      "asn": 64497,
+      "medium": "datacenter",
+      "ipv4": "public",
+      "ipv4Static": true,
+      "ipv6": true
+    }
+  }
+}
+```
+
+Regeln über das Schema hinaus: `ipv6PrefixLength` und `ipv6Static` nur mit `ipv6`; jeder Anschluss gehört zu einer Site; `contracts` sind mit dem `provider` des Anschlusses geschlossen.
+
+### sites
+
+Ein Ort, an dem Geräte stehen.
+
+| Feld | Typ | | Bedeutung (aus dem Schema, englisch) |
+| --- | --- | --- | --- |
+| <span id="sites-city"></span>`city` | String | Pflicht | City the site is in. |
+| <span id="sites-ipv6ula"></span>`ipv6Ula` | String: a ULA /48 like fd12:3456:789a::/48 |  | Unique local IPv6 prefix of the site (RFC 4193, random 40 bits). Only where the lab runs the network; its networks take their /64 by ipv6SubnetId. |
+| <span id="sites-kind"></span>`kind` | eins von `residential` `hackerspace` `club` `datacenter` | Pflicht | Kind of place. club: a club's premises the lab connects to (Remote, issue #84). |
+| <span id="sites-note"></span>`note` | String |  | Free text: anything worth knowing that has no field of its own. |
+| <span id="sites-provider"></span>`provider` | ID aus [providers](#providers-1) |  | Who runs the place (hoster, club); empty for a home. |
+| <span id="sites-uplinks"></span>`uplinks` | Liste von ID aus [uplinks](#uplinks-1), ohne Duplikate | Pflicht | Internet lines of the site, the primary one first, backups after it. |
+
+```json
+{
+  "sites": {
+    "home": {
+      "city": "Exampletown",
+      "kind": "residential",
+      "uplinks": [
+        "home-fiber",
+        "home-lte"
+      ],
+      "ipv6Ula": "fd12:3456:789a::/48"
+    },
+    "club": {
+      "city": "Exampletown",
+      "kind": "hackerspace",
+      "provider": "club",
+      "uplinks": [
+        "club-line"
+      ]
+    },
+    "dc": {
+      "city": "Exampleburg",
+      "kind": "datacenter",
+      "provider": "hoster",
+      "uplinks": [
+        "dc"
+      ]
+    }
+  }
+}
+```
+
+Regeln über das Schema hinaus: mindestens ein Anschluss, der primäre zuerst; an jeder Site steht etwas. `ipv6Ula` nur, wo das Lab das Netz selbst betreibt – einmal zufällig erzeugt (RFC 4193), danach nie geändert.
+
+### networks
+
+Ein Layer-2-Netz mit seinem IPv4-Präfix.
+
+| Feld | Typ | | Bedeutung (aus dem Schema, englisch) |
+| --- | --- | --- | --- |
+| <span id="networks-dhcppool"></span>`dhcpPool` | Objekt |  | Range the DHCP server hands out dynamically; static addresses must lie outside it. |
+| <span id="networks-dhcppool-end"></span>`dhcpPool.end` | String: an IPv4 address | Pflicht | Last address of the pool. |
+| <span id="networks-dhcppool-start"></span>`dhcpPool.start` | String: an IPv4 address | Pflicht | First address of the pool. |
+| <span id="networks-dhcpserver"></span>`dhcpServer` | ID aus [hosts](#hosts-2) |  | The host serving DHCP for IPv4 here; it needs an interface in this network. |
+| <span id="networks-ipv4"></span>`ipv4` | String: an IPv4 prefix like 192.0.2.0/24 |  | IPv4 prefix. |
+| <span id="networks-ipv6"></span>`ipv6` | String: an IPv6 prefix like 2001:db8::/64 |  | IPv6 prefix, when it is fixed (static GUA). A ULA from the site's ipv6Ula is derived, not entered. |
+| <span id="networks-ipv6subnetid"></span>`ipv6SubnetId` | Ganzzahl 0–65535 |  | Subnet id of the network, decimal (192, often the VLAN id): its /64 inside the site's ipv6Ula and inside the prefix the primary uplink delegates. The hex form is derived. |
+| <span id="networks-name"></span>`name` | String | Pflicht | Display name. |
+| <span id="networks-note"></span>`note` | String |  | Free text: anything worth knowing that has no field of its own. |
+| <span id="networks-site"></span>`site` | ID aus [sites](#sites-1) | Pflicht | Where the network is. |
+| <span id="networks-vlan"></span>`vlan` | Ganzzahl 1–4094 |  | 802.1Q VLAN id. Leave out for an untagged network. |
+
+```json
+{
+  "networks": {
+    "lan": {
+      "name": "Home LAN",
+      "site": "home",
+      "ipv4": "192.0.2.0/24",
+      "vlan": 192,
+      "ipv6": "2001:db8:1::/64",
+      "ipv6SubnetId": 192,
+      "dhcpServer": "router",
+      "dhcpPool": {
+        "start": "192.0.2.100",
+        "end": "192.0.2.199"
+      }
+    },
+    "club-v10": {
+      "name": "Hackerspace LAN",
+      "site": "club",
+      "vlan": 10,
+      "ipv4": "198.51.100.0/24"
+    }
+  }
+}
+```
+
+Regeln über das Schema hinaus: Das Präfix hat keine Host-Bits; der Pool liegt darin, Start vor Ende, und braucht `ipv4` und `dhcpServer`; der DHCP-Server steht an der Site und hat ein Interface im Netz; eine VLAN-ID nur einmal pro Site; `ipv6SubnetId` nur einmal pro Site und klein genug für das Präfix, das der primäre Anschluss delegiert (0–255 bei einem /56). Sie ist dezimal; die abgeleitete Sicht ergänzt `ipv6SubnetHex` und das ULA-`/64` des Netzes.
+
+### hosts
+
+Jedes Gerät mit einer Adresse, die zählt – von diesem Flake verwaltet oder nicht.
+
+| Feld | Typ | | Bedeutung (aus dem Schema, englisch) |
+| --- | --- | --- | --- |
+| <span id="hosts-availability"></span>`availability` | eins von `always-on` `intermittent` | Standard `"always-on"` | intermittent: being offline is normal (a laptop) and is not an incident. |
+| <span id="hosts-contracts"></span>`contracts` | Liste von ID aus [contracts](#contracts-1), ohne Duplikate |  | The contracts this is paid for by (a rented VM, its extra IPv4, a line, a plan). |
+| <span id="hosts-criticality"></span>`criticality` | eins von `core` `service` `lab` | Standard `"service"` | core: the lab stops working without it; service: a service is down; lab: nothing depends on it. |
+| <span id="hosts-description"></span>`description` | String |  | One short line (about 45 characters at most): what the device is for. Shown next to the host name in shell completion; anything longer goes in note. |
+| <span id="hosts-inside"></span>`inside` | ID aus [hosts](#hosts-2) |  | Physically built into another device, e.g. a PCIe KVM card in its host. |
+| <span id="hosts-interfaces"></span>`interfaces` | Objekt: Name → Objekt |  | Network interfaces by name (as the OS calls them; for an appliance any label like lan/wan). A VLAN interface (eno1.10) is an entry of its own. |
+| <span id="hosts-interfaces-name-connector"></span>`interfaces.<name>.connector` | eins von `qsfp-plus` `qsfp28` `rj45` `sfp` `sfp-plus` `sfp28` |  | Only ethernet: the port - rj45 or an SFP/QSFP cage. |
+| <span id="hosts-interfaces-name-dhcpv6duid"></span>`interfaces.<name>.dhcpv6Duid` | String: the DUID in lower-case hex, no separators |  | Only where the DHCPv6 client's DUID carries no MAC (type 4, DUID-UUID, as Home Assistant OS sends it): the DUID itself, so the router's reservation finds the host by it. Changes with a reinstall. |
+| <span id="hosts-interfaces-name-ipv4"></span>`interfaces.<name>.ipv4` | Objekt |  | IPv4 addressing of this interface in its network. |
+| <span id="hosts-interfaces-name-ipv4-address"></span>`interfaces.<name>.ipv4.address` | String: an IPv4 address |  | The address - required for reserved and static. |
+| <span id="hosts-interfaces-name-ipv4-mode"></span>`interfaces.<name>.ipv4.mode` | eins von `reserved` `static` `dhcp` | Pflicht | reserved: fixed DHCP lease by MAC; static: configured on the device; dhcp: dynamic. |
+| <span id="hosts-interfaces-name-linklocal"></span>`interfaces.<name>.linkLocal` | String: eui64, stable-privacy, random or an fe80:: address |  | How the IPv6 link-local address is formed: eui64 (computed from mac), stable-privacy (RFC 7217), random - or the fixed fe80:: address itself. |
+| <span id="hosts-interfaces-name-mac"></span>`interfaces.<name>.mac` | String: a lower-case MAC address like aa:bb:cc:dd:ee:ff |  | Hardware address, lower case. |
+| <span id="hosts-interfaces-name-maclocal"></span>`interfaces.<name>.macLocal` | Boolean |  | The mac is locally administered on purpose and expected to stay: a provider's VM NIC, or a device that ships with one. Required for such a mac, wrong for any other. Not for a private (random) Wi-Fi address, which does not belong in here at all. |
+| <span id="hosts-interfaces-name-medium"></span>`interfaces.<name>.medium` | eins von `ethernet` `wifi` |  | Physical medium. |
+| <span id="hosts-interfaces-name-module"></span>`interfaces.<name>.module` | Objekt |  | Only a cage (not rj45): what is plugged into it. |
+| <span id="hosts-interfaces-name-module-kind"></span>`interfaces.<name>.module.kind` | eins von `dac` `aoc` `sm` `mm` `copper` | Pflicht | dac/aoc: a fixed cable; sm/mm: a transceiver for singlemode/multimode fibre; copper: an RJ45 transceiver. |
+| <span id="hosts-interfaces-name-module-standard"></span>`interfaces.<name>.module.standard` | eins von `1000base-bx` `1000base-lx` `1000base-sx` `1000base-t` `10gbase-bx` `10gbase-er` `10gbase-lr` `10gbase-lrm` `10gbase-sr` `10gbase-t` `2.5gbase-t` `25gbase-lr` `25gbase-sr` |  | Only a transceiver (not dac/aoc): the standard printed on it, e.g. 10gbase-sr. |
+| <span id="hosts-interfaces-name-network"></span>`interfaces.<name>.network` | ID aus [networks](#networks-1) |  | The network this interface is in. |
+| <span id="hosts-interfaces-name-note"></span>`interfaces.<name>.note` | String |  | Free text: anything worth knowing that has no field of its own. |
+| <span id="hosts-interfaces-name-speed"></span>`interfaces.<name>.speed` | eins von `10` `100` `1000` `2500` `5000` `10000` `25000` `40000` `100000` |  | Only ethernet: the most this interface can do, in Mbit/s (2500 = 2.5G) - with what sits in its cage, not what the link partner negotiates. |
+| <span id="hosts-interfaces-name-wifistandard"></span>`interfaces.<name>.wifiStandard` | eins von `wifi4` `wifi5` `wifi6` `wifi6e` `wifi7` |  | Only wifi: the newest Wi-Fi generation the interface supports. |
+| <span id="hosts-kind"></span>`kind` | eins von `server` `hypervisor` `vm` `container` `router` `switch` `ap` `pdu` `ups` `kvm` `nas` `workstation` `laptop` `phone` `tablet` `watch` `appliance` | Pflicht | What the device is. |
+| <span id="hosts-managed"></span>`managed` | Boolean | Pflicht | Configured by this flake (nixosConfigurations/darwinConfigurations). Must match the flake. |
+| <span id="hosts-manages"></span>`manages` | Liste von ID aus [hosts](#hosts-2), ohne Duplikate |  | Only kvm: the machines this KVM gives out-of-band access to. |
+| <span id="hosts-model"></span>`model` | String |  | Hardware model without the vendor (ThinkCentre M720q), or for a VM the provider's product or plan name. |
+| <span id="hosts-note"></span>`note` | String |  | Free text: anything worth knowing that has no field of its own. |
+| <span id="hosts-owner"></span>`owner` | ID aus [owners](#owners-1) | Pflicht | Who administers the device. |
+| <span id="hosts-power"></span>`power` | ID aus [hosts](#hosts-2) |  | Where the power comes from: a PDU/UPS, a PoE switch, or the host a card sits in. |
+| <span id="hosts-productid"></span>`productId` | String |  | The vendor's product id for drivers and firmware: Lenovo machine type (10T7...), Apple model identifier (Mac16,10). Not for vm/container. |
+| <span id="hosts-runson"></span>`runsOn` | ID aus [hosts](#hosts-2) |  | Only vm/container: the machine it runs on. Optional - a rented VM's host is not in the inventory. |
+| <span id="hosts-serial"></span>`serial` | String |  | Serial number. Unique lab-wide. Not for vm/container. |
+| <span id="hosts-site"></span>`site` | ID aus [sites](#sites-1) |  | Where the device is. Optional for entries with runsOn or inside - they inherit it. |
+| <span id="hosts-sshhostkeys"></span>`sshHostKeys` | Liste von String: an OpenSSH public key "<type> <base64>" without comment, ohne Duplikate |  | The device's SSH host public keys (/etc/ssh/ssh_host_*_key.pub without the comment). Feeds known_hosts and the sops check. |
+| <span id="hosts-unlock"></span>`unlock` | Objekt |  | Disk unlock after a reboot. Leave it out for an unencrypted disk. |
+| <span id="hosts-unlock-fallback"></span>`unlock.fallback` | eins von `remote-ssh` `console` |  | How a human unlocks when the methods fail: over SSH (initrd, FileVault) or at the console/KVM. |
+| <span id="hosts-unlock-methods"></span>`unlock.methods` | Liste von eins von `tpm` `nbde`, ohne Duplikate | Pflicht | Automatic unlock methods. Empty when only a human can unlock. |
+| <span id="hosts-unlock-tang"></span>`unlock.tang` | Liste von ID aus [hosts](#hosts-2), ohne Duplikate |  | Tang servers for nbde; any one of them is enough. |
+| <span id="hosts-unlock-threshold"></span>`unlock.threshold` | Ganzzahl ≥ 1 | Standard `1` | How many of the methods must succeed (Clevis sss threshold). Defaults to 1. |
+| <span id="hosts-vendor"></span>`vendor` | String |  | Hardware manufacturer (Lenovo, Apple, GL.iNet). Not for vm/container. |
+
+```json
+{
+  "hosts": {
+    "router": {
+      "kind": "router",
+      "vendor": "Example Networks",
+      "model": "R1",
+      "site": "home",
+      "owner": "lab",
+      "managed": false,
+      "criticality": "core",
+      "interfaces": {
+        "lan": {
+          "network": "lan",
+          "ipv4": {
+            "mode": "static",
+            "address": "192.0.2.1"
+          }
+        }
+      }
+    },
+    "nas": {
+      "kind": "nas",
+      "vendor": "Example Corp",
+      "model": "NAS 4",
+      "productId": "EX-1000",
+      "serial": "NAS0001",
+      "site": "home",
+      "owner": "lab",
+      "managed": true,
+      "unlock": {
+        "methods": [
+          "tpm"
+        ],
+        "fallback": "console"
+      },
+      "sshHostKeys": [
+        "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINasNasNasNasNasNasNasNasNasNasNasNasNas"
+      ],
+      "interfaces": {
+        "eno1": {
+          "mac": "52:54:00:12:34:56",
+          "macLocal": true,
+          "medium": "ethernet",
+          "speed": 10000,
+          "connector": "sfp-plus",
+          "module": {
+            "kind": "mm",
+            "standard": "10gbase-sr"
+          },
+          "linkLocal": "eui64",
+          "network": "lan",
+          "ipv4": {
+            "mode": "reserved",
+            "address": "192.0.2.10"
+          }
+        }
+      }
+    },
+    "kvm": {
+      "kind": "kvm",
+      "inside": "nas",
+      "power": "nas",
+      "manages": [
+        "nas"
+      ],
+      "owner": "lab",
+      "managed": false,
+      "criticality": "lab"
+    },
+    "laptop": {
+      "kind": "laptop",
+      "vendor": "Example Corp",
+      "model": "Book 14",
+      "site": "home",
+      "owner": "lab",
+      "managed": true,
+      "criticality": "lab",
+      "availability": "intermittent",
+      "unlock": {
+        "methods": [],
+        "fallback": "console"
+      },
+      "interfaces": {
+        "wlan0": {
+          "mac": "aa:bb:cc:dd:ee:02",
+          "macLocal": true,
+          "medium": "wifi",
+          "wifiStandard": "wifi6",
+          "linkLocal": "stable-privacy",
+          "network": "lan",
+          "ipv4": {
+            "mode": "dhcp"
+          }
+        }
+      }
+    },
+    "pve": {
+      "kind": "hypervisor",
+      "site": "club",
+      "owner": "club",
+      "managed": false,
+      "interfaces": {
+        "vmbr0": {
+          "network": "club-v10",
+          "ipv4": {
+            "mode": "static",
+            "address": "198.51.100.2"
+          }
+        }
+      }
+    },
+    "club-vm": {
+      "kind": "vm",
+      "model": "Proxmox VM",
+      "runsOn": "pve",
+      "owner": "lab",
+      "managed": true,
+      "unlock": {
+        "methods": [
+          "nbde"
+        ],
+        "tang": [
+          "nas"
+        ],
+        "fallback": "remote-ssh"
+      },
+      "interfaces": {
+        "ens18": {
+          "mac": "bc:24:11:aa:bb:cc",
+          "medium": "ethernet",
+          "network": "club-v10",
+          "ipv4": {
+            "mode": "dhcp"
+          }
+        }
+      }
+    },
+    "vps": {
+      "kind": "vm",
+      "model": "VPS M",
+      "site": "dc",
+      "owner": "lab",
+      "managed": true,
+      "criticality": "core",
+      "contracts": [
+        "vps",
+        "vps-ipv4"
+      ],
+      "sshHostKeys": [
+        "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIVpsVpsVpsVpsVpsVpsVpsVpsVpsVpsVpsVpsVps"
+      ]
+    }
+  }
+}
+```
+
+Regeln über das Schema hinaus (die wichtigsten – [Prüfung](#prüfung) hat alle):
+
+- `site` ist Pflicht, außer sie lässt sich entlang `runsOn` oder `inside` erben, und eine angegebene stimmt mit der geerbten überein.
+- `runsOn` nur bei `vm`/`container`, auf einer erlaubten Geräteart; `manages` nur bei `kvm`; `vendor`/`productId`/`serial` nicht bei `vm`/`container`.
+- `runsOn`, `inside` und `power` ohne Zyklen; jeder Host mit `nbde` erreicht einen Tang-Server, der ohne Menschen hochkommt.
+- `managed` stimmt in beide Richtungen mit `flake.nix` überein.
+- Adressen: innerhalb des Präfixes des Netzes, passend zum Modus (`reserved` braucht `mac` und einen DHCP-Server, `static` liegt außerhalb des Pools), jede nur einmal pro Netz; MACs und Host-Keys nur einmal im ganzen Lab.
+
+### services
+
+Was die Hosts betreiben und was von außen eingekauft ist.
+
+| Feld | Typ | | Bedeutung (aus dem Schema, englisch) |
+| --- | --- | --- | --- |
+| <span id="services-backup"></span>`backup` | Liste von Objekt, ohne Duplikate |  | How its data is backed up. Only for stateful. |
+| <span id="services-backup-interval"></span>`backup[].interval` | eins von `hourly` `daily` `weekly` `monthly` |  | How often it runs. |
+| <span id="services-backup-keep"></span>`backup[].keep` | Objekt |  | Which versions are kept - at the target, or on the machine without to. Left out: unknown. |
+| <span id="services-backup-keep-all"></span>`backup[].keep.all` | Boolean |  | Only true, and only alone: every version is kept, nothing is ever pruned. |
+| <span id="services-backup-keep-daily"></span>`backup[].keep.daily` | Ganzzahl ≥ 1 |  | One per day for the last n days. |
+| <span id="services-backup-keep-last"></span>`backup[].keep.last` | Ganzzahl ≥ 1 |  | The newest n versions. |
+| <span id="services-backup-keep-monthly"></span>`backup[].keep.monthly` | Ganzzahl ≥ 1 |  | One per month for the last n months. |
+| <span id="services-backup-keep-weekly"></span>`backup[].keep.weekly` | Ganzzahl ≥ 1 |  | One per week for the last n weeks. |
+| <span id="services-backup-method"></span>`backup[].method` | eins von `restic` `arq` `btrbk` `pgdump` `provider-snapshot` `ha-backup` | Pflicht | restic/arq copy to another service (to); btrbk, pgdump and provider-snapshot stay on the same machine or provider; ha-backup (Home Assistant's own backup) stays on the machine without to, or goes to an upload target with to. |
+| <span id="services-backup-note"></span>`backup[].note` | String |  | Free text: anything worth knowing that has no field of its own. |
+| <span id="services-backup-to"></span>`backup[].to` | ID aus [services](#services-1) |  | The service the copy goes to - required with restic/arq, optional with ha-backup. |
+| <span id="services-contracts"></span>`contracts` | Liste von ID aus [contracts](#contracts-1), ohne Duplikate |  | The contracts this is paid for by (a rented VM, its extra IPv4, a line, a plan). |
+| <span id="services-criticality"></span>`criticality` | eins von `core` `service` `lab` | Standard `"service"` | core: the lab stops working without it; service: a service is down; lab: nothing depends on it. |
+| <span id="services-data"></span>`data` | eins von `stateful` `stateless` | Pflicht | stateful: it keeps data that is lost with it; stateless: it can be rebuilt from the repository. |
+| <span id="services-dependson"></span>`dependsOn` | Liste von ID aus [services](#services-1), ohne Duplikate |  | Services it cannot work without. |
+| <span id="services-endpoints"></span>`endpoints` | Liste von Objekt, ohne Duplikate |  | How the service is reached. |
+| <span id="services-endpoints-exposure"></span>`endpoints[].exposure` | eins von `public` `proxy` `mesh` `lan` `loopback` | Pflicht | public: open on the internet from its own host; proxy: through a reverse proxy (name it in via); mesh: only inside the overlay network; lan: only in a local network; loopback: only on the host itself. |
+| <span id="services-endpoints-fqdn"></span>`endpoints[].fqdn` | String: a lower-case domain name like cloud.example.org | Pflicht | Name it is reached by. |
+| <span id="services-endpoints-note"></span>`endpoints[].note` | String |  | Free text: anything worth knowing that has no field of its own. |
+| <span id="services-endpoints-port"></span>`endpoints[].port` | Ganzzahl 1–65535 |  | Port, when it is not the protocol's default. |
+| <span id="services-endpoints-via"></span>`endpoints[].via` | ID aus [services](#services-1) |  | The service it is reached through - the reverse proxy for exposure proxy (required there). Counts as a dependency. |
+| <span id="services-hosts"></span>`hosts` | Liste von ID aus [hosts](#hosts-2), ohne Duplikate |  | The machines it runs on. Exactly one of hosts and provider. |
+| <span id="services-name"></span>`name` | String | Pflicht | Display name. |
+| <span id="services-note"></span>`note` | String |  | Free text: anything worth knowing that has no field of its own. |
+| <span id="services-package"></span>`package` | String |  | Only on managed hosts: option path of the package in the host's configuration (services.paperless.package) - version, license and language are read from there. |
+| <span id="services-provider"></span>`provider` | ID aus [providers](#providers-1) |  | For a service bought from outside: who runs it. Exactly one of hosts and provider. |
+| <span id="services-software"></span>`software` | String |  | The software it is (Paperless-ngx, Garage) - the version comes from package or version. |
+| <span id="services-uses"></span>`uses` | Liste von ID aus [services](#services-1), ohne Duplikate |  | Services it works without, but degraded (new logins fail, one feature is missing). |
+| <span id="services-version"></span>`version` | String |  | Version, by hand - only where there is no package to read it from. |
+
+```json
+{
+  "services": {
+    "login": {
+      "name": "Login",
+      "software": "Example IdP",
+      "hosts": [
+        "vps"
+      ],
+      "package": "services.example-idp.package",
+      "criticality": "core",
+      "endpoints": [
+        {
+          "fqdn": "auth.example.org",
+          "exposure": "public"
+        }
+      ],
+      "uses": [
+        "mail"
+      ],
+      "data": "stateful",
+      "backup": [
+        {
+          "method": "restic",
+          "to": "storage",
+          "note": "Bucket vps-backups."
+        }
+      ]
+    },
+    "proxy": {
+      "name": "Reverse proxy",
+      "hosts": [
+        "vps"
+      ],
+      "criticality": "core",
+      "endpoints": [
+        {
+          "fqdn": "proxy.example.org",
+          "exposure": "public"
+        }
+      ],
+      "data": "stateless"
+    },
+    "storage": {
+      "name": "S3 storage",
+      "software": "Example S3",
+      "hosts": [
+        "nas"
+      ],
+      "endpoints": [
+        {
+          "fqdn": "s3.example.org",
+          "exposure": "lan",
+          "port": 3900
+        },
+        {
+          "fqdn": "s3-console.example.org",
+          "exposure": "proxy",
+          "via": "proxy"
+        }
+      ],
+      "data": "stateful",
+      "backup": [
+        {
+          "method": "btrbk",
+          "note": "Hourly snapshots on the same disk."
+        }
+      ]
+    },
+    "docs": {
+      "name": "Documents",
+      "hosts": [
+        "club-vm"
+      ],
+      "dependsOn": [
+        "login"
+      ],
+      "endpoints": [
+        {
+          "fqdn": "docs.example.org",
+          "exposure": "proxy",
+          "via": "proxy"
+        }
+      ],
+      "data": "stateful",
+      "backup": [
+        {
+          "method": "pgdump"
+        },
+        {
+          "method": "restic",
+          "to": "storage"
+        }
+      ]
+    },
+    "route": {
+      "name": "Route into the hackerspace",
+      "software": "Overlay routing peer",
+      "hosts": [
+        "club-vm"
+      ],
+      "data": "stateless"
+    },
+    "mail": {
+      "name": "Mail",
+      "provider": "mailco",
+      "contracts": [
+        "mail"
+      ],
+      "data": "stateful"
+    }
+  }
+}
+```
+
+Regeln über das Schema hinaus: genau eins von `hosts` und `provider`; `package` nur auf verwalteten Hosts und nicht zusammen mit `version`; kein `core`/`service`-Dienst auf einem `intermittent`-Host; keine harte Abhängigkeit (`dependsOn`, `via`) von einem weniger kritischen Dienst und keine im Kreis; `via` Pflicht bei `exposure` `proxy`; jeder `fqdn` nur einmal; `backup` nur bei `stateful`, `to` genau bei `restic`/`arq`. Ein `stateful`-Dienst, dessen Backups alle auf den eigenen Hosts bleiben – `storage` oben –, steht unter `gaps`.
+
+### Ein vollständiges Beispiel
+
+Ein gültiges Inventar mit allen Abschnitten – die Quelle der Beispiele oben, `docs/inventory-example.json`. Zum Kopieren als Anfang; `"$schema": "./inventory.schema.json"` ganz oben gibt dem Editor seine Vervollständigung.
+
+```json
+{
+  "owners": {
+    "lab": {
+      "name": "Example lab",
+      "contact": "admin@example.org"
+    },
+    "club": {
+      "name": "Example hackerspace",
+      "note": "Root on their hypervisor is root on our VM there."
+    }
+  },
+  "providers": {
+    "isp": {
+      "name": "Example ISP",
+      "url": "https://isp.example"
+    },
+    "hoster": {
+      "name": "Example Hosting",
+      "url": "https://hosting.example",
+      "contact": "support@hosting.example"
+    },
+    "club": {
+      "name": "Example hackerspace"
+    },
+    "mailco": {
+      "name": "Example Mail"
+    }
+  },
+  "contracts": {
+    "fiber": {
+      "provider": "isp",
+      "product": "Fiber 600",
+      "cost": {
+        "amount": 4995,
+        "currency": "EUR",
+        "period": "month"
+      },
+      "since": "2024-05-01",
+      "notice": "1 month"
+    },
+    "vps": {
+      "provider": "hoster",
+      "product": "VPS M",
+      "cost": {
+        "amount": 12000,
+        "currency": "EUR",
+        "period": "year",
+        "dueMonth": 3
+      },
+      "since": "2025-03-01",
+      "renews": "2027-03-01"
+    },
+    "vps-ipv4": {
+      "provider": "hoster",
+      "product": "Additional IPv4",
+      "cost": {
+        "amount": 150,
+        "currency": "EUR",
+        "period": "month"
+      }
+    },
+    "mail": {
+      "provider": "mailco",
+      "cost": {
+        "amount": 3000,
+        "currency": "USD",
+        "period": "year",
+        "dueMonth": 11
+      }
+    }
+  },
+  "uplinks": {
+    "home-fiber": {
+      "provider": "isp",
+      "contracts": [
+        "fiber"
+      ],
+      "asn": 64496,
+      "medium": "fiber",
+      "bandwidth": {
+        "down": 600,
+        "up": 300
+      },
+      "ipv4": "public",
+      "ipv4Static": false,
+      "ipv6": true,
+      "ipv6PrefixLength": 56,
+      "ipv6Static": false
+    },
+    "home-lte": {
+      "medium": "lte",
+      "ipv4": "cgnat",
+      "note": "Backup line, USB stick on the router."
+    },
+    "club-line": {
+      "medium": "cable",
+      "ipv4": "public",
+      "ipv4Static": true,
+      "ipv6": true
+    },
+    "dc": {
+      "provider": "hoster",
+      "asn": 64497,
+      "medium": "datacenter",
+      "ipv4": "public",
+      "ipv4Static": true,
+      "ipv6": true
+    }
+  },
+  "sites": {
+    "home": {
+      "city": "Exampletown",
+      "kind": "residential",
+      "uplinks": [
+        "home-fiber",
+        "home-lte"
+      ],
+      "ipv6Ula": "fd12:3456:789a::/48"
+    },
+    "club": {
+      "city": "Exampletown",
+      "kind": "hackerspace",
+      "provider": "club",
+      "uplinks": [
+        "club-line"
+      ]
+    },
+    "dc": {
+      "city": "Exampleburg",
+      "kind": "datacenter",
+      "provider": "hoster",
+      "uplinks": [
+        "dc"
+      ]
+    }
+  },
+  "networks": {
+    "lan": {
+      "name": "Home LAN",
+      "site": "home",
+      "ipv4": "192.0.2.0/24",
+      "vlan": 192,
+      "ipv6": "2001:db8:1::/64",
+      "ipv6SubnetId": 192,
+      "dhcpServer": "router",
+      "dhcpPool": {
+        "start": "192.0.2.100",
+        "end": "192.0.2.199"
+      }
+    },
+    "club-v10": {
+      "name": "Hackerspace LAN",
+      "site": "club",
+      "vlan": 10,
+      "ipv4": "198.51.100.0/24"
+    }
+  },
+  "hosts": {
+    "router": {
+      "kind": "router",
+      "vendor": "Example Networks",
+      "model": "R1",
+      "site": "home",
+      "owner": "lab",
+      "managed": false,
+      "criticality": "core",
+      "interfaces": {
+        "lan": {
+          "network": "lan",
+          "ipv4": {
+            "mode": "static",
+            "address": "192.0.2.1"
+          }
+        }
+      }
+    },
+    "nas": {
+      "kind": "nas",
+      "vendor": "Example Corp",
+      "model": "NAS 4",
+      "productId": "EX-1000",
+      "serial": "NAS0001",
+      "site": "home",
+      "owner": "lab",
+      "managed": true,
+      "unlock": {
+        "methods": [
+          "tpm"
+        ],
+        "fallback": "console"
+      },
+      "sshHostKeys": [
+        "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINasNasNasNasNasNasNasNasNasNasNasNasNas"
+      ],
+      "interfaces": {
+        "eno1": {
+          "mac": "52:54:00:12:34:56",
+          "macLocal": true,
+          "medium": "ethernet",
+          "speed": 10000,
+          "connector": "sfp-plus",
+          "module": {
+            "kind": "mm",
+            "standard": "10gbase-sr"
+          },
+          "linkLocal": "eui64",
+          "network": "lan",
+          "ipv4": {
+            "mode": "reserved",
+            "address": "192.0.2.10"
+          }
+        }
+      }
+    },
+    "kvm": {
+      "kind": "kvm",
+      "inside": "nas",
+      "power": "nas",
+      "manages": [
+        "nas"
+      ],
+      "owner": "lab",
+      "managed": false,
+      "criticality": "lab"
+    },
+    "laptop": {
+      "kind": "laptop",
+      "vendor": "Example Corp",
+      "model": "Book 14",
+      "site": "home",
+      "owner": "lab",
+      "managed": true,
+      "criticality": "lab",
+      "availability": "intermittent",
+      "unlock": {
+        "methods": [],
+        "fallback": "console"
+      },
+      "interfaces": {
+        "wlan0": {
+          "mac": "aa:bb:cc:dd:ee:02",
+          "macLocal": true,
+          "medium": "wifi",
+          "wifiStandard": "wifi6",
+          "linkLocal": "stable-privacy",
+          "network": "lan",
+          "ipv4": {
+            "mode": "dhcp"
+          }
+        }
+      }
+    },
+    "pve": {
+      "kind": "hypervisor",
+      "site": "club",
+      "owner": "club",
+      "managed": false,
+      "interfaces": {
+        "vmbr0": {
+          "network": "club-v10",
+          "ipv4": {
+            "mode": "static",
+            "address": "198.51.100.2"
+          }
+        }
+      }
+    },
+    "club-vm": {
+      "kind": "vm",
+      "model": "Proxmox VM",
+      "runsOn": "pve",
+      "owner": "lab",
+      "managed": true,
+      "unlock": {
+        "methods": [
+          "nbde"
+        ],
+        "tang": [
+          "nas"
+        ],
+        "fallback": "remote-ssh"
+      },
+      "interfaces": {
+        "ens18": {
+          "mac": "bc:24:11:aa:bb:cc",
+          "medium": "ethernet",
+          "network": "club-v10",
+          "ipv4": {
+            "mode": "dhcp"
+          }
+        }
+      }
+    },
+    "vps": {
+      "kind": "vm",
+      "model": "VPS M",
+      "site": "dc",
+      "owner": "lab",
+      "managed": true,
+      "criticality": "core",
+      "contracts": [
+        "vps",
+        "vps-ipv4"
+      ],
+      "sshHostKeys": [
+        "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIVpsVpsVpsVpsVpsVpsVpsVpsVpsVpsVpsVpsVps"
+      ]
+    }
+  },
+  "services": {
+    "login": {
+      "name": "Login",
+      "software": "Example IdP",
+      "hosts": [
+        "vps"
+      ],
+      "package": "services.example-idp.package",
+      "criticality": "core",
+      "endpoints": [
+        {
+          "fqdn": "auth.example.org",
+          "exposure": "public"
+        }
+      ],
+      "uses": [
+        "mail"
+      ],
+      "data": "stateful",
+      "backup": [
+        {
+          "method": "restic",
+          "to": "storage",
+          "note": "Bucket vps-backups."
+        }
+      ]
+    },
+    "proxy": {
+      "name": "Reverse proxy",
+      "hosts": [
+        "vps"
+      ],
+      "criticality": "core",
+      "endpoints": [
+        {
+          "fqdn": "proxy.example.org",
+          "exposure": "public"
+        }
+      ],
+      "data": "stateless"
+    },
+    "storage": {
+      "name": "S3 storage",
+      "software": "Example S3",
+      "hosts": [
+        "nas"
+      ],
+      "endpoints": [
+        {
+          "fqdn": "s3.example.org",
+          "exposure": "lan",
+          "port": 3900
+        },
+        {
+          "fqdn": "s3-console.example.org",
+          "exposure": "proxy",
+          "via": "proxy"
+        }
+      ],
+      "data": "stateful",
+      "backup": [
+        {
+          "method": "btrbk",
+          "note": "Hourly snapshots on the same disk."
+        }
+      ]
+    },
+    "docs": {
+      "name": "Documents",
+      "hosts": [
+        "club-vm"
+      ],
+      "dependsOn": [
+        "login"
+      ],
+      "endpoints": [
+        {
+          "fqdn": "docs.example.org",
+          "exposure": "proxy",
+          "via": "proxy"
+        }
+      ],
+      "data": "stateful",
+      "backup": [
+        {
+          "method": "pgdump"
+        },
+        {
+          "method": "restic",
+          "to": "storage"
+        }
+      ]
+    },
+    "route": {
+      "name": "Route into the hackerspace",
+      "software": "Overlay routing peer",
+      "hosts": [
+        "club-vm"
+      ],
+      "data": "stateless"
+    },
+    "mail": {
+      "name": "Mail",
+      "provider": "mailco",
+      "contracts": [
+        "mail"
+      ],
+      "data": "stateful"
+    }
+  }
+}
+```
+
+Was `just inventory` daraus ableitet, zum Beispiel: `hosts.club-vm.site` ist `club` (geerbt von `pve`); `services.docs.upstreamHosts` ist `club-vm`, `pve`, `vps`; `providers.hoster.affects` ist `docs`, `login`, `proxy`; `costs.monthly` ist `{"EUR": 6145, "USD": 250}`, und in `costs.byMonth` trägt der November die 30,00 USD des Mail-Vertrags.
+
+### Im Editor
+
+`inventory.json` beginnt mit `"$schema": "./inventory.schema.json"`. Editoren, die JSON Schema lesen (VS Code, Zed, IntelliJ, Neovim mit einem JSON-Language-Server), bieten dann die Felder zur Vervollständigung an, zeigen die Beschreibungen aus den Tabellen oben beim Überfahren und unterstreichen falsche Typen, unbekannte Felder und fehlerhafte Werte schon beim Tippen. Verweise und alle Regeln zwischen Einträgen prüft erst `nix flake check` (oder `just inventory-test`).
+
+Nach einer Änderung an `spec` in `inventory.nix`: `just inventory-schema` und `just inventory-diagram`, ein Testfall in `tests/inventory.nix` und – wenn das Beispiel das neue Feld zeigen soll – `docs/inventory-example.json`. Die Checks schlagen fehl, bis alles zusammenpasst.
+
+## Lagekarte
+
+Jede Maschine und jeder Dienst aus dem [Inventar](#inventar), nach Standort: oben der Anschluss jedes Standorts mit seinen Netzen, darunter die Hosts mit den Diensten, die auf ihnen laufen, ganz unten die eingekauften Dienste nach Anbieter. Ein Klick auf einen Dienst oder Host zeichnet ein, wovon er abhängt, was er nutzt, wohin er gesichert wird und worüber er erreichbar ist, und zeigt daneben seinen Eintrag; die Namen dort sind wieder anklickbar. Rechts an einem Dienst steht je Endpunkt ein Kürzel, wie er erreichbar ist: `pub` öffentlich, `prox` über einen Proxy, `mesh` nur im Mesh, `lan` nur im LAN; ein Klick darauf wählt den Dienst mit diesem Endpunkt. Ein Klick auf eine freie Stelle der Karte vergrößert sie.
+
+<figure class="nx-labmap" data-default="mail">
+<div class="stats"><div><b>7</b><span>Hosts</span></div><div><b>4</b><span>vom Flake verwaltet</span></div><div><b>5</b><span>Dienste selbst betrieben</span></div><div><b>1</b><span>eingekauft</span></div><div><b>3</b><span>Standorte</span></div><div><b>4</b><span>Anbieter</span></div></div>
+<div class="nx-lm-layout">
+<div class="nx-lm-map"><svg class="nx-lm-edges" aria-hidden="true"></svg>
+<div class="nx-lm-sites">
+<section class="site" style="flex: 1 1 200px"><div class="site-head"><div class="row"><span class="site-code">dc</span><span class="site-city">Exampleburg · Rechenzentrum · Example Hosting</span></div><div class="uplink">Example Hosting · AS64497 · RZ-Anbindung · IPv4 statisch · IPv6</div></div><div class="hosts one"><div class="host" data-hostcard="vps" tabindex="0" role="button" aria-label="Host vps"><div class="host-top"><span class="host-name">vps</span></div><div class="host-kind">VM · VPS M</div><div class="pills"><span class="pill core">core</span><span class="pill managed">Flake</span></div><div class="chips"><span class="svc stateful c-core" data-svc="login" data-host="vps"><button type="button" class="nm" title="Example IdP">Login</button><span class="x"><button type="button" class="tg" data-ep="0" title="auth.example.org · öffentlich">pub</button></span></span><span class="svc c-core" data-svc="proxy" data-host="vps"><button type="button" class="nm" title="Reverse proxy">Reverse proxy</button><span class="x"><button type="button" class="tg" data-ep="0" title="proxy.example.org · öffentlich">pub</button></span></span></div></div></div></section>
+<section class="site" style="flex: 1 1 200px"><div class="site-head"><div class="row"><span class="site-code">club</span><span class="site-city">Exampletown · Hackerspace · Example hackerspace</span></div><div class="uplink">None · Kabel · IPv4 statisch · IPv6</div><div class="nets"><span class="net" title="Hackerspace LAN">198.51.100.0/24 · VLAN 10</span></div></div><div class="hosts one"><div class="host" data-hostcard="pve" tabindex="0" role="button" aria-label="Host pve"><div class="host-top"><span class="host-name">pve</span><span class=ip>198.51.100.2</span></div><div class="host-kind">Hypervisor</div><div class="pills"><span class="pill ext">gehört Example hackerspace</span></div><div class="guest"><div class="host" data-hostcard="club-vm" tabindex="0" role="button" aria-label="Host club-vm"><div class="host-top"><span class="host-name">club-vm</span></div><div class="host-kind">VM · Proxmox VM</div><div class="pills"><span class="pill managed">Flake</span></div><div class="chips"><span class="svc stateful" data-svc="docs" data-host="club-vm"><button type="button" class="nm" title="Documents">Documents</button><span class="x"><button type="button" class="tg" data-ep="0" title="docs.example.org · über Proxy">prox</button></span></span><span class="svc" data-svc="route" data-host="club-vm"><button type="button" class="nm" title="Overlay routing peer">Route into the hackerspace</button></span></div></div></div></div></div></section>
+<section class="site" style="flex: 3 1 600px"><div class="site-head"><div class="row"><span class="site-code">home</span><span class="site-city">Exampletown · Zuhause</span></div><div class="uplink">Example ISP · AS64496 · Glasfaser · ↓600 ↑300 Mbit/s · IPv4 dynamisch · IPv6 /56 dyn.<br>None · LTE · IPv4 dynamisch</div><div class="nets"><span class="net" title="Home LAN">192.0.2.0/24 · VLAN 192 · DHCP router</span></div></div><div class="hosts"><div class="host" data-hostcard="router" tabindex="0" role="button" aria-label="Host router"><div class="host-top"><span class="host-name">router</span><span class=ip>192.0.2.1</span></div><div class="host-kind">Router · Example Networks R1</div><div class="pills"><span class="pill core">core</span></div></div><div class="host" data-hostcard="laptop" tabindex="0" role="button" aria-label="Host laptop"><div class="host-top"><span class="host-name">laptop</span></div><div class="host-kind">Laptop · Example Corp Book 14</div><div class="pills"><span class="pill lab">lab</span><span class="pill managed">Flake</span><span class="pill ext">zeitweise</span></div></div><div class="host" data-hostcard="nas" tabindex="0" role="button" aria-label="Host nas"><div class="host-top"><span class="host-name">nas</span><span class=ip>192.0.2.10</span></div><div class="host-kind">NAS · Example Corp NAS 4</div><div class="pills"><span class="pill managed">Flake</span></div><div class="chips"><span class="svc stateful" data-svc="storage" data-host="nas"><button type="button" class="nm" title="Example S3">S3 storage</button><span class="x"><button type="button" class="tg" data-ep="0" title="s3.example.org:3900 · nur LAN">lan</button><button type="button" class="tg" data-ep="1" title="s3-console.example.org · über Proxy">prox</button></span></span></div><div class="guest"><div class="host" data-hostcard="kvm" tabindex="0" role="button" aria-label="Host kvm"><div class="host-top"><span class="host-name">kvm</span></div><div class="host-kind">KVM</div><div class="pills"><span class="pill lab">lab</span></div></div></div></div></div></section>
+<section class="site" style="flex: 1 1 100%"><div class="site-head"><div class="row"><span class="site-code">Extern</span><span class="site-city">eingekaufte und gehostete Dienste</span></div></div><div class="ext-groups"><div class="prov"><div class="prov-name">Example Mail</div><div class="chips"><span class="svc stateful" data-svc="mail"><button type="button" class="nm" title="Mail">Mail</button></span></div><div class="contract">30 USD/Jahr</div></div></div></section>
+</div></div>
+<div class="nx-lm-aside"><div class="box nx-lm-detail"><div class="box-title">Auswahl</div><p class="hint">Dienst oder Host anklicken, um Abhängigkeiten und Details zu sehen.</p></div><div class="box legend-box"><div class="box-title">Legende</div><div class="legend"><div><svg width="34" height="8" aria-hidden="true"><path d="M1 4H33" class="e-dep"/></svg>hängt ab von</div><div><svg width="34" height="8" aria-hidden="true"><path d="M1 4H33" class="e-use"/></svg>nutzt (optional)</div><div><svg width="34" height="8" aria-hidden="true"><path d="M1 4H33" class="e-bak"/></svg>Backup nach</div><div><svg width="34" height="8" aria-hidden="true"><path d="M1 4H33" class="e-via"/></svg>erreichbar über</div><div><span class="svc stateful demo"><span class="nm">Dienst</span></span> mit Daten <span class="svc demo"><span class="nm">Dienst</span></span> zustandslos</div><div class="abbr"><span class="tg">pub</span> öffentlich · <span class="tg">prox</span> über Proxy · <span class="tg">mesh</span> nur Mesh · <span class="tg">lan</span> nur LAN</div><div><span class="pill core">core</span><span class="pill service">service</span><span class="pill">lab</span><span class="pill managed">Flake</span> Kritikalität, vom Flake verwaltet</div></div><label class="toggle"><input type="checkbox" class="nx-lm-all"> Alle Beziehungen einblenden</label><button type="button" class="nx-lm-zoom">Vergrößern</button></div></div>
+</div>
+</figure>
+
+Die Karte wird bei jedem Doku-Bau aus `inventory.json` erzeugt (`docs/gen-lab-map.py`) und kann deshalb nicht veralten. SSH-Host-Keys, Seriennummern und MAC-Adressen stehen nicht darin. Im PDF stehen Standorte, Hosts und Dienste ohne die Linien.
+
+## Services
+
+Dienste sind nach Funktion benannt, nicht nach Produkt. Es gibt drei Arten der Erreichbarkeit: direkt öffentlich, öffentlich hinter dem NetBird-Reverse-Proxy mit SSO, oder nur im Mesh.
+
+| Name (`.homelab.example`) | App | Host | Erreichbar |
+| --- | --- | --- | --- |
+| `auth` | Pocket ID | zummi | öffentlich (nginx) |
+| `mesh` | NetBird Management/Dashboard | grammi | öffentlich (Traefik terminiert TLS) |
+| `s3.aldrin` | Garage S3-API | aldrin | öffentlich (nginx) |
+| `cloud` | OpenCloud | aldrin | öffentlich (nginx), Login über Pocket ID; nicht hinter dem Reverse Proxy, dessen SSO würde die Sync-Clients aufhalten |
+| `tabs` | WebDAV für floccus (rclone) | aldrin | öffentlich (nginx), ein Account mit Basic Auth ([warum](#floccus-tabs-und-lesezeichen-über-tabs)) |
+| `short.homelab.example` | Kurz-URL-Dienst (Chhoto URL) | aldrin | öffentlich (nginx), Codes ohne Login, Verwaltung unter `/admin/manage/` über Pocket ID |
+| `rezepte` | Mealie | grammi | Reverse Proxy + SSO |
+| `grist` | Grist | grammi | Reverse Proxy + SSO |
+| `logs` | logchef | grammi | Reverse Proxy + SSO |
+| `metrics` | Grafana | grammi | Reverse Proxy + SSO |
+| `dash` | Grafana, nur öffentliche Dashboards | grammi | Reverse Proxy ohne Login, Traefik lässt nur die Pfade öffentlicher Dashboards durch ([warum](#grafana-öffentliche-dashboards-über-dash)) |
+| `vm` / `vl` | VictoriaMetrics / VictoriaLogs UI | grammi | Reverse Proxy + SSO |
+| `alertmanager` / `alerts` | Alertmanager UI (Alarme, Silences) | grammi | Reverse Proxy + SSO, nur `homelab_admins` ([Alerting](#alerting)) |
+| `s3-admin` | garage-ui | aldrin | nur Mesh |
+| `dokumente` | Paperless + paperless-gpt (`/paperless-gpt/`) | ursalia | im Mesh direkt; von außen über den Reverse Proxy Freigabelinks per PIN und die App per SSO ([warum](#paperless-von-außen-freigabelinks-pin-und-app-sso)) |
+| `ollama` | Ollama (hinter Caddy) | zorlock | nur Mesh |
+| `health` | [HealthLog](https://github.com/MBombeck/HealthLog) ([`0497d60`](https://github.com/MBombeck/HealthLog/tree/0497d60a893784e709899cdb6fbdf155ef29e3e3) von Marc Bombeck) | ursalia | nur Mesh (auch die iOS-App braucht NetBird), Login nur über Pocket ID (Gruppe `healthlog_users`); eigene verschlüsselte Off-host-Kopien in Garage auf aldrin (Bucket `healthlog-backups`, 30 Tage) |
+| `bambuddy` | [Bambuddy](https://github.com/maziggy/bambuddy) ([`98ecaf5`](https://github.com/maziggy/bambuddy/tree/98ecaf5020e3a20a5de49859b8ad5a754d5ad85c) von MartinNYHC) | ursalia | über den Reverse Proxy mit SSO (Gruppen `bambuddy_user` / `bambuddy_admin`), danach Bambuddys eigener Login über Pocket ID; Drucker per IP im LAN-Modus; virtueller Drucker für Bambu Studio auf der LAN-Adresse von ursalia (Ports nur im Heimnetz, von außen über die NetBird-Route ins Heimnetz) |
+| `inv` | [OpenInvento](https://github.com/openinvento/openinvento) (mrtncode), Testsystem aus upstream `main` und unveröffentlichten Branches | ursalia | über den Reverse Proxy mit SSO (Gruppen `inventar_users` / `inventar_admins`), danach Login über Pocket ID ohne weitere Abfrage; Image lokal gebaut mit `just openinvento-image` |
+| `fotos` | [Immich](https://github.com/immich-app/immich) (Fotos und Videos) | ursalia | im Mesh direkt, Browser und App, Login nur über Pocket ID (Gruppen `immich_users` / `immich_admins`); von außen nur Freigabelinks, über den Reverse Proxy ohne Login zum [Immich Public Proxy](https://github.com/alangrainger/immich-public-proxy) (Alan Grainger) auf aldrin, dort mit WAF und CrowdSec; Uploads von Besuchern in Freigaben, die es erlauben |
+| `dns` | [AdGuard Home](https://github.com/AdguardTeam/AdGuardHome) | ursalia | DNS für Heim-LAN (53, DoT/DoQ 853, DoH) und Personengeräte im Mesh (NetBird-Nameserver-Gruppe) ([warum](#dns-mit-adguard-home)) |
+| `adguard` | AdGuard Home, Admin-UI | ursalia | über den Reverse Proxy mit SSO (`homelab_admins`), danach AdGuards eigener Login ([warum](#dns-mit-adguard-home)) |
+| `mqtt` | Mosquitto (Home-Assistant-Add-on) | Home Assistant (Heim-LAN, NetBird-Peer) | Port 8883, MQTT über TLS: zu Hause direkt zu HA (der Heimrouter (Flint 4) beantwortet den Namen lokal), von außen über den Reverse Proxy als TLS-Passthrough zum Peer, ohne SSO ([warum](#mqtt-von-außen-tls-passthrough-zu-home-assistant)) |
+| `acme` | dns01proxy (DNS-01 für Home Assistant) | grammi | nur Mesh, Port 8446; HA löst ihn über den Heimrouter (Flint 4) auf ([warum](#mqtt-von-außen-tls-passthrough-zu-home-assistant)) |
+| `doku` | Diese Dokumentation (private Fassung) | aldrin + ursalia | im Mesh nur Admin-Geräte ([warum](#private-doku-admin-geräte-heimnetz-login)), ein A-Record je Host; im Heimnetz über einen eigenen Eintrag des Routers ursalia, außer einer Deny-Liste; von außen über den Reverse Proxy eine Weiterleitung auf die öffentliche Doku, `/login` auf `doku-login` |
+| `doku-login` | Diese Dokumentation (private Fassung) aus dem Internet | aldrin | über den Reverse Proxy mit SSO (Gruppe `docs-readers`), nur mit dem geheimen Header des Proxys |
+
+**Reverse Proxy:** Traefik auf grammi besitzt Port 443. `mesh.homelab.example` terminiert es selbst, alles andere reicht es per TCP-Passthrough mit PROXY-Protokoll v2 an `netbird-proxy` weiter, das TLS und ACME (tls-alpn-01) selbst macht. Login am Proxy ist SSO gegen Pocket ID, begrenzt auf die NetBird-Gruppen der jeweiligen App; `dokumente` zusätzlich mit PIN (nur Freigabelinks). Die Dienste auf grammi erreicht der Proxy alle über den Traefik-Entrypoint `apps` (Port 8090), der Wartungsschalter und Fehlerseiten davorsetzt ([Wartungsmodus](#wartungsmodus)).
+
+**Mesh-only-Namen:** Jeder Name ist eine eigene NetBird-DNS-Zone mit einem A-Record auf die Mesh-Adresse (192.0.2.x). Öffentliches DNS kennt sie nicht; das Zertifikat kommt per DNS-01 über deSEC.
+
+**Querschnitt auf allen Linux-Hosts:** vmagent schickt Metriken, Vector schickt journald- und nginx-Logs an grammi. CrowdSec liest die nginx/Traefik-Logs auf den öffentlichen Hosts. restic-Backups gehen in Garage-Buckets auf aldrin, für Paperless zusätzlich append-only zu BorgBase.
+
+## Module
+
+Die 20 Module unter `modules/` tragen die gemeinsame Konfiguration aller Hosts; jede Datei erklärt im Kopfkommentar, warum sie so ist. Die öffentliche Fassung enthält sie anonymisiert unter `modules/` – als Referenz, nicht direkt importierbar: einige lesen `hosts/<host>/*.yaml` und setzen sops-nix voraus. Fünf haben eigene Optionen.
+
+| Modul | Zweck | Optionen / Besonderheiten |
+| --- | --- | --- |
+| [auto-upgrade-git.nix](modules/auto-upgrade-git.nix) | Nächtliches `nixos-rebuild switch`, committet und pusht die neue `flake.lock` zurück ins Repo | `services.autoUpgradeGit`: `enable`, `flakeDir`, `flakeAttr`, `updateInputs`, `dates`, `allowReboot`, `rebootWindow`, `deployKeySecret`, `gitAuthorEmail`, `holdFile`, `holdCheck`, `pull` |
+| [log-shipping.nix](modules/log-shipping.nix) | journald- und nginx-Logs per Vector an VictoriaLogs | `services.logShipping`: `enable`, `victoriaLogsUrl` |
+| [metrics-shipping.nix](modules/metrics-shipping.nix) | vmagent scrapt die lokalen Exporter und schreibt per remote_write an VictoriaMetrics | `services.metricsShipping`: `enable`, `remoteWriteUrl`, `exporterPorts` |
+| [disk-health.nix](modules/disk-health.nix) | SMART physischer Disks: smartd-Selbsttests (kurz wöchentlich, lang monatlich, je Disk versetzt), smartctl_exporter, Textfile-Metriken `smart_selftest_*`, Dashboard Disk Health | `services.diskHealth.devices` (by-id-Pfade; die Reihenfolge bestimmt den Testtermin); auf ursalia und tummi |
+| [home-wifi.nix](modules/home-wifi.nix) | WLAN im Heimnetz „homelab“: 5 GHz bevorzugt, alle Bänder als Fallback, Passphrase aus sops, optional ein Kabel-Port mit höherer Metrik als Fallback, WLAN-Metriken (`wifi_link_*`) | `services.homeWifi`: `enable`, `interface`, `wiredFallback`; auf tummi |
+| [public-probes.nix](modules/public-probes.nix) | Prüft die öffentlichen Endpunkte aus `inventory.json` von außen mit dem Blackbox-Exporter, über IPv4 und IPv6 getrennt; was jeder Endpunkt antworten muss und welcher Host ihn prüft, steht in `public-probes-targets.nix` (ein öffentlicher Endpunkt ohne Eintrag bricht die Auswertung ab). Job `<host>-public-probes` | `services.publicProbes.enable`, `heartbeat.sopsFile` (Ping an healthchecks.io, solange alle Prüfungen des Hosts bestehen); #169 |
+| [samba-mesh.nix](modules/samba-mesh.nix) | Samba nur fürs Mesh: SMB3, macOS-tauglich, keine Gäste, kein NetBIOS; Passwörter der Samba-Konten aus sops | `services.sambaMesh`: `enable`, `users`; Freigaben, Konten und ACLs bleiben beim Host; auf ursalia und tummi |
+| [deploy-hold.nix](modules/deploy-hold.nix) | Halt für `just try`: `nixos-hold`, Metrik `nixlab_deploy_hold_since_seconds`, Warnung in der Login-Shell | auch auf cuckoosegg – [Branch vor dem Merge testen](#branch-vor-dem-merge-auf-einem-host-testen) |
+| [deploy.nix](modules/deploy.nix) | Die Lab-Policy für auto-upgrade-git: GitHub-Deploy-Key, gepinnter Hostkey, Reboot-Fenster 04:00–06:00 | getrennt vom Mechanismus, damit der wiederverwendbar bleibt |
+| [nix-cache.nix](modules/nix-cache.nix) | Eigener Binary-Cache in Garage (`s3://nix-cache`): Substituter und Read-Key auf jedem Host; auf ursalia der nächtliche Lock-Update, Build aller Hosts und Upload | `services.nixCache.prebuild`: `enable`, `updateInputs`, `dates`; Secrets aus `just nix-cache-secrets` |
+| [acme.nix](modules/acme.nix) | ACME-Defaults für jeden TLS-Host: DNS-01 gegen deSEC | Token aus `hosts/<host>/desec.yaml` (von Tofu) |
+| [netbird.nix](modules/netbird.nix) | NetBird-Client im Mesh, Registrierung per Setup-Key, lokale Metriken | Setup-Key aus `hosts/<host>/netbird.yaml` (von Tofu) |
+| [tailscale.nix](modules/tailscale.nix) | Gemeinsamer Tailscale-Agent | `tailscale serve` bleibt in der Host-Config |
+| [ssh.nix](modules/ssh.nix) | Wer sich von wo anmelden darf: root nur über Mesh oder Tailscale | Schlüssel bleiben pro Host |
+| [firewall.nix](modules/firewall.nix) | Öffentlich nur 22/80/443, Tailnet als vertrauenswürdiges Interface | |
+| [crowdsec.nix](modules/crowdsec.nix) | CrowdSec-Engine und Firewall-Bouncer, Whitelist für die Lab-Hosts und für Abfragen an den Nix-Cache | Umgehungen für Fehler in den nixpkgs-Modulen, im Kopf dokumentiert |
+| [networking.nix](modules/networking.nix) | ifstate-Gerüst, systemd-resolved mit DNS-over-TLS, keine Fallback-Resolver | Adressen und Routen bleiben in der Host-Config |
+| [metrics.nix](modules/metrics.nix) | Prometheus-Exporter pro Host | Schutz über die Firewall statt über Bind-Adressen |
+| [logging.nix](modules/logging.nix) | Begrenzt journald, das sonst bis 4 GB wächst | |
+| [qemu-guest.nix](modules/qemu-guest.nix) | QEMU Guest Agent mit gesperrter RPC-Liste: Snapshots ja, Shell und Dateizugriff über den Kanal nein | |
+| [watchdog.nix](modules/watchdog.nix) | Hardware-Watchdog, gehalten von systemd: PID 1 öffnet das Gerät und pingt es alle halbe Timeout-Zeit; hängt PID 1 oder der Kernel, setzt die Hardware den Host zurück. Weil systemd ihn hält, kann kein anderer Prozess ihn scharf schalten (procd im Container, #117). Marker-Metrik `nixlab_hardware_watchdog_enabled`, Alert `HardwareWatchdogInactive` | `services.hardwareWatchdog`: `enable`, `device` (Standard `/dev/watchdog0`), `softdog`, `blacklistedModules` (weitere Watchdog-Treiber, damit es genau einen gibt); Timeout = der des Geräts (`RuntimeWatchdogSec=default`); auf ursalia und tummi (`iTCO_wdt` gesperrt), aldrin und grammi (QEMU-iTCO), cuckoosegg (i6300esb aus Proxmox); `softdog` (Software-Watchdog des Kernels, dazu `kernel.panic=10` und `softlockup_panic`) auf zummi |
+| [nix.nix](modules/nix.nix) | Nix-Daemon, Garbage Collection, Store-Optimierung | |
+| [docs-site.nix](modules/docs-site.nix) | Die private Doku-Site (Flake-Paket `docs-site`) unter `doku` im Mesh | `services.docsSite`: `enable`, `package`, `fqdn`, `allow` (Standard: das ganze Mesh; im Lab nur die Admin-Geräte aus `admin-peers.json`); auf aldrin und ursalia |
+| [maintenance.nix](modules/maintenance.nix) | Wartungsmodus für nginx und Traefik: eine Flag-Datei schaltet einen Namen auf eine 503-Seite, dieselbe Seite bei 502/504 | `services.maintenance`, siehe [Wartungsmodus](#wartungsmodus) |
+| [hotfixes.nix](modules/hotfixes.nix) | Paket-Hotfixes, die sich selbst abschalten und warnen, sobald nixpkgs den Fix hat | Modul-Argument `hotfix`, Overlays aus `modules/hotfixes/`, siehe [Paket per Hotfix fixen](#paket-per-hotfix-fixen) |
+| [base.nix](modules/base.nix) | Locale, Konsole, Zeit und Werkzeuge zum Debuggen | |
+
+## just-Rezepte
+
+| Rezept | Zweck |
+| --- | --- |
+| `just try <host>` | Aktuellen Themen-Branch auf einen Host deployen und ihn dort halten, bis der Branch gemergt ist ([Branch vor dem Merge testen](#branch-vor-dem-merge-auf-einem-host-testen)) |
+| `just try-confirm <host> [minutes] [via]` | Wie `try`, rollt aber von selbst zurück, wenn der Host nicht innerhalb der Frist erreicht und bestätigt wird ([mit automatischem Zurückrollen](#mit-automatischem-zurückrollen-just-try-confirm)) |
+| `just release <host>` / `holds` | Halt ohne Merge aufheben / alle Halte anzeigen |
+| `just test-restic-verified` | Erzwungene Backup-Fehler in einer Wegwerf-VM auf ursalia ([Wann ein Backup als erfolgreich gilt](#wann-ein-backup-als-erfolgreich-gilt)) |
+| `just restore-test <host> [isolation]` | grammi oder zummi aus restic in eine Wegwerf-VM ohne Netz auf ursalia zurückholen und die RTO messen ([Restore testen](#restore-testen)) |
+| `just check <host>` | `git pull` + `nixos-rebuild dry-activate` |
+| `just secrets <host>` / `pull-secrets <host>` | Host-Secrets auf dem Host editieren und zurückholen |
+| `just topology` | Topologie-Dashboard neu erzeugen (sonst schlägt `nix flake check` fehl) |
+| `just inventory` | Das geprüfte Inventar mit allem Abgeleiteten anzeigen ([Inventar](#inventar)) |
+| `just inventory-test` | `inventory.json` prüfen, die Tests der Validierung laufen lassen, Schema auf Aktualität prüfen |
+| `just inventory-schema` | `inventory.schema.json` nach einer Formatänderung neu erzeugen |
+| `just inventory-diagram` | Das Diagramm aller Felder auf [Inventar-Schema](#inventar-schema) nach einer Formatänderung neu erzeugen |
+| `just inventory-collect [--force] [host …]` | SSH-Host-Keys, Interfaces (MAC, Medium, Link-Local) und Hardware (Hersteller, Modell, Produkt-ID, Seriennummer) von den Geräten in `inventory.json` holen – füllt Lücken und meldet Abweichungen; `--force` übernimmt die Werte des Geräts |
+| `just services [--json]` | Was die Dienste des Inventars betreiben, aus den Host-Konfigurationen: Version, Lizenz, Sprache ([Software-Sicht](#software-sicht)) |
+| `just sbom [host …]` | SBOM (CycloneDX, SPDX, CSV) des laufenden Systems jedes Hosts nach `sbom/` ([Software-Sicht](#software-sicht)) |
+| `just wifi-qr [ssid]` | Ein WLAN von gruffi: SSID, PSK, Verschlüsselung und ein QR-Code zum Verbinden, aus `openwrt/gruffi/uci.nix` und dessen `secrets.yaml` (gibt den PSK aus); ohne SSID die Liste der WLANs |
+| `just known-hosts` | `~/.ssh/known_hosts.nixlab` aus dem Inventar schreiben – für eine Workstation außerhalb dieses Repos; gusto bekommt die Schlüssel systemweit |
+| `just netbird-plan` / `netbird-apply` | NetBird-Account ändern; apply schreibt auch `expected-peers.json` (committen, grammi deployen) und `admin-peers.json` (committen, aldrin und ursalia deployen) neu |
+| `just netbird-proxy-certs` | Proxy-Diensten ohne Zertifikat eins holen und das Dashboard nachziehen (NetBird #7118); läuft am Ende von `netbird-apply` |
+| `just dokumente-share-pin` / `dokumente-share-pin-show` | Neue zufällige PIN für Paperless-Freigabelinks von außen (danach `netbird-apply`) bzw. aktuelle anzeigen |
+| `just netbird-key <host>` | Neuer Setup-Key für einen Host, 24 h Zeit zum Deployen |
+| `just netbird-import` | Tofu-State aus dem Account neu aufbauen – nur nötig, wenn auch git ihn nicht hat ([Tofu-State](#tofu-state)) |
+| `just netbird-renew-token` | Jährliche Erneuerung des Service-User-Tokens |
+| `just tf-state-passphrase` | Einmalig: Passphrase für die Tofu-States nach `terraform/secrets.yaml` (überschreibt nie) |
+| `just github-key <host>` | Neuer GitHub-Deploy-Key für einen Host (Schlüssel per sops, Registrierung per Tofu) |
+| `just github-plan` / `github-apply` | Repos und Deploy-Keys auf GitHub ändern |
+| `just garage-plan` / `garage-apply` | Buckets, Keys und Rechte in Garage auf aldrin ändern (`terraform/garage`) |
+| `just aldrin-backup-secrets` | Den Garage-Schlüssel des Buckets `aldrin-backups` aus dem Tofu-State und ein neues Repository-Passwort nach `hosts/aldrin/backup.yaml` schreiben – einmal, nach `garage-apply` |
+| `just data-backup-secrets <host>` | Dasselbe für den Bucket `<host>-data-backups` nach `hosts/<host>/backup-data.yaml` (`modules/restic-data.nix`) – einmal pro Host, nach `garage-apply` |
+| `just garage-admin-token` | Garages Admin-Token per SSH von aldrin nach `terraform/secrets.yaml` kopieren – einmal, und wieder nach jeder Rotation |
+| `just desec-key <host>` / `desec-verify` | deSEC-Token tauschen bzw. Scopes von jedem Host aus prüfen |
+| `just nanokvm-mcp-key` | MCP-API-Key des NanoKVM Go+ verschlüsselt für ursalia ablegen (danach committen, ursalia deployen) |
+| `just kvm-bridge setup\|start\|stop\|status\|log` | Claude-Code-Brücke zum NanoKVM Go+ auf ursalia: einmal einrichten, starten, stoppen, Zustand, Log |
+| `just mac-diff [host]` / `mac-switch [host]` | Macs (Standard gusto, oder zorlock per SSH): zeigen, was ein Switch ändern würde (nvd, Homebrew entfernt/installiert), oder schalten mit Zusammenfassung – siehe [macOS-Hosts](#macos-hosts) |
+| `just apps [suche] [--host h]` / `just apps install\|uninstall <name>…` / `apps-list [host]` / `apps-rm <name> [host]` | Software eines Macs (`hosts/<host>/apps.json`): eine Runde aus Suchen in nixpkgs, Homebrew und App Store, Hinzufügen (nach Pin-Prüfung) und Entfernen, dann ein Switch und ein Commit; exakte Namen wie brew installieren oder deinstallieren; auflisten; einen Eintrag entfernen – auf gusto auch als `apps`, `apps-list`, `apps-rm` in jedem Ordner, siehe [Software auf den Macs](#software-auf-den-macs) |
+| `just mac-upgrade` | Auf gusto: Homebrew-Pins aktualisieren, schalten, `brew upgrade`, NetBird-Version neben dem Mesh-Pin; `flake.lock` committen |
+| `just gc <host>` | Store-Generationen älter als 7 Tage löschen |
+| `just docs` | Diese Doku bauen: private PDFs (de/en) und die anonymisierte öffentliche Fassung (README, PDFs, Site-Quellen, Module) in `public-docs/` (Clone von `nixlab-docs`, gitignored), dort committet und gepusht; GitHub baut daraus die Site |
+| `just docs-serve` | Private Site mit echten Werten lokal bauen und unter `http://127.0.0.1:8000` zeigen |
+
+Rezepte, die sops brauchen, bekommen den age-Key der Workstation über `SOPS_AGE_KEY_CMD` aus 1Password. Auf gusto setzt home-manager die Variable, und `op` entsperrt über die 1Password-App (Touch ID); sops, tofu und age kommen aus der devShell (direnv im Checkout). Ohne diese Einrichtung:
+
+```bash
+eval $(op signin) && export SOPS_AGE_KEY_CMD='op read "op://<vault>/<item>/password"' && just netbird-plan
+```
+
+## Troubleshooting
+
+- Nach einem `nixos-rebuild` sagt `systemctl --failed` nichts über die Vergangenheit – der Switch räumt Failed-States ab. Stattdessen `journalctl -u <unit>`.
+- NetBird down, Tailscale noch da: `NIXLAB_DOMAIN=example-tailnet.ts.net` vor das Rezept setzen.
+- Tofu-Rezepte verweigern den Lauf gegen leeren State, damit keine zweite `servers`-Gruppe oder Token-Garnitur entsteht.
+- WLAN auf tummi: `iw dev wlo1 link` zeigt Band, Signal und PHY-Modus. Das 5-GHz-Netz des Routers liegt auf Kanal 36–48 ohne DFS mit 100 TU Beacon-Intervall; Band, Signal, Raten und PHY-Modus gehen auch an VictoriaMetrics (node_exporter-Collector `wifi` plus `wifi_link_*`), Grafana-Dashboard „Homelab / Wi-Fi“.
+- Nach einem Netzwechsel kann NetBird minutenlang an einem toten P2P-Weg festhalten und trotzdem `Connected` zeigen (gesehen auf ursalia, 2026-10-19). Abhilfe: `systemctl restart netbird-mesh` auf dem Host, notfalls über Tailscale.
+- Ein Proxy-Dienst hängt im NetBird-Dashboard bei „Issuing certificate…“ oder liefert von außen einen TLS-Fehler („internal error“): `just netbird-proxy-certs` – fragt die Namen ohne Zertifikat von außen ab und startet `netbird-proxy` auf grammi neu (NetBird-Diskussion #7118). Läuft auch am Ende von `just netbird-apply`.
+- Ein Host ist ohne Shutdown im Journal neu gestartet: im vorigen Boot nach dem Hardware-Watchdog suchen, `journalctl -b -1 -k | grep -i watchdog` („watchdog did not stop!“ heißt, ein Prozess hat ihn scharf geschaltet und ohne Magic Close losgelassen). Wo `services.hardwareWatchdog` an ist, hält systemd das Gerät, jeder andere Prozess bekommt EBUSY; `fuser -v /dev/watchdog0` zeigt den Halter, `wdctl` den Timeout. Test: `kill -SEGV 1` muss den Host innerhalb eines Timeouts zurücksetzen (#117).
+
+## Konventionen
+
+- Pro Thema ein eigener Git-Worktree (`.worktrees/<thema>`), nach Abschluss entfernen und Branch löschen. Tofu-State bleibt dabei immer im Haupt-Checkout (verschlüsselt und committet, siehe [Tofu-State](#tofu-state)).
+- Erst planen, dann nach Freigabe umsetzen.
+- Subdomains nach Funktion (`rezepte`, nicht `mealie`).
+- Neue Webdienste auf grammi nutzen PostgreSQL statt SQLite.
+- Dual-Stack, wo immer möglich.
+- Kommentare im Code erklären das *Warum*, inklusive der Fehler, die zu einer Entscheidung geführt haben, mit Datum.
+- Code-Kommentare, Commit-Messages und Changelogs auf Englisch; die Projektdoku gibt es auf Deutsch und Englisch.
+- Die Doku-Site lädt nichts von Dritten: Schriften und glightbox liegen in der Site selbst (`docs/assets.nix`), statt von Google Fonts bzw. unpkg.com zu kommen. Grund: DSGVO und eine private Doku, die ohne Internet funktioniert.
+- Infrastruktur, die vor allem eine Rolle an einem Ort erfüllt (Gateways, Access Points, Switches), heißt `<aufgabe>-<standort>`: `gw-hq`, `ap-flur`. Die Aufgabe steht vorn, damit Geräte gleicher Rolle in Listen und Dashboards nebeneinander stehen; der Standort steht ohnehin im Inventar. Eigene Server behalten ihre Gummibären-Namen.
+- Interface-Namen haben unter Linux höchstens 15 Zeichen. Bei `tun-<standort>-uplink<n>` (`tun-hq-uplink1`) heißt das: Standortkürzel mit höchstens drei Zeichen.
+- Wann immer ein Ablauf, ein Aufbau oder ein Zusammenhang sich als Bild schneller erfassen lässt als als Text (Trafficflüsse, Abhängigkeiten, Schichten), bekommt die Seite ein Diagramm, und zwar immer zoom- und klickbar wie das Inventar-Schema: Kästen springen zu ihrem Abschnitt, ein Klick anderswo vergrößert. Kein Diagramm als `<img>` oder als reines Bild ohne Sprünge, wenn die Seite Abschnitte hat, auf die es zeigen kann.
+- Diagramme in der Doku sind Inline-SVG in `<figure class="nx-diagram">` (viewBox 680 breit, ohne `width`/`height`), damit Kästen auf Abschnitte der Seite verlinken können und ein Klick anderswo auf das Diagramm es vergrößert (in der Lightbox der Website): `<a data-target="<Überschrift-ID>" tabindex="0" role="link">` um den Kasten, ohne `href` – mit `href` wirft das Theme bei SVG-Links einen Fehler, und `site/common/javascripts/diagrams.js` übernimmt den Sprung (Klick und Enter). Keine Marker für Pfeilspitzen, sondern Pfade in der Linienfarbe, weil WeasyPrint `context-stroke` im PDF nicht kann. Helle Farben stehen im `<style>` des SVG, das Dunkel-Schema in `site/common/stylesheets/diagrams.css`, das nur die Website lädt. Prüfen mit `just docs-serve` (beide Farbschemata) und im PDF.
+- Ausnahme ist die [Lagekarte](#lagekarte): HTML statt SVG, erzeugt aus `inventory.json` (`docs/gen-lab-map.py`), weil sie jeden Host und Dienst zeigt und nicht veralten darf. Klickbar heißt dort: Ein Klick auf einen Dienst oder Host wählt ihn aus und zeichnet seine Beziehungen ein (`site/common/javascripts/lab-map.js`); ein Klick auf eine freie Stelle vergrößert sie in der Lightbox. Im PDF steht sie ohne Linien (`doc.css`).
+- Jede Seite der Site gibt es auch als reines Markdown, unter ihrem Quellpfad (`how-to/new-host.md` neben `how-to/new-host/`), mit dem Inhaltsverzeichnis `llms.txt` und allen Seiten in einer Datei `llms-full.txt` ([llms.txt](https://llmstxt.org)) – Englisch im Root, Deutsch unter `de/`. Für Sprachmodelle: Markdown kostet sie weit weniger Token als die HTML-Seiten. `docs/gen-llms.py` schreibt sie nach dem Zensical-Build, auf beiden Sites. Ein Diagramm wird dort durch sein `aria-label` ersetzt, deshalb braucht jedes Diagramm eines, das in einem Satz sagt, was es zeigt; die Lagekarte wird zu ihrem JSON-Datenblock. Die Beschreibung in `llms.txt` ist der erste Satz des ersten Absatzes der Seite.
+
+## Offene Punkte
+
+- [ ] NetBird-Provider: den Build aus PR #215 (IPv6-Overlay) wieder durch die Registry-Version ersetzen, sobald er veröffentlicht ist ([Exit-Nodes & IPv6](#provider-aus-pr-215))
+- [ ] Home Assistant: prüfen, ob `trusted_proxies`/`trusted_networks` nur `192.0.2.0/24` kennen, und `2001:db8:203:0::/64` ergänzen (liegt nicht im Repo)
+- [ ] Upstream-PRs im NetBird-Provider (#247 `direct_upstream`/Cluster-Targets, #248 `crowdsec_mode`); danach Proxy-Targets auf grammi auf `localhost` umstellen
+- [ ] NetBird: `servers-to-servers` auf die genutzten Ports einschränken (Ingest 8428/9428, Garage 443, dns01proxy 8446, Exporter, SSH für Deploys, llm) – heute alle Ports ([Wer erreicht die Server](#wer-erreicht-die-server))
+- [ ] NetBird: Feature-Request für ICMP-Typen in Policies ([netbird#8447](https://github.com/netbirdio/netbird/discussions/8447)); bis dahin erlaubt `to-servers-icmp` alle ICMP-Typen statt nur Ping ([Wer erreicht die Server](#wer-erreicht-die-server))
+- [ ] Tailscale von den Servern entfernen, sobald nichts mehr darauf angewiesen ist
+- [ ] Grafana-Alerting (Kontaktpunkt fehlt noch) für SMART, fwupd, Paperless, NetBird Soll ≠ known, WLAN von ursalia (nicht verbunden, hängt auf 2,4 GHz, schwaches Signal)
+- [ ] Update-Benachrichtigung für die von Hand gepinnten Inputs (NetBird, Pocket ID)
+- [ ] Root-Passwörter deklarativ über sops
+- [ ] Host-Liste an einer Stelle führen statt in `flake.nix`, den Tofu-Modulen und `justfile`
+- [ ] gusto: nach dem ersten Switch prüfen, ob sich die NetBird-App selbst aktualisiert (oder dem Auto-Update im Dashboard folgt), und das abschalten, damit die Version nur aus `netbirdio-tap` kommt
+- [ ] gusto: Standard-Git-Adresse `admin@homelab.example` statt `mail@personal.example`, zusammen mit einer neuen Ordnung von `~/Projects`
+- [ ] Inventar: ein Feld für den DNS-Namen eines Geräts (arkkvm antwortet als `arkkvm01`, heute nur in seiner Notiz) und öffentliche Adressen der verwalteten Hosts – dann leitet `hosts/gusto/ssh.nix` seine Ausweichnamen daraus ab
+- [ ] Doku-Site: `<link rel="alternate" type="text/markdown">` in jeder HTML-Seite, das auf ihre Markdown-Fassung zeigt (`docs/gen-llms.py`) – braucht einen Theme-Override, deshalb erst, wenn Zensical bei 1.0 ist

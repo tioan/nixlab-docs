@@ -1,0 +1,45 @@
+# Ausfallverhalten
+
+Was wirklich passiert, wenn ein Teil des Labs ausfällt: wer es wie schnell merkt, welchen Weg der Alarm nimmt, was nicht mehr geht und wie es zurückkommt. Die Zeilen beschreiben die Konfiguration, wie sie ist, nicht wie sie sein sollte. Wo nichts geprobt wurde, steht „nicht getestet“. Die Idee einer solchen Matrix stammt aus Node64 von Dennis Schröder (Apache-2.0, [AUSFALLVERHALTEN.md in 68b0c62](https://github.com/ipv64net/node64/blob/68b0c62fe986b490168e5ea9bc990d71f72022cc/docs/AUSFALLVERHALTEN.md)); übernommen ist nur die Idee (#170).
+
+## Wie Alarme laufen { #alert-path }
+
+vmalert und Alertmanager auf **grammi** → Webhook über das **NetBird-Mesh** → **Home Assistant** zu Hause → Push aufs iPhone. Jedes Glied dieser Kette ist unten auch eine Zeile. Die Zeiten addieren sich: das `for` einer Regel, dann Alertmanagers `group_wait` von 1 min. Zwischen 04:00 und 06:00 ist alles außer dem Watchdog stumm und kommt um 06:00 an, wenn es dann noch feuert. HostGone unterdrückt die übrigen Alarme desselben Hosts. Details: [Monitoring](monitoring.md#alerting).
+
+Zwei unabhängige Wege merken, wenn die Kette selbst reißt:
+
+- **HAs Timer** (`timer.nixlab_alerting_heartbeat`, 20 min), den der Watchdog alle 5 min neu startet. Deckt grammi, vmalert, Alertmanager und den Mesh-Weg zu HA ab.
+- **healthchecks.io** (#169), außerhalb des Labs, mit eigener E-Mail und eigenem Push: der Watchdog, grammis Ping, solange die Prüfungen von Pocket ID bestehen, und HAs eigener Ping. Deckt ab, was der Timer nicht kann: HA selbst und den Internetanschluss zu Hause.
+
+## Matrix { #matrix }
+
+| Fall | Wer merkt es, wie schnell | Alarmweg | Wirkung | Wiederherstellung | Zuletzt getestet |
+| --- | --- | --- | --- | --- | --- |
+| **grammi aus** | HA-Timer nach ≤ 20 min („nixlab Alerting stumm“); healthchecks.io (Watchdog und Probe-Ping bleiben aus, nach dessen Karenzzeit) | HA-Push; healthchecks.io E-Mail/Push | Kein Alerting, keine Sicht auf Grafana/Metriken/Logs; NetBird-Management, Traefik, der NetBird-Proxy (Mesh-Dienste im Internet) und der Gruppen-Sync stehen. Bestehende Tunnel laufen weiter, neue Peers und Logins scheitern. Metriken und Logs stauen sich auf den Hosts (vmagent-Plattenpuffer, Vector-Backpressure) | Restore aus restic auf eine neue Maschine, `docs/site/*/how-to/restore-test.md`. Der Hardware-Watchdog setzt einen hängenden Kernel oder PID 1 zurück (30 s, VM) | Restore 2026-11-02, RTO 38 s, sobald eine Maschine da ist. Ausfall des Alarmwegs selbst: nicht getestet |
+| **Home Assistant aus** | healthchecks.io (HAs Ping bleibt aus) | nur healthchecks.io – der Push-Weg ist HA selbst | Kein Push für irgendeinen Alarm; Alertmanager versucht es weiter und liefert, was noch feuert, wenn HA zurück ist. Die Hausautomation steht | HA-OS-Backups (täglich, Nabu Casa) | nicht getestet |
+| **Internet zu Hause oder gruffi aus** | healthchecks.io (HAs Ping bleibt aus); grammi löst HostGone für die Hosts zu Hause aus, kann es aber nicht zustellen | nur healthchecks.io | Alles zu Hause ist von außen unerreichbar: ursalia, tummi, zorlock, HA. Der Push-Weg ist weg, Alarme kommen danach an. Öffentliche Dienste auf aldrin und zummi laufen weiter | Vor Ort: gruffi stromlos machen; ohne WLAN mit dem Knopf der Leiste. Der Power-Watchdog auf ursalia ist ein **Trockenlauf** und schaltet nicht (nixlab#177). Erster Start nach Stromausfall: PPPoE braucht 1–2 × 35 s | nicht getestet; gruffis WLAN kam 2026-11-06 durch eine Stromtrennung zurück (Vorfall) |
+| **gruffi an, WLAN-Modul fehlt** | GruffiWifiMissing nach 5 min; HA-Push, wenn die Leiste 5 min unerreichbar ist | grammi → HA, und HA allein | Kein WLAN zu Hause; die Leiste ist unerreichbar, also kein Kaltstart aus der Ferne | Vor Ort: `dmesg` sichern, 30 s stromlos, oder ap-og anstecken (nixlab#93) | Vorfall 2026-11-02 bis -06 |
+| **NetBird-Mesh gestört** (Management oder Weg grammi → HA) | HA-Timer nach ≤ 20 min; healthchecks.io nur, wenn auch grammis Ping scheitert | HA-Push (aus HAs eigenem Timer) | Alarme erreichen HA nicht. Kein eigener Alarm für den Management-Server; TargetDown/HostGone sehen es nur indirekt | Tailscale als Rückfallweg (`NIXLAB_DOMAIN=example-tailnet.ts.net`), öffentliches SSH | nicht getestet |
+| **zummi aus** | healthchecks.io (grammis Ping endet mit Pocket ID); HostGone nach 10 min | healthchecks.io; HA-Push | Pocket ID aus: nirgends ein neuer Login (Dienste, NetBird). Die Prüfungen von aldrin enden (PublicProbeMissing) | Restore, RTO 48 s, sobald eine Maschine da ist; softdog setzt einen hängenden Kernel zurück | Restore 2026-11-02; softdog-Reset 2026-11-03 (Login ~9 min weg) |
+| **aldrin aus** | PublicServiceDown von zummi nach 5 min; HostGone nach 10 min | HA-Push | Garage S3 (restic-Ziel aller Hosts, Nix-Cache), OpenCloud, floccus, shortener, gw-remote und der Remote-Standort, ein Exit-Node. Backups laden nichts hoch, bis es zurück ist | Provider-Konsole; aldrin hat kein Provider-Backup, btrbk ist lokal (nixlab#22) | nicht getestet |
+| **ursalia aus** | HostGone nach 10 min (auch für gruffis Metriken, die ursalia abholt) | HA-Push | paperless, Immich, HealthLog, Doku, AdGuard (Mesh-Clients fallen auf ihr eigenes DNS zurück, das LAN hat keinen Rückfall), der nächtliche Prebuild und das flake.lock-Update, der gruffi-Power-Watchdog | Hardware-Watchdog (60 s) bei hängendem Kernel; sonst vor Ort | AdGuard-Rückfall 2026-11-01; Watchdog-Resets 2026-11-02/03 (Vorfall, kein Test) |
+| **tummi aus** | HostGone nach 10 min | HA-Push | Samba-Freigabe „Daten“ und ihr restic-Job | Vor Ort | nicht getestet |
+| **Ein Remote-Uplink aus** | RemoteUplinkDown nach 30 min | HA-Push | Der Verkehr wechselt nach ~20 s auf den anderen Uplink (`keepalive 2 10`); kein Failover mehr übrig | Meist von selbst; uplink1 fällt jede Nacht 22:53–03:03 aus (#145) | Failover 2026-11-02 |
+| **Beide Remote-Uplinks aus** | RemoteSiteUnreachable nach 10 min | HA-Push | Der Remote-Standort ist unerreichbar | Am Standort (ER7206) | Isolationstest 2026-11-02; Totalausfall nicht getestet |
+| **Remote-Uplink flappt** | RemoteUplinkFlapping bei 4 neuen Sitzungen in 30 min, bleibt danach 15 min stehen | HA-Push | Wiederholte kurze Abbrüche von je ein paar Sekunden | Leitung beim Provider oder den ER7206 prüfen | Rückblick auf 2026-11-02 bis -15: hätte nie gefeuert |
+| **Exporter aus / flappt** | TargetDown nach 15 min; TargetFlapping bei 3 Ausfällen in einer Stunde | HA-Push | Fehlende Metriken dieses Exporters; der Dienst selbst kann in Ordnung sein | Exporter oder Scrape neu starten | Rückblick: TargetFlapping hätte in zwei Wochen zweimal gefeuert, beide Male bei Arbeiten am Netz |
+| **Host liefert nichts mehr** | HostGone nach 10 min | HA-Push | Alle Metriken des Hosts; die übrigen Alarme des Hosts sind unterdrückt | Je nach Host, siehe dessen Zeile | nicht getestet |
+| **Kernel oder PID 1 hängt** | niemand: der Hardware-Watchdog setzt den Host zurück (60 s NUCs, 30 s VMs, softdog auf zummi) | – danach HostGone, wenn er nicht zurückkommt | Kurzer Ausfall, Neustart | Automatisch; HardwareWatchdogInactive, wenn systemd das Gerät nicht hält | zummi 2026-11-03; Ablauf mit `kill -SEGV 1` nicht ausgeführt |
+| **Unit schlägt fehl** | UnitFailed nach ~5 min (Journal), auch zwischen Switches | HA-Push | Dieser Dienst | Beheben und deployen; der Alarm geht, wenn der Fehlschlag aus dem 30-min-Fenster fällt | Selbsttest beschrieben, Datum nicht festgehalten |
+| **Nächtliches Upgrade scheitert** | NixosUpgradeStale nach 26 h (nicht bei Deploy-Hold) | HA-Push | Der Host bleibt auf der alten Generation; ein kaputter Boot legt ihn um 04:00 lahm | Provider-Konsole oder vor Ort; Rückfall auf die vorige Generation | nicht getestet |
+| **Backup scheitert** | BackupRunFailed nach 5 min, BackupNotVerified nach 26 h, BackupBucketNoNewObject (aldrins Sicht) | HA-Push (nachts erst ab 06:00) | Kein neuer verifizierter Snapshot | restic-verified versucht es um 05:15 und 07:15 erneut | `just test-restic-verified`, Datum nicht festgehalten |
+| **Platte voll** | DiskFull über 85 % für 15 min | HA-Push | Je nach Mount | Platz schaffen | nicht getestet |
+| **Zertifikat nicht erneuert** | CertExpiring unter 21 Tagen (Datei), ServedCertExpiring unter 14 Tagen (ausgeliefert) | HA-Push | Noch nichts – erneuert wird ab 30 Tagen | ACME/deSEC prüfen; den Listener neu laden | nicht getestet |
+| **Matter-Meldungen verworfen** | MatterReportsRejected nach 5 min; MatterDevicesUnavailable nach 30 min | HA-Push (über HA, also nicht, wenn HA aus ist) | Bewegungs- und Türmeldungen erreichen HA nicht | Adresse in gruffis Matter-Regeln korrigieren (nixlab#46) | Vorfall 2026-11-14 |
+
+## Lücken { #gaps }
+
+- Home Assistant und der Internetanschluss zu Hause sind nur über healthchecks.io abgedeckt. Dessen Karenzzeit ist dort eingestellt, nicht in diesem Repository.
+- Keine der Zeilen zum Alarmweg (grammi, HA, Mesh, Internet) ist Ende zu Ende geprobt.
+- Der gruffi-Power-Watchdog schaltet noch nicht; scharf geht er erst nach einer Woche Trockenlauf und einer Probe (nixlab#177).
+- Für den NetBird-Management-Server gibt es keinen eigenen Alarm.

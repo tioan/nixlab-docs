@@ -1,0 +1,3 @@
+# Zensical output and cache, from the Pages workflow or a local build
+site/_site/
+site/.cache/
