@@ -228,6 +228,15 @@ in
       # lock rather than yesterday's.
       systemd.services.nixos-upgrade.after = [ "nix-cache-prebuild.service" ];
 
+      # The same for the nightly GC (03:15): the prebuild keeps its results
+      # as out-links under ${stateDir}/systems, but a build still running
+      # has no link yet, and its fresh outputs would be swept. The prebuild
+      # is Type=oneshot, so its start job stays queued until the script
+      # exits, and a start job for nix-gc queued meanwhile waits behind it
+      # (After= delays a job while the other unit still has a job, not only
+      # inside one transaction). Nothing changes on quiet nights.
+      systemd.services.nix-gc.after = [ "nix-cache-prebuild.service" ];
+
       systemd.timers.nix-cache-prebuild = {
         wantedBy = [ "timers.target" ];
         timerConfig = {

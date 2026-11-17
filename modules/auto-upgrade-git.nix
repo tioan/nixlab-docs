@@ -7,6 +7,7 @@
 { config, lib, pkgs, ... }:
 
 let
+  textfileDir = config.services.textfileMetrics.directory;
   cfg = config.services.autoUpgradeGit;
 
   # Runs as ExecStopPost, see the note at the unit below.
@@ -19,11 +20,11 @@ let
   # Runs as ExecStartPost, i.e. only after a successful run. The unit's own
   # failed state is no record of past runs - the next switch clears it - so
   # the time of the last success is kept for hosts/grammi/alerting.nix
-  # (NixosUpgradeStale). Same directory modules/metrics.nix points
-  # node_exporter's textfile collector at.
+  # (NixosUpgradeStale). The textfile collector's root directory
+  # (modules/textfile-metrics.nix): the upgrade is a root job anyway (#320).
   markSuccess = pkgs.writeShellScript "auto-upgrade-git-mark-success" ''
     set -eu
-    out=/var/lib/prometheus-node-exporter-text-files/nixos-upgrade.prom
+    out=${textfileDir}/nixos-upgrade.prom
     {
       echo "# HELP nixlab_nixos_upgrade_last_success_seconds Unix time of the last successful nixos-upgrade run."
       echo "# TYPE nixlab_nixos_upgrade_last_success_seconds gauge"
@@ -211,7 +212,7 @@ in
     # nothing at all. A switch is as good a starting point as any: the host
     # has just been brought up to date.
     system.activationScripts.nixos-upgrade-marker = ''
-      d=/var/lib/prometheus-node-exporter-text-files
+      d=${textfileDir}
       if [ -d "$d" ] && [ ! -e "$d/nixos-upgrade.prom" ]; then
         ${markSuccess}
       fi

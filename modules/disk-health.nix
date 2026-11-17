@@ -41,6 +41,8 @@ let
   pad = n: lib.fixedWidthString 2 "0" (toString n);
 in
 {
+  imports = [ ./textfile-metrics.nix ];
+
   options.services.diskHealth.devices = lib.mkOption {
     type = lib.types.listOf lib.types.str;
     default = [ ];
@@ -84,46 +86,51 @@ in
     # current_self_test_operation != 0 = in progress, self_test_code 1
     # short, 2 extended, self_test_result 0 = completed without error.
     # Newest entry first in both logs.
-    systemd.services.smart-selftest-metric = {
+    # Raw device access as an unprivileged user, the way nixpkgs' smartctl
+    # exporter does it: the disk group for the block devices, ACL group
+    # smartctl-exporter-access for the NVMe character devices (its udev rule),
+    # CAP_SYS_RAWIO for SG_IO and CAP_SYS_ADMIN for NVMe admin commands.
+    services.textfileMetrics.writers.smart-selftest-metric = {
       description = "SMART self-test results for node_exporter's textfile collector";
-      path = [ pkgs.smartmontools pkgs.jq pkgs.coreutils ];
-      serviceConfig.Type = "oneshot";
+      file = "smart-selftest.prom";
+      path = [ pkgs.smartmontools pkgs.jq ];
+      supplementaryGroups = [ "disk" "smartctl-exporter-access" ];
+      hardening = {
+        capabilities = [ "CAP_SYS_RAWIO" "CAP_SYS_ADMIN" ];
+        devices = [ "block-sd r" "block-blkext r" "char-nvme rw" ];
+        systemCalls = [ "@raw-io" ];
+      };
+      # smartctl's exit status is a bit mask that is non-zero for many a
+      # healthy disk; a disk that does not answer is left out, not a failed
+      # run (the script used to run without errexit).
       script = ''
-        dir=/var/lib/prometheus-node-exporter-text-files
-        {
-          echo "# HELP smart_selftest_running 1 while a SMART self-test runs on the disk."
-          echo "# TYPE smart_selftest_running gauge"
-          echo "# HELP smart_selftest_last_passed 1 if the newest self-test of this type completed without error."
-          echo "# TYPE smart_selftest_last_passed gauge"
-          echo "# HELP smart_selftest_last_power_on_hours Power-on hours at the newest self-test of this type."
-          echo "# TYPE smart_selftest_last_power_on_hours gauge"
-          for dev in ${lib.escapeShellArgs cfg.devices}; do
-            smartctl -j -c -l selftest "$dev" 2>/dev/null | jq -r --arg d "$(basename "$dev")" '
-              def kind: if . % 128 == 1 then "short" elif . % 128 == 2 then "extended" else "other" end;
-              def lbl($t): "{device=\"\($d)\",test=\"\($t)\"}";
-              if .nvme_self_test_log then
-                (.nvme_self_test_log as $l
-                  | "smart_selftest_running{device=\"\($d)\"} \(if $l.current_self_test_operation.value != 0 then 1 else 0 end)",
-                    ($l.table // [] | group_by(.self_test_code.value | kind)[] | .[0]
-                      | (.self_test_code.value | kind) as $t
-                      | "smart_selftest_last_passed\(lbl($t)) \(if .self_test_result.value == 0 then 1 else 0 end)",
-                        "smart_selftest_last_power_on_hours\(lbl($t)) \(.power_on_hours)"))
-              else
-                "smart_selftest_running{device=\"\($d)\"} \(if (.ata_smart_data.self_test.status.value // 0) >= 241 then 1 else 0 end)",
-                (.ata_smart_self_test_log.standard.table // [] | group_by(.type.value | kind)[] | .[0]
-                  | (.type.value | kind) as $t
-                  | "smart_selftest_last_passed\(lbl($t)) \(if .status.passed then 1 else 0 end)",
-                    "smart_selftest_last_power_on_hours\(lbl($t)) \(.lifetime_hours)")
-              end'
-          done
-        } > "$dir/smart-selftest.prom.tmp"
-        chmod 0644 "$dir/smart-selftest.prom.tmp"
-        mv "$dir/smart-selftest.prom.tmp" "$dir/smart-selftest.prom"
+        echo "# HELP smart_selftest_running 1 while a SMART self-test runs on the disk."
+        echo "# TYPE smart_selftest_running gauge"
+        echo "# HELP smart_selftest_last_passed 1 if the newest self-test of this type completed without error."
+        echo "# TYPE smart_selftest_last_passed gauge"
+        echo "# HELP smart_selftest_last_power_on_hours Power-on hours at the newest self-test of this type."
+        echo "# TYPE smart_selftest_last_power_on_hours gauge"
+        for dev in ${lib.escapeShellArgs cfg.devices}; do
+          smartctl -j -c -l selftest "$dev" 2>/dev/null | jq -r --arg d "$(basename "$dev")" '
+            def kind: if . % 128 == 1 then "short" elif . % 128 == 2 then "extended" else "other" end;
+            def lbl($t): "{device=\"\($d)\",test=\"\($t)\"}";
+            if .nvme_self_test_log then
+              (.nvme_self_test_log as $l
+                | "smart_selftest_running{device=\"\($d)\"} \(if $l.current_self_test_operation.value != 0 then 1 else 0 end)",
+                  ($l.table // [] | group_by(.self_test_code.value | kind)[] | .[0]
+                    | (.self_test_code.value | kind) as $t
+                    | "smart_selftest_last_passed\(lbl($t)) \(if .self_test_result.value == 0 then 1 else 0 end)",
+                      "smart_selftest_last_power_on_hours\(lbl($t)) \(.power_on_hours)"))
+            else
+              "smart_selftest_running{device=\"\($d)\"} \(if (.ata_smart_data.self_test.status.value // 0) >= 241 then 1 else 0 end)",
+              (.ata_smart_self_test_log.standard.table // [] | group_by(.type.value | kind)[] | .[0]
+                | (.type.value | kind) as $t
+                | "smart_selftest_last_passed\(lbl($t)) \(if .status.passed then 1 else 0 end)",
+                  "smart_selftest_last_power_on_hours\(lbl($t)) \(.lifetime_hours)")
+            end' || true
+        done
       '';
-    };
-    systemd.timers.smart-selftest-metric = {
-      wantedBy = [ "timers.target" ];
-      timerConfig = {
+      timer = {
         OnBootSec = "5min";
         OnUnitActiveSec = "1h";
       };

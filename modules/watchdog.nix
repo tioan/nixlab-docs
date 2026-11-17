@@ -32,9 +32,9 @@
 { config, lib, ... }:
 let
   cfg = config.services.hardwareWatchdog;
-  # Same directory modules/metrics.nix points node_exporter's textfile
-  # collector at.
-  textfileDir = "/var/lib/prometheus-node-exporter-text-files";
+  # The textfile collector's root directory (modules/textfile-metrics.nix):
+  # a constant line written by tmpfiles, no writer of its own (#320).
+  textfileDir = config.services.textfileMetrics.directory;
 in
 {
   options.services.hardwareWatchdog = {

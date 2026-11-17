@@ -32,6 +32,8 @@ let
   logGroups = lib.optional nginx "nginx" ++ lib.optional traefik "traefik";
 in
 {
+  imports = [ ./hardening.nix ];
+
   options.services.logShipping = {
     enable = lib.mkEnableOption "ship this host's journald log to grammi's VictoriaLogs via Vector";
 
@@ -271,6 +273,22 @@ in
     # the journald and file sources, which pick up again from their
     # checkpoints - delayed, not lost, as long as the journal still has it.
     systemd.services.vector.after = [ "netbird-mesh.service" ];
+
+    # The shared sandbox (modules/hardening.nix, #18). Reads the journal and
+    # the log directories through its groups, ships over the mesh. The
+    # nixpkgs module grants CAP_NET_BIND_SERVICE ambiently; it stays the
+    # only capability in the bounding set so that grant remains valid.
+    systemd.services.vector.hardening = {
+      enable = true;
+      level = "strict";
+      network = "any";
+      capabilities = [ "CAP_NET_BIND_SERVICE" ];
+      ambientCapabilities = false;
+      # journalctl reads the boot ID from /proc/sys/kernel/random/boot_id;
+      # ProcSubset=pid hides it ("Failed to get boot ID", no logs shipped -
+      # first rehearsal on tummi, 2026-11-16).
+      seeProcesses = true;
+    };
 
     systemd.services.vector.serviceConfig.LoadCredential =
       lib.mkIf (cfg.basicAuth.passwordFile != null) [ "ingest-password:${cfg.basicAuth.passwordFile}" ];

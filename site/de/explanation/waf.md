@@ -1,63 +1,95 @@
 # Web Application Firewall
 
-CrowdSec liest auf jedem Host die Access-Logs von nginx und Traefik und sperrt Adressen, die auffallen (`modules/crowdsec.nix`). Das geschieht im Nachhinein: Der eine Request, der eine Lücke ausnutzt, ist dann schon beim Dienst angekommen. Die WAF (`modules/waf.nix`, seit 2026-10-25) prüft jeden Request, bevor nginx ihn weiterreicht – mit CrowdSecs AppSec-Komponente, also derselben Engine, denselben Alerts und denselben Bans.
+CrowdSec liest auf jedem Host die Access-Logs von nginx und Traefik und sperrt Adressen, die auffallen (`modules/crowdsec.nix`). Das geschieht im Nachhinein: Der eine Request, der eine Lücke ausnutzt, ist dann schon beim Dienst angekommen. Die WAF (`modules/waf.nix`, seit 2026-10-25) prüft jeden Request, bevor der Proxy ihn weiterreicht – mit CrowdSecs AppSec-Komponente, also derselben Engine, denselben Alerts und denselben Bans. Seit #4 (2026-11-16) läuft sie auf allen drei Front Doors.
 
 ## Aufbau
 
 | Teil | Was es tut |
 | --- | --- |
-| OpenResty | ersetzt nginx (dasselbe NixOS-Modul, Lua eingebaut) |
-| Lua-Bouncer (`pkgs/crowdsec-lua-bouncer.nix`) | schickt in der Access-Phase jeden Request der gelisteten vhosts an AppSec auf `127.0.0.1:7422` und setzt dessen Antwort um |
-| AppSec (Teil von CrowdSec) | wertet die Regeln aus, erzeugt Alerts |
+| AppSec (Teil von CrowdSec) | wertet die Regeln auf `127.0.0.1:7422` aus, erzeugt Alerts |
+| nginx: OpenResty + Lua-Bouncer (`pkgs/crowdsec-lua-bouncer.nix`) | zummi, aldrin: schickt in der Access-Phase jeden Request der gelisteten vhosts an AppSec und setzt die Antwort um; OpenResty ersetzt nginx (dasselbe NixOS-Modul, Lua eingebaut) |
+| Traefik: CrowdSec-Plugin (`pkgs/crowdsec-traefik-plugin.nix`) | grammi: Middleware `waf` an den Routern, die sie nennen, als lokales Plugin geladen |
 | Firewall-Bouncer | setzt Bans wie bisher in nftables um, auf allen Ports |
 
-Ist CrowdSec nicht erreichbar, lässt nginx die Requests ungeprüft durch (`APPSEC_FAILURE_ACTION=passthrough`) – Pocket ID soll nicht mit CrowdSec ausfallen.
+`modules/waf.nix` enthält keine Lab-Werte; der Host sagt, welche Namen hindurchgehen und wie. `modules/waf-lab.nix` ergänzt den Lab-Teil: den Bouncer-Schlüssel aus `hosts/<host>/waf.yaml` (sops) und die Metrik „AppSec antwortet“.
 
 ## Regeln
 
-| Regeln | Phase | Folge |
+| Regeln | Phase | Folge (Block) |
 | --- | --- | --- |
-| `crowdsecurity/appsec-virtual-patching` – rund 200 Regeln für bekannte CVEs (PHP-CGI, Spring4Shell, Grafana File Read, …) | in-band | 403 |
+| `crowdsecurity/appsec-virtual-patching` – rund 200 Regeln für bekannte CVEs | in-band | 403 |
 | `crowdsecurity/appsec-generic-rules` – `.env`, `.git`, SSTI, … | in-band | 403 |
 | `homelab/no-server-side-scripts` – `.php`, `.asp(x)`, `.jsp`, `.cgi`, `/cgi-bin/` | in-band | 403 |
 | `homelab/foreign-stack-probing` – `/wp-admin`, `/phpmyadmin`, `/actuator`, `/owa`, `.aws`, `.ssh`, … | in-band | 403 |
-| Methoden-Allowlist pro Name (`services.waf.allowedMethods`) – auf `auth.homelab.example` nur GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS | in-band | 403 |
+| Methoden-Allowlist pro Name (`allowedMethods`) | in-band | 403 |
 | `crowdsecurity/appsec-crs` – OWASP Core Rule Set | out-of-band | kein Block; Ban, wenn der Bucket überläuft (Kapazität 5, alle 30 s leert sich ein Token) |
 
-Jeder In-band-Treffer bekommt 403. Gebannt wird die IP, sobald zwei *verschiedene* In-band-Regeln innerhalb von 60 s treffen (`crowdsecurity/appsec-vpatch`: capacity 1 mit `distinct: rule_name`) – dieselbe Regel wiederholt füllt den Bucket nicht. Wer Scanner sucht, trifft in der Regel schnell mehrere.
+Die IP wird gesperrt, sobald zwei *verschiedene* In-Band-Regeln innerhalb von 60 s anschlagen (`crowdsecurity/appsec-vpatch`). Die beiden eigenen Regeln sind das grobe Netz unter den CVE-Regeln: Kein öffentlicher Dienst hier läuft mit PHP, ASP, JSP oder CGI.
 
-Die beiden eigenen Regeln sind das grobe Netz unter den CVE-Regeln: Kein öffentlicher Dienst hier führt PHP, ASP, JSP oder CGI aus, also ist jede Anfrage danach ein Scan oder ein Exploit – auch für eine Lücke, für die es noch keine eigene Regel gibt. Die CRS läuft nur out-of-band, weil sie breit ist und einzelne Fehlalarme kein Grund sein sollen, einen legitimen Nutzer auszusperren.
+## Modi, pro Name
 
-Ausnahmen pro Name: `services.waf.ruleExclusions."<fqdn>" = [ "<regel>" ];`. OpenCloud (aldrin) braucht das für `homelab/no-server-side-scripts`, weil es ownClouds `/remote.php`, `/status.php` und `/ocs/v*.php` für die Desktop-Clients beibehält.
+`services.waf.mode` ist der Standard, `services.waf.hosts."<name>".mode` überschreibt ihn:
 
-Auch CRS-Regeln lassen sich ausnehmen, per ID und optional pro Pfad: `services.waf.outOfBandExclusions."<fqdn>" = [ { ruleId = <id>; paths = [ "<pfad>" ]; } ];`. Auf `auth.homelab.example` betrifft das CRS 931100 auf `/authorize` und `/api/oidc/token`: Die Regel hält `redirect_uri=http://127.0.0.1:<port>` nativer OIDC-Clients wie OpenCloud Desktop für Remote File Inclusion.
+- **`block`**: In-Band-Treffer bekommen eine 403, Treffer füttern die Ban-Szenarien.
+- **`detect`**: In-Band-Treffer werden mit „allow“ beantwortet und ihre Events verworfen – nichts wird blockiert, kein Ban-Szenario sieht sie; die Alerts bleiben (`cscli alerts list`). Jeder neue Name beginnt hier für eine Woche.
 
-## Modi
+Die log-basierten HTTP-Szenarien aus `modules/crowdsec.nix` hängen nicht vom Modus ab.
 
-- **`detect`** (Standard für jeden neuen Host): In-band-Treffer bekommen „allow“, die Ban-Szenarien der WAF laufen in der Simulation. Alerts erscheinen in `cscli alerts list` und in der Console mit „(simul)“, gesperrt wird durch die WAF nichts.
-- **`block`**: In-band-Treffer bekommen 403, die IP wird gebannt.
+## Ausnahmen
 
-Die log-basierten HTTP-Szenarien aus `modules/crowdsec.nix` hängen nicht am Modus und bannen wie bisher.
+Alle pro Name, unter `services.waf.hosts."<name>"`:
+
+- `exclusions = [ { rules = [ … ]; crsIds = [ … ]; paths/pathPrefixes/methods = [ … ]; } ]` – In-Band-Regeln (per Name) oder CRS-Regeln (per ID) nur für die passenden Requests abschalten.
+- `allowedMethods = [ … ]` – jede andere Methode zählt wie ein Regeltreffer.
+- `skipInspection = [ { pathPrefixes = [ … ]; methods = [ … ]; } ]` – nur nginx: Der Request geht gar nicht an AppSec (große Upload-Bodies; der Bouncer würde sie sonst ganz puffern). Bans gelten weiter.
+
+| Name / Pfad | Behandlung | Grund |
+| --- | --- | --- |
+| `auth.homelab.example` (Pocket ID) | Block; CRS 931100 aus auf `/authorize` und `/api/oidc/token`; Methoden-Allowlist | native OIDC-Clients melden sich mit `redirect_uri=http://127.0.0.1:<port>` an; drei Wochen ohne Treffer auf einen echten Client |
+| `mesh.homelab.example` Dashboard und `/oauth2/` (NetBird) | ab 2026-11-16 eine Woche Detect, dann Block | eine falsche Sperre trennt alle hinter dieser Adresse vom Mesh |
+| NetBird API, gRPC, Relay | nie hinter der WAF | authentifizierter Maschinenverkehr |
+| `s3.aldrin.homelab.example` (S3, `/nix-cache/`), `s3-admin`, `doku` | nicht hinter der WAF | signierte oder binäre Bodies bzw. nur im Mesh; Bucket-Whitelist aus #307 |
+| `cloud.homelab.example` (OpenCloud) | eine Woche Detect, dann Block; `no-server-side-scripts` aus auf `/remote.php`, `/status.php`, `/ocs/`; CRS 911100 aus für WebDAV-Methoden; PUT/PATCH-Bodies auf `/remote.php/dav/`, `/remote.php/webdav/`, `/dav/`, `/data/` ungeprüft | die Sync-Clients nutzen ownClouds Pfade und WebDAV; Uploads mit `proxy_request_buffering off` |
+| `tabs.homelab.example` (floccus) | eine Woche Detect, dann Block; CRS 911100 aus für WebDAV-Methoden | WebDAV-Client |
+| `short.homelab.example`, `fotos.homelab.example`, `dash.homelab.example` | Block | öffentlich, ohne Login, in den Detect-Daten nur Scanner |
+| ACME, MQTT 8883, Home-Assistant-App | nichts zu tun | DNS-01 / tls-alpn, reines TCP, und HA läuft über den NetBird-Proxy, nicht über diese Front Doors |
+
+## Ausfall
+
+`services.waf.failOpen = true` (Standard): Ist AppSec nicht erreichbar oder antwortet nicht rechtzeitig, gehen Requests ungeprüft durch – Pocket ID, der NetBird-Login und die Sync-Clients sollen nicht mit CrowdSec ausfallen. Keiner der beiden Bouncer kann das pro Name entscheiden. Das Traefik-Plugin würde von sich aus blockieren, wenn AppSec oder die LAPI nicht erreichbar sind, und bis zum ersten Abruf der Sperren; das Modul schaltet all das ab.
+
+## Metriken und Alarme
+
+| Metrik | Quelle |
+| --- | --- |
+| `nixlab_waf_requests_total{vhost, result="refused"\|"passed"}` | nginx, pro vhost, in der Log-Phase gezählt (`127.0.0.1:9932/metrics`, von vmagent abgeholt) |
+| `traefik_router_requests_total{code="403"}` auf `dash`, `mesh-oauth2`, `mesh-dashboard` | Traefik auf grammi |
+| `nixlab_waf_appsec_up` | Textfile-Writer `waf-appsec-up`, einmal pro Minute |
+| `cs_appsec_reqs_total`, `cs_appsec_block_total`, `cs_appsec_rule_hits` | CrowdSec selbst |
+
+Alarme (`hosts/grammi/alerting.nix`): `WafAppsecDown` (5 Minuten keine Antwort), `WafBlocksHigh` (mehr als 100 abgewiesene Requests pro Stunde auf einem Namen). Dashboard: Web & Security, Zeile „AppSec WAF“.
 
 ## Hosts
 
-| Host | vhosts | Modus |
+| Host | Namen | Modus |
 | --- | --- | --- |
-| zummi | `auth.homelab.example` (Pocket ID) | block (seit 2026-11-08, davor detect ab 2026-10-25) |
-| aldrin | `short.homelab.example` | detect (seit 2026-11-08) |
+| zummi | `auth.homelab.example` | Block (seit 2026-11-08) |
+| aldrin | `short.homelab.example`, `fotos.homelab.example` | Block (#4) |
+| aldrin | `cloud.homelab.example`, `tabs.homelab.example` | Detect, dann Block |
+| grammi | `dash.homelab.example` | Block (#4) |
+| grammi | `mesh.homelab.example` (Dashboard, `/oauth2/`) | Detect, dann Block |
 
-Geplant: aldrin (Detect auf `tabs` und `cloud`; `cloud` braucht Ausnahmen für `homelab/no-server-side-scripts` und CRS 911100, sonst bannen die WebDAV-Methoden die Sync-Clients), grammi (Traefik-Plugin, zuerst auf den öffentlichen Grafana-Pfaden, später NetBird-Dashboard und `/oauth2/`). Nie durch die WAF: Garages S3-API und NetBirds gRPC/Relay/API – signierte oder binäre Bodies, nichts für die Regeln zu finden, viel falsch zu lesen.
+Ein Traefik-Plugin auf grammi schützt die Dienste anderer Hosts nicht: Traefik reicht diese Namen als TCP an den NetBird-Proxy durch, der seine Ziele direkt erreicht.
 
-Ein Traefik-Plugin auf grammi schützt die Dienste anderer Hosts nicht: Traefik reicht diese Namen als TCP an den NetBird-Proxy durch, und der erreicht seine Ziele direkt.
+## Einen Host oder Namen hinzufügen
 
-aldrin läuft seit dem Wechsel mit OpenResty und der Engine im Detect-Modus. `short.homelab.example` fragt dort als erster vhost AppSec; die Weiterleitungen unter `/I/` und `/i/` antworten schon vor diesem Schritt.
+1. `services.waf.enable = true;` und `./modules/waf-lab.nix` in die Modulliste des Hosts in `flake.nix`; `waf` in die Zeile des Hosts in `.sops.yaml`. nginx: `lab.vhosts."<name>".waf = true;` (oder `services.waf.nginx.vhosts`). Traefik: Der Router nennt `config.services.waf.traefik.middleware`.
+2. Neue Namen in `detect`: `services.waf.hosts."<name>".mode = "detect";`.
+3. Deployen. Die AppSec-Engine läuft dann; noch fragt sie kein Proxy.
+4. `just waf-key <host>` – registriert `nginx-appsec` bzw. `traefik-appsec` bei der LAPI des Hosts und schreibt den Schlüssel nach `hosts/<host>/waf.yaml`. Committen, deployen.
+5. Prüfen: `cscli bouncers list` zeigt den Bouncer mit frischem Abruf; `curl -I https://<name>/crowdsec-test-NtktlJHV4TfBSK3wvlhiOBnl` löst einen Test-Alert aus.
+6. Nach einer Woche ohne Fehlalarme: `mode = "detect"` entfernen.
 
-## Einen Host anschließen
+Test: `just test-vm waf` (`tests/waf.nix`) – bösartiger Request über nginx und Traefik blockiert, Ausnahmen gehen durch, Detect alarmiert nur, bei gestopptem CrowdSec fail open.
 
-1. `services.waf = { enable = true; nginx.vhosts = [ "<vhost>" ]; };` in der Host-Konfiguration, `./modules/waf.nix` in der Modulliste des Hosts in `flake.nix`, `waf` in die Zeile des Hosts in `.sops.yaml`.
-2. Deployen. Die AppSec-Engine läuft dann schon; nginx fragt sie noch nicht (Warnung beim Evaluieren).
-3. `just waf-key <host>` – registriert den Bouncer `nginx-appsec` beim LAPI des Hosts und schreibt den Schlüssel nach `hosts/<host>/waf.yaml`. Committen, deployen.
-4. Prüfen: `cscli bouncers list` zeigt `nginx-appsec` mit frischem „Last API pull“; `curl -I https://<vhost>/crowdsec-test-NtktlJHV4TfBSK3wvlhiOBnl` erzeugt einen Test-Alert (`cscli alerts list`).
-5. Nach ein, zwei Wochen ohne Fehlalarme: `mode = "block";`.
-
-Quellen: Die nginx-Einbindung folgt CrowdSecs [`crowdsec_nginx.conf`](https://github.com/crowdsecurity/cs-nginx-bouncer/blob/067541cdfff4b650182d819e92c04a207aa2fbb5/nginx/crowdsec_nginx.conf) aus cs-nginx-bouncer v1.2.3; die Lua-Bibliothek ist CrowdSecs [lua-cs-bouncer v1.0.19](https://github.com/crowdsecurity/lua-cs-bouncer/tree/ec94d512927cf70be865686e4eb928d128189633).
+Quellen: Die nginx-Anbindung folgt CrowdSecs [`crowdsec_nginx.conf`](https://github.com/crowdsecurity/cs-nginx-bouncer/blob/067541cdfff4b650182d819e92c04a207aa2fbb5/nginx/crowdsec_nginx.conf) aus cs-nginx-bouncer v1.2.3 (MIT); die Lua-Bibliothek ist CrowdSecs [lua-cs-bouncer v1.0.19](https://github.com/crowdsecurity/lua-cs-bouncer/tree/ec94d512927cf70be865686e4eb928d128189633) (MIT); das Traefik-Plugin ist maxlerebourgs [crowdsec-bouncer-traefik-plugin v1.8.1](https://github.com/maxlerebourg/crowdsec-bouncer-traefik-plugin/tree/f9c85b1472d618e9188a025c9b2308d0b27e5321) (Apache-2.0).

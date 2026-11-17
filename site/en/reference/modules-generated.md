@@ -346,6 +346,46 @@ opened there too.
 
 [Source](https://github.com/tioan/nixlab-docs/blob/main/modules/firewall.nix)
 
+## forwarding.nix
+
+IP forwarding with a default-drop filter, for hosts that route between
+their interfaces: VPN exit nodes, routing peers into a LAN, hosts with
+containers on a bridge.
+
+Why a filter at all: overlay clients (NetBird, Tailscale) put their own
+chains on the forward hook, but those only judge traffic that comes *out*
+of the overlay. Traffic from any other interface into the overlay passes
+them untouched - and NetBird even masquerades it as the routing host
+(its 0x1bd22 mark), so an on-link neighbour that routes the overlay's
+range via this host reaches the overlay peers with the host's identity.
+Shown on four hosts with a network-namespace neighbour (admin/nixlab#311).
+
+What this module does:
+
+- turns forwarding on (IPv4, optionally IPv6),
+- switches on the NixOS firewall's forward chain (policy drop; replies
+  and port forwards (ct status dnat) pass on their own) and accepts new
+  connections only for the `allow` pairs,
+- a guard chain of its own that drops new connections into an overlay
+  interface from anywhere else, unless an `allow` pair names that way.
+  Needed because the firewall's forward-allow chain accepts all ICMPv6
+  before any extraForwardRules run - without the guard, ping6 into the
+  overlay still passes.
+
+A drop in any base chain is final, so the guard cannot let through what
+the firewall's chain drops, and the other way round.
+
+**Options** (`networking.forwardFilter`):
+
+| Option | Description |
+| --- | --- |
+| `enable` | Enable: IP forwarding, filtered: new connections only along the allowed interface pairs |
+| `ipv6` | Also forward IPv6 (net.ipv6.conf.all.forwarding). The filter covers both families either way. |
+| `allow` | Interface pairs along which new connections are forwarded. Replies (established/related) and destination-NATed port forwards need no entry. Whatever filtering the overlay client does on top stays in force. |
+| `overlayInterfaces` | Overlay interfaces (VPN meshes). New connections into them from any other interface are dropped by a guard chain unless an `allow` pair names that way, ICMPv6 included. |
+
+[Source](https://github.com/tioan/nixlab-docs/blob/main/modules/forwarding.nix)
+
 ## fwupd.nix
 
 Firmware updates from LVFS on the physical host (ursalia).
@@ -357,6 +397,99 @@ is signed with the host's own sbctl key - see docs/install-ursalia.md
 console or the ArkKVM.
 
 [Source](https://github.com/tioan/nixlab-docs/blob/main/modules/fwupd.nix)
+
+## hardening.nix
+
+Reusable module: one systemd sandbox profile for services, in graded
+levels, instead of a hand-copied block of directives per unit
+(admin/nixlab#18, #320).
+
+
+```
+systemd.services.foo.hardening = {
+enable = true;
+level = "standard";
+network = "loopback";
+capabilities = [ "CAP_DAC_READ_SEARCH" ];
+};
+```
+
+
+Every exception is an explicit argument, so `git grep hardening` shows
+what each unit was allowed and the comment next to it says why. The
+directives are set at normal priority: a unit that defines the same
+single-valued directive differently fails evaluation instead of silently
+winning or losing - pick one place.
+
+What each directive typically breaks, so an exception is deliberate:
+
+
+```
+level "base" - safe for nearly every daemon
+NoNewPrivileges        setuid helpers (sudo, ping without caps, newuidmap)
+ProtectSystem=strict   writes outside writablePaths and the unit's own
+State/Cache/Logs/RuntimeDirectory
+ProtectHome            anything under /home, /root, /run/user
+PrivateTmp             sharing files through /tmp with other units
+PrivateDevices         raw devices: disks (smartctl), GPU, serial,
+/dev/virtio-ports; see `devices`
+ProtectKernelTunables  writing /proc/sys, /sys (sysctl, nft does not care)
+ProtectKernelModules   modprobe from the service
+ProtectKernelLogs      dmesg / /dev/kmsg readers
+ProtectControlGroups   cgroup writes (container managers); reads stay
+ProtectClock           setting the clock; implies DevicePolicy=closed,
+which together with `devices` is fine
+ProtectHostname        sethostname
+RestrictNamespaces     user namespaces: podman, gVisor, bubblewrap,
+Chromium's sandbox
+RestrictRealtime       audio/RT scheduling
+RestrictSUIDSGID       creating setuid files
+LockPersonality        old 32-bit personality tricks
+SystemCallArchitectures=native  32-bit binaries on x86_64
+```
+
+
+
+```
+level "standard" - base plus
+CapabilityBoundingSet  everything not in `capabilities` (empty = none);
+root services that chown, bind < 1024 or read
+foreign files need theirs listed
+SystemCallFilter       @system-service minus @privileged (chown, setuid,
+mount, raw I/O, ...) and @resources (setrlimit,
+sched_setaffinity, ...); add back with
+`systemCalls`; a violation is EPERM, not a kill
+ProtectProc=invisible  seeing other users' processes (/proc/<pid>);
+ProcSubset=pid           /proc/cpuinfo, /proc/meminfo, /proc/net -
+`seeProcesses` turns both off
+UMask=0077             files other users are meant to read: set
+`umask` (e.g. "0022" for textfile metrics)
+```
+
+
+
+```
+level "strict" - standard plus
+MemoryDenyWriteExecute JIT runtimes: Node, Java, LuaJIT, PyPy, some
+regex engines; `writeExecute` keeps them working
+PrivateIPC             SysV IPC / POSIX queues shared with other units
+RemoveIPC              the same, for a static user's leftovers
+```
+
+
+
+```
+network (independent of the level)
+"none"      PrivateNetwork, AF_UNIX only: no sockets but local ones
+"netlink"   host namespace, AF_UNIX + AF_NETLINK, no IP sockets: for
+kernel state such as nftables counters (with CAP_NET_ADMIN)
+or nl80211; cannot open a connection
+"loopback"  IP sockets, but IPAddressDeny=any except localhost
+"any"       IP sockets to anywhere
+`addressFamilies` adds to the list (e.g. AF_NETLINK for getifaddrs).
+```
+
+[Source](https://github.com/tioan/nixlab-docs/blob/main/modules/hardening.nix)
 
 ## hotfixes.nix
 
@@ -622,6 +755,7 @@ modules/auto-upgrade-git.nix.
 | `enable` | Enable: ship this host's Prometheus exporters to grammi's VictoriaMetrics via vmagent |
 | `remoteWriteUrl` | VictoriaMetrics remote_write endpoint, over the NetBird mesh. Mesh-only by design - see hosts/grammi/configuration.nix, the ingest port is not in networking.firewall.allowedTCPPorts, only reachable over the trusted mesh interface. |
 | `exporterPorts` | Local ports to scrape, named - this host's own services.prometheus.exporters.<name>.port values. The name becomes this target's `instance` label in VictoriaMetrics, so vmui shows e.g. "node"/"nginx" instead of an undifferentiated "127.0.0.1:9113". |
+| `defaultExporters` | services.prometheus.exporters.<name> registered in exporterPorts automatically wherever they are enabled, so hosts list only their own extra exporters. |
 | `exporterAddresses` | Loopback address to scrape per exporterPorts name, "127.0.0.1" where absent. For exporters that also answer on [::1] through modules/loopback-v6-proxy.nix: the lab prefers IPv6, so those are scraped there. IPv6 literals need their brackets. |
 | `extraScrapeConfigs` | Additional vmagent scrape_configs, for targets exporterPorts cannot express - metrics_path is per job, so anything not on /metrics needs a job of its own. Named "<host>-<service>" like the crowdsec job. |
 
@@ -650,17 +784,18 @@ Routing and NAT are NetBird's: with masquerade on the route, the client
 puts its own masquerade rules (v4 and v6) and the policy's forward ACL
 into its nftables tables. What this module adds:
 
-- forwarding for both families, set here so it does not depend on the
-  client switching it on and is visible in the config (same reasoning as
-  on ursalia),
+- forwarding for both families through modules/forwarding.nix, set here
+  so it does not depend on the client switching it on and is visible in
+  the config: new connections only from nb-mesh out of the public
+  interface, nothing from the public side into the mesh
+  (admin/nixlab#311),
 - counters of the forwarded traffic per family and direction, for the
   "Exit nodes" panels in hosts/grammi/dashboards/netbird.json.
 
 Reverse-path filtering stays at modules/firewall.nix' "strict": client
 packets arrive on nb-mesh from the overlay ranges (connected routes on
 nb-mesh), the internet's replies on the public interface, whose default
-routes cover them. Forwarding is not filtered by the NixOS firewall
-(filterForward stays off, as on every host).
+routes cover them.
 
 **Options** (`services.netbirdExitNode`):
 
@@ -789,7 +924,8 @@ and mesh ones on their own host, proxy ones on the reverse proxy's host -
 by name, and once per host and kind of address also with `Host:
 localhost` and an unknown name, the two cases that once got a page
 instead (modules/web-baseline.nix has the default servers). Mesh names
-are probed from grammi, the rest as above.
+are probed from grammi, the rest as above. The appliances' own web
+interfaces (LuCI, cameras) are probed from ursalia, see applianceProbes.
 
 [Source](https://github.com/tioan/nixlab-docs/blob/main/modules/public-probes-targets.nix)
 
@@ -1003,17 +1139,10 @@ For apps that have no metrics endpoint and will not get one (Chhoto URL:
 SinTan1729/chhoto-url#158), or whose interesting state is a timestamp in
 their database rather than anything they would export.
 
-Two steps per run, so the query does not need root:
-
-```
-1. ExecStart as the job's user, under ProtectSystem=strict and without a
-network, writes to its RuntimeDirectory.
-2. ExecStartPost with full privileges ("+") adds the job's own metrics and
-moves the file into the textfile directory, which only root may write
-(0755 root, see modules/metrics.nix). A failed query never reaches it,
-so the previous file stays and the success timestamp ages.
-```
-
+Each job is a writer of modules/textfile-metrics.nix: it runs as its own
+user (or the one given, e.g. for PostgreSQL peer auth) in that module's
+sandbox, without a network, and can write nothing but its own directory.
+A failed query keeps the previous file, so the success timestamp ages.
 
 Every job exports
 
@@ -1100,6 +1229,57 @@ passwordFile instead.
 
 [Source](https://github.com/tioan/nixlab-docs/blob/main/modules/telemetry-sender.nix)
 
+## textfile-metrics.nix
+
+Reusable module: node_exporter's textfile collector, with every writer in
+a sandbox that can write its own files and nothing else
+(admin/nixlab#320).
+
+Layout under `directory`:
+
+
+```
+<directory>/*.prom                 root-owned; only for writers that are
+root jobs anyway (an upgrade, a backup)
+<directory>/writers/<name>/*.prom  one directory per writer, owned by the
+writer's user, 0755
+```
+
+
+node_exporter reads both: the textfile flag is repeatable and takes a glob
+(node_exporter >= 1.8). A writer's user owns only its own directory and
+its unit sees the filesystem read-only apart from it (ProtectSystem=strict
+via modules/hardening.nix), so a broken or compromised writer can neither
+fake another writer's metrics nor write anywhere else.
+
+Two ways in:
+
+
+```
+writers.<name>      a oneshot unit plus timer; the script prints the
+metrics to stdout, the module writes them atomically
+to writers/<name>/<file> - or, with file = null, the
+script writes its files itself with `write-prom`.
+directories.<name>  just the directory, for a unit defined elsewhere (a
+long-running exporter bridge, several units sharing
+one user); that unit puts the path into its own
+ReadWritePaths.
+```
+
+
+Files are written as "<dir>/.<file>.tmp" and renamed, because the collector
+reads whatever is there whenever it is scraped; a failing run keeps the
+previous file. Moving a writer here from the root directory removes its old
+file there (legacyFiles), so the two never export the same series twice.
+
+**Options** (`services.textfileMetrics`):
+
+| Option | Description |
+| --- | --- |
+| `enable` | Enable: node_exporter's textfile collector with sandboxed writers |
+
+[Source](https://github.com/tioan/nixlab-docs/blob/main/modules/textfile-metrics.nix)
+
 ## v64-measure.nix
 
 Measures what ipv64.net's v64 blocklist would add on top of CrowdSec,
@@ -1139,62 +1319,80 @@ removing this module) deletes the table.
 
 [Source](https://github.com/tioan/nixlab-docs/blob/main/modules/v64-measure.nix)
 
+## waf-lab.nix
+
+The lab's glue for modules/waf.nix: where the bouncer key lives. The WAF
+module itself takes the key as a runtime path and knows nothing of sops or
+this repository's layout (admin/nixlab#327).
+
+`just waf-key <host>` registers the bouncer with the host's LAPI and writes
+its key to hosts/<host>/waf.yaml (sops): crowdsec_nginx_bouncer_api_key on
+an nginx host, crowdsec_traefik_bouncer_api_key on a Traefik host. Until
+that file exists the AppSec engine runs, but no proxy asks it.
+
+The Traefik plugin judges the client by X-Forwarded-For only when the peer
+is the mesh: the NetBird reverse proxy reaches Traefik's apps entrypoint
+from there (hosts/grammi/traefik.nix).
+
+Plus the metric for "AppSec unreachable": a textfile writer
+(modules/textfile-metrics.nix) asks the AppSec port once a minute. Both
+bouncers fail open (services.waf.failOpen), so without it an AppSec that
+is down would only show as a WAF that never blocks. The alert is
+WafAppsecDown in hosts/grammi/alerting.nix.
+
+[Source](https://github.com/tioan/nixlab-docs/blob/main/modules/waf-lab.nix)
+
 ## waf.nix
 
-Web application firewall: CrowdSec's AppSec component in front of the
-public nginx vhosts. Decided 2026-10-25 - until then CrowdSec only read the
-access logs after the fact (modules/crowdsec.nix), so it banned a scanner
-once it had shown itself, but the one request carrying an exploit still
-reached the service. AppSec judges each request before nginx proxies it.
+Web application firewall: CrowdSec's AppSec component in front of public
+web vhosts, through nginx (OpenResty + CrowdSec's Lua bouncer) or Traefik
+(CrowdSec's Traefik plugin). Decided 2026-10-25 - until then CrowdSec only
+read the access logs after the fact (modules/crowdsec.nix), so it banned a
+scanner once it had shown itself, but the one request carrying an exploit
+still reached the service. AppSec judges each request before the proxy
+passes it on. Rolled out to every front door in admin/nixlab#4.
 
-Why AppSec and not ModSecurity: one engine for nginx and Traefik (grammi
-gets the Traefik plugin later), and its matches become CrowdSec alerts and
-bans like everything else - no second log to wire up. The OWASP Core Rule
-Set still comes along, run by AppSec's Coraza engine, just out of band.
+Self-contained: no lab values in here. The host says which names go
+through AppSec, in which mode, with which exceptions, and where the
+bouncer's API key is at runtime (modules/waf-lab.nix does that from sops
+for this lab).
+
+Why AppSec and not ModSecurity: one engine for nginx and Traefik, and its
+matches become CrowdSec alerts and bans like everything else - no second
+log to wire up. The OWASP Core Rule Set still comes along, run by AppSec's
+Coraza engine, just out of band.
 
 The pieces:
 
 - Rules, in band (decide before the request is let through):
-  crowdsecurity/appsec-virtual-patching (~200 rules for known CVEs:
-  PHP-CGI, Spring4Shell, Grafana file read, ...),
+  crowdsecurity/appsec-virtual-patching (~200 rules for known CVEs),
   crowdsecurity/appsec-generic-rules (.env, .git, SSTI, ...), and the
-  lab's own below (homelab/*: script types and stacks nothing here runs).
+  own ones below (homelab/*: script types and stacks nothing here runs).
 - Rules, out of band (only evaluated, never block a request by
   themselves): crowdsecurity/appsec-crs, the OWASP CRS. Its hits are
   events; crowdsecurity/crowdsec-appsec-outofband bans an IP when its
-  bucket overflows: capacity 5, one token leaking every 30 s, so a sixth
-  hit in quick succession is enough, and a slow steady trickle adds up
-  too. That keeps the broad, false-positive-prone CRS useful without one
-  stray match locking out a legitimate user.
+  bucket overflows: capacity 5, one token leaking every 30 s.
 - Bans: every in-band match gets a 403; the IP is banned once two
   *different* in-band rules hit within 60 s (crowdsecurity/appsec-vpatch:
-  capacity 1 with distinct rule_name, so one rule repeated never fills
-  it). Enforced by the existing
-  firewall bouncer on every port, not just 443.
-- nginx: OpenResty instead of plain nginx (same NixOS module, Lua built
-  in), with CrowdSec's Lua bouncer (pkgs/crowdsec-lua-bouncer.nix) in the
-  access phase of each listed vhost. It forwards the request (headers and
-  body) to AppSec on 127.0.0.1:7422 and acts on the answer.
-- Failure: APPSEC_FAILURE_ACTION=passthrough. If CrowdSec is down or
-  slow, requests go through unchecked rather than pocket-id going down
-  with it; the crowdsec unit failing is what gets noticed.
+  capacity 1 with distinct rule_name). Enforced by whatever bouncers the
+  host runs - the firewall bouncer on every port, the Lua bouncer and the
+  Traefik plugin for requests that arrive through a proxy.
 
-mode = "detect" (the default, for every new host): in-band matches are
-answered with "allow" (homelab/detect-only below) and the AppSec ban
-scenarios run in simulation, so alerts show up in `cscli alerts list` and
-the console - marked "(simul)" - but nothing is blocked or banned by the
-WAF. Switch a host to "block" after a week or two without false
-positives. The log-based HTTP scenarios from modules/crowdsec.nix are not
-affected by the mode; they ban as before.
+Mode, per name (option `hosts`, default `mode`):
 
-Bootstrap per host: `just waf-key <host>` registers the bouncer with the
-host's LAPI and writes its key to hosts/<host>/waf.yaml (sops). Without
-that file the nginx side stays off, and evaluation warns if vhosts are
-listed - the AppSec engine itself runs regardless.
+- block: in-band matches get a 403, matches feed the ban scenarios.
+- detect: in-band matches are answered with "allow" and their events are
+  cancelled, so nothing is blocked and no ban scenario sees them; the
+  alerts stay (`cscli alerts list`, the console). Every new name starts
+  here for a week or two.
+  The log-based HTTP scenarios from modules/crowdsec.nix do not depend on
+  the mode.
 
-OpenResty applies to the whole host, and the nixpkgs module lifts
-MemoryDenyWriteExecute from nginx.service for it, since LuaJIT's JIT needs
-that. Only nginx loses this hardening, not the services behind it.
+Failure: `failOpen` (default). If CrowdSec is down or slow, requests go
+through unchecked rather than the services going down with it. Neither the
+Lua bouncer nor the Traefik plugin can decide this per name, so it is one
+switch for the host; the metric `<prefix>waf_appsec_up` is what gets
+noticed.
 
 Docs: docs/site/*/explanation/waf.md.
 
@@ -1202,11 +1400,7 @@ Docs: docs/site/*/explanation/waf.md.
 
 | Option | Description |
 | --- | --- |
-| `enable` | Enable: the CrowdSec AppSec WAF for this host's public nginx vhosts |
-| `mode` | `detect`: matches are alerted, nothing is blocked or banned by the WAF. `block`: in-band matches get a 403 and the IP banned. |
-| `ruleExclusions` | In-band rules (by name) not applied to requests for that Host. |
-| `outOfBandExclusions` | Out-of-band rules not applied to requests for that Host. A CRS match cannot block a request, but enough of them ban the address. |
-| `allowedMethods` | HTTP methods a Host accepts; any other one (TRACE, PROPFIND, CONNECT, made-up verbs) is treated like a rule match. Leave a name out for services that need WebDAV (OpenCloud). |
+| `enable` | Enable: the CrowdSec AppSec WAF for this host's public web vhosts |
 
 [Source](https://github.com/tioan/nixlab-docs/blob/main/modules/waf.nix)
 

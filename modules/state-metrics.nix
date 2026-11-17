@@ -8,13 +8,10 @@
 # SinTan1729/chhoto-url#158), or whose interesting state is a timestamp in
 # their database rather than anything they would export.
 #
-# Two steps per run, so the query does not need root:
-#   1. ExecStart as the job's user, under ProtectSystem=strict and without a
-#      network, writes to its RuntimeDirectory.
-#   2. ExecStartPost with full privileges ("+") adds the job's own metrics and
-#      moves the file into the textfile directory, which only root may write
-#      (0755 root, see modules/metrics.nix). A failed query never reaches it,
-#      so the previous file stays and the success timestamp ages.
+# Each job is a writer of modules/textfile-metrics.nix: it runs as its own
+# user (or the one given, e.g. for PostgreSQL peer auth) in that module's
+# sandbox, without a network, and can write nothing but its own directory.
+# A failed query keeps the previous file, so the success timestamp ages.
 #
 # Every job exports
 #   nixlab_state_metrics_last_success_timestamp_seconds{name}
@@ -30,7 +27,7 @@
 }:
 let
   cfg = config.services.stateMetrics;
-  textfileDir = config.services.metricsTextfile.directory;
+  prefix = config.services.textfileMetrics.metricPrefix;
 
   jobType = lib.types.submodule (
     { name, ... }:
@@ -67,8 +64,11 @@ let
           type = lib.types.nullOr lib.types.str;
           default = null;
           description = ''
-            User to query as. null: a DynamicUser. "root" only together with
-            `capabilities`, for data under /var/lib/private (DynamicUser apps).
+            User to query as. null: a static user "state-<name>" created
+            here. For data under /var/lib/private (DynamicUser apps)
+            `capabilities = [ "CAP_DAC_READ_SEARCH" ]` is usually enough;
+            "root" only together with `capabilities`, which are then all it
+            keeps (a WAL-mode SQLite database opens read-only only as root).
           '';
         };
 
@@ -88,7 +88,7 @@ let
           type = lib.types.listOf lib.types.str;
           default = [ ];
           example = [ "CAP_DAC_READ_SEARCH" ];
-          description = "The only capabilities the query step keeps. Empty: none.";
+          description = "The only capabilities the job keeps, granted ambiently. Empty: none.";
         };
 
         hostNetwork = lib.mkOption {
@@ -133,85 +133,37 @@ let
   '';
 
   unitName = name: "state-metrics-${name}";
+  userOf = name: job: if job.user == null then "state-${name}" else job.user;
 
-  mkService =
+  mkWriter =
     name: job:
-    let
-      unit = unitName name;
-      query = pkgs.writeShellScript "${unit}-query" ''
-        set -euo pipefail
-        out="$RUNTIME_DIRECTORY/${name}.prom"
-        {
-        ${job.script}
-        } > "$out.tmp"
-        mv "$out.tmp" "$out"
-      '';
-      # Adds the job's own metrics and publishes the file. Runs as root
-      # ("+" in ExecStartPost), outside the sandbox above.
-      publish = pkgs.writeShellScript "${unit}-publish" ''
-        set -euo pipefail
-        src="$RUNTIME_DIRECTORY/${name}.prom"
-        dst="${textfileDir}/state-${name}.prom"
-        {
-          cat "$src"
-          echo "# HELP nixlab_state_metrics_last_success_timestamp_seconds Last successful run of a state metrics job."
-          echo "# TYPE nixlab_state_metrics_last_success_timestamp_seconds gauge"
-          echo "nixlab_state_metrics_last_success_timestamp_seconds{name=\"${name}\"} $(date +%s)"
-          echo "# HELP nixlab_state_metrics_interval_seconds Configured interval of a state metrics job."
-          echo "# TYPE nixlab_state_metrics_interval_seconds gauge"
-          echo "nixlab_state_metrics_interval_seconds{name=\"${name}\"} ${toString job.intervalSeconds}"
-        } > "$dst.tmp"
-        chmod 0644 "$dst.tmp"
-        mv "$dst.tmp" "$dst"
-      '';
-    in
-    lib.nameValuePair unit {
+    lib.nameValuePair (unitName name) {
       description = "State metrics: ${job.description}";
+      file = "state-${name}.prom";
+      user = userOf name job;
+      inherit (job) group supplementaryGroups;
       path = [
         sqliteQuery
-        pkgs.coreutils
       ]
       # Only where PostgreSQL runs: its package option has no value elsewhere.
       ++ lib.optional config.services.postgresql.enable pgQuery
       ++ job.path;
-      serviceConfig = {
-        Type = "oneshot";
-        ExecStart = query;
-        ExecStartPost = "+${publish}";
-        RuntimeDirectory = unit;
-        RuntimeDirectoryMode = "0700";
-
-        DynamicUser = job.user == null;
-        User = lib.mkIf (job.user != null) job.user;
-        Group = lib.mkIf (job.group != null) job.group;
-        SupplementaryGroups = job.supplementaryGroups;
-        # An empty assignment is the empty set: no capabilities at all.
-        CapabilityBoundingSet = if job.capabilities == [ ] then "" else job.capabilities;
-        AmbientCapabilities = lib.mkIf (job.user != "root") job.capabilities;
-
-        ProtectSystem = "strict";
-        ProtectHome = true;
-        PrivateTmp = true;
-        PrivateDevices = true;
-        PrivateNetwork = !job.hostNetwork;
-        NoNewPrivileges = true;
-        ProtectKernelTunables = true;
-        ProtectKernelModules = true;
-        ProtectControlGroups = true;
-        RestrictAddressFamilies = [ "AF_UNIX" ] ++ lib.optional job.hostNetwork "AF_NETLINK";
-        RestrictNamespaces = true;
-        LockPersonality = true;
-        MemoryDenyWriteExecute = true;
-        SystemCallArchitectures = "native";
-        UMask = "0077";
+      # The job's own metrics after its output; a failing script never
+      # gets here, so the file is not replaced.
+      script = ''
+        ${job.script}
+        echo "# HELP ${prefix}state_metrics_last_success_timestamp_seconds Last successful run of a state metrics job."
+        echo "# TYPE ${prefix}state_metrics_last_success_timestamp_seconds gauge"
+        echo "${prefix}state_metrics_last_success_timestamp_seconds{name=\"${name}\"} $(date +%s)"
+        echo "# HELP ${prefix}state_metrics_interval_seconds Configured interval of a state metrics job."
+        echo "# TYPE ${prefix}state_metrics_interval_seconds gauge"
+        echo "${prefix}state_metrics_interval_seconds{name=\"${name}\"} ${toString job.intervalSeconds}"
+      '';
+      hardening = {
+        network = if job.hostNetwork then "netlink" else "none";
+        inherit (job) capabilities;
       };
-    };
-
-  mkTimer =
-    name: job:
-    lib.nameValuePair (unitName name) {
-      wantedBy = [ "timers.target" ];
-      timerConfig = {
+      timer = {
         OnBootSec = "2min";
         OnUnitActiveSec = "${toString job.intervalSeconds}s";
       };
@@ -224,13 +176,23 @@ in
     description = "State metrics jobs, keyed by name; the name becomes the `name` label (`job` is the scrape job's).";
   };
 
+  imports = [ ./textfile-metrics.nix ];
+
+
   config = lib.mkIf (cfg.jobs != { }) {
     assertions = lib.mapAttrsToList (name: job: {
       assertion = job.user != "root" || job.capabilities != [ ];
       message = "services.stateMetrics.jobs.${name}: user root needs an explicit capabilities list.";
     }) cfg.jobs;
 
-    systemd.services = lib.mapAttrs' mkService cfg.jobs;
-    systemd.timers = lib.mapAttrs' mkTimer cfg.jobs;
+    services.textfileMetrics.writers = lib.mapAttrs' mkWriter cfg.jobs;
+
+    users.users = lib.mapAttrs' (name: _: lib.nameValuePair "state-${name}" {
+      isSystemUser = true;
+      group = "state-${name}";
+      description = "state metrics job ${name}";
+    }) (lib.filterAttrs (_: job: job.user == null) cfg.jobs);
+    users.groups = lib.mapAttrs' (name: _: lib.nameValuePair "state-${name}" { })
+      (lib.filterAttrs (_: job: job.user == null) cfg.jobs);
   };
 }

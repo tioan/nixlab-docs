@@ -34,7 +34,9 @@
 let
   cfg = config.services.resticVerified;
   stateDir = "/var/lib/restic-verified";
-  textfileDir = "/var/lib/prometheus-node-exporter-text-files";
+  # The root directory of the textfile collector, not a writer directory of
+  # its own: the backup job runs as root anyway (#320, decision 2a).
+  textfileDir = config.services.textfileMetrics.directory;
 
   tool = name: pkgs.writeShellApplication {
     name = "restic-verified";
@@ -75,6 +77,8 @@ let
   allInputs = lib.unique (lib.concatMap (job: job.inputs) (lib.attrValues cfg.jobs));
 in
 {
+  imports = [ ./textfile-metrics.nix ];
+
   options.services.resticVerified.jobs = lib.mkOption {
     default = { };
     description = "Jobs of services.restic.backups whose success gets verified.";

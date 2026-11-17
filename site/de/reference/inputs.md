@@ -9,8 +9,8 @@ Nur `nixpkgs` und `nixpkgs-unstable` laufen im nächtlichen Auto-Upgrade mit (`s
 | `sops-nix` | main | alle | nein – von Hand, Diff gelesen (läuft als root mit allen Secrets) |
 | `nixpkgs-netbird` | nixos-unstable | NetBird-Server und alle Clients | nein – Server zuerst, dann Clients |
 | `nixpkgs-pocketid` | nixos-26.05 | zummi (pocket-id-Paket) | nein |
-| `disko` | main | ursalia (alle Mounts) | nein |
-| `lanzaboote` | v1.1.0 | ursalia (Secure Boot) | nein |
+| `disko` | main | ursalia, tummi (alle Mounts) | nein |
+| `lanzaboote` | v1.2.0 | ursalia, tummi (Secure Boot) | nein |
 | `nixpkgs-darwin`, `nix-darwin` | 26.05-darwin | zorlock, gusto | nein (kein Auto-Upgrade) |
 | `home-manager` | release-26.05 | gusto (Dotfiles) | nein – zusammen mit `nix-darwin` |
 | `nix-homebrew` | main | Macs mit Homebrew (gusto): das Modul, das Homebrew installiert | nein – `just mac-upgrade` |

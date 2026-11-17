@@ -8,9 +8,11 @@
 # binaries from one derivation) - no separate NixOS module exists for it
 # upstream, hence the hand-rolled systemd unit below, in the same spirit as
 # modules/auto-upgrade-git.nix.
-{ config, lib, pkgs, ... }:
+{ config, options, lib, pkgs, ... }:
 let
   cfg = config.services.metricsShipping;
+  # The AppSec WAF's per-vhost counters (modules/waf.nix), where nginx asks it.
+  wafNginx = options.services ? waf && config.services.waf.enable && config.services.waf.nginx.apiKeyFile != null;
 
   scrapeConfig = (pkgs.formats.yaml { }).generate "vmagent-scrape.yaml" {
     # Every series carries the host it comes from as `host`. Until
@@ -43,10 +45,16 @@ let
       job_name = "${config.networking.hostName}-crowdsec";
       static_configs = [{ targets = [ "127.0.0.1:6060" ]; labels.instance = "crowdsec"; }];
     }
+    ++ lib.optional wafNginx {
+      job_name = "${config.networking.hostName}-waf";
+      static_configs = [{ targets = [ "127.0.0.1:${toString config.services.waf.nginx.metricsPort}" ]; labels.instance = "waf"; }];
+    }
     ++ cfg.extraScrapeConfigs;
   };
 in
 {
+  imports = [ ./hardening.nix ];
+
   options.services.metricsShipping = {
     enable = lib.mkEnableOption "ship this host's Prometheus exporters to grammi's VictoriaMetrics via vmagent";
 
@@ -93,6 +101,16 @@ in
       '';
     };
 
+    defaultExporters = lib.mkOption {
+      type = lib.types.listOf lib.types.str;
+      default = [ "node" "node-cert" "nginx" "nginxlog" ];
+      description = ''
+        services.prometheus.exporters.<name> registered in exporterPorts
+        automatically wherever they are enabled, so hosts list only their
+        own extra exporters.
+      '';
+    };
+
     exporterAddresses = lib.mkOption {
       type = lib.types.attrsOf lib.types.str;
       default = { };
@@ -122,6 +140,11 @@ in
   };
 
   config = lib.mkIf cfg.enable {
+    services.metricsShipping.exporterPorts = lib.mapAttrs (_: e: e.port) (lib.filterAttrs
+      (name: e: builtins.elem name cfg.defaultExporters && e.enable)
+      (lib.getAttrs (builtins.filter (n: config.services.prometheus.exporters ? ${n}) cfg.defaultExporters)
+        config.services.prometheus.exporters));
+
     assertions = [{
       assertion = (cfg.basicAuth.username == null) == (cfg.basicAuth.passwordFile == null);
       message = "services.metricsShipping.basicAuth: set username and passwordFile together.";
@@ -136,6 +159,13 @@ in
       after = [ "network-online.target" "netbird-mesh.service" ];
       wants = [ "network-online.target" ];
       wantedBy = [ "multi-user.target" ];
+      # The shared sandbox (modules/hardening.nix, #18): scrapes loopback,
+      # ships over the mesh, writes only its queue.
+      hardening = {
+        enable = true;
+        level = "strict";
+        network = "any";
+      };
       serviceConfig = {
         DynamicUser = true;
         # vmagent's remote-write component persists an on-disk queue and

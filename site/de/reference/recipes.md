@@ -7,6 +7,8 @@
 | `just release <host>` / `holds` | Halt ohne Merge aufheben / alle Halte anzeigen |
 | `just test-restic-verified` | Erzwungene Backup-Fehler in einer Wegwerf-VM auf ursalia ([Wann ein Backup als erfolgreich gilt](../explanation/monitoring.md#backup-verified)) |
 | `just test-gw-remote-private-users` | gw-remote im User-Namespace in einer Wegwerf-VM auf ursalia: OpenVPN, nftables, WireGuard im Container, dann der Switch zurück ohne |
+| `just test-forwarding` | Der Forward-Filter in Wegwerf-VMs auf ursalia: nichts von einem Nachbarn ins Overlay oder auf eine Container-Bridge ([Exit-Nodes](../explanation/secrets-network-access.md)) |
+| `just forward-probe <host>` | Live-Prüfung auf einem routenden Host: ein Namespace-Nachbar darf das Mesh nicht erreichen; nur zur Laufzeit, räumt auf |
 | `just restore-test <host> [isolation]` | grammi oder zummi aus restic in eine Wegwerf-VM ohne Netz auf ursalia zurückholen und die RTO messen ([Restore testen](../how-to/restore-test.md)) |
 | `just check <host>` | `git pull` + `nixos-rebuild dry-activate` |
 | `just secrets <host>` / `pull-secrets <host>` | Host-Secrets auf dem Host editieren und zurückholen |
@@ -45,7 +47,7 @@
 | `just apps [suche] [--host h]` / `just apps install\|uninstall <name>…` / `apps-list [host]` / `apps-rm <name> [host]` | Software eines Macs (`hosts/<host>/apps.json`): eine Runde aus Suchen in nixpkgs, Homebrew und App Store, Hinzufügen (nach Pin-Prüfung) und Entfernen, dann ein Switch und ein Commit; exakte Namen wie brew installieren oder deinstallieren; auflisten; einen Eintrag entfernen – auf gusto auch als `apps`, `apps-list`, `apps-rm` in jedem Ordner, siehe [Software auf den Macs](../how-to/software.md) |
 | `just mac-upgrade` | Auf gusto: Homebrew-Pins aktualisieren, schalten, `brew upgrade`, NetBird-Version neben dem Mesh-Pin; `flake.lock` committen |
 | `just container-bump <host> <name> [tag]` | Container-Image auf den Digest des neuesten Release-Tags (oder des angegebenen) in `hosts/<host>/container-images.json` pinnen; dann committen und deployen ([Container-Image aktualisieren](../how-to/container-images.md)) |
-| `just gc <host>` | Store-Generationen älter als 7 Tage löschen |
+| `just gc <host>` | Nächtliche Garbage Collection jetzt starten (behält die letzten 10 Generationen) |
 | `just docs` | Diese Doku bauen: private PDFs (de/en) und die anonymisierte öffentliche Fassung (README, PDFs, Site-Quellen, Module) in `public-docs/` (Clone von `nixlab-docs`, gitignored), dort committet und gepusht; GitHub baut daraus die Site |
 | `just docs-serve` | Private Site mit echten Werten lokal bauen und unter `http://127.0.0.1:8000` zeigen |
 

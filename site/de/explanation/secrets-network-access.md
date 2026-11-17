@@ -81,7 +81,9 @@ Pro Exit-Node gibt es zwei Routen, `exit-aldrin` (`0.0.0.0/0`) und `exit-aldrin-
 
 #### Auf den Hosts { #exit-nodes-hosts }
 
-Routing und NAT richtet der NetBird-Client selbst ein: Masquerade für v4 (NAT44) und v6 (NAT66) auf die öffentlichen Adressen des Hosts, die ACL der Policy in seiner eigenen nftables-Tabelle. `modules/netbird-exit-node.nix` schaltet zusätzlich das Forwarding für beide Familien ein, damit es nicht vom Client abhängt. Reverse-Path-Filter bleibt „strict“, die NixOS-Firewall filtert Forwarding nicht (`filterForward` aus, wie überall).
+Routing und NAT richtet der NetBird-Client selbst ein: Masquerade für v4 (NAT44) und v6 (NAT66) auf die öffentlichen Adressen des Hosts, die ACL der Policy in seiner eigenen nftables-Tabelle. `modules/netbird-exit-node.nix` schaltet zusätzlich das Forwarding für beide Familien ein, damit es nicht vom Client abhängt. Reverse-Path-Filter bleibt „strict“.
+
+**Forwarding wird gefiltert** (`modules/forwarding.nix`, #311), auf jedem Host, der routet – aldrin, zummi, ursalia, cuckoosegg: Die Forward-Kette der NixOS-Firewall verwirft standardmäßig und lässt neue Verbindungen entlang der Paare durch, die die jeweilige Rolle nennt, dazu DNAT-Portweiterleitungen und ICMPv6 (außer ins nb-mesh, siehe die Sperrkette unten) (Exit-Node: nb-mesh → öffentliche Schnittstelle; Routing-Peer: nb-mesh → LAN; dazu auf aldrin der gw-remote-Container ins Internet und auf ursalia die Podman-Bridge). Eine eigene Sperrkette verwirft alles Neue *ins* nb-mesh von jeder anderen Schnittstelle, ICMPv6 eingeschlossen. Warum: NetBirds Forward-Kette prüft nur Verkehr, der aus dem Mesh kommt, und NetBird maskiert Verkehr von außen ins Mesh als den routenden Host – vor dem Filter erreichte ein Gerät im Heimnetz, im Subraum oder direkt im Provider-Netz mit einer einzigen Route die Mesh-Peers als dieser Host (mit einem Namespace-Nachbarn auf allen vier Hosts gezeigt). `just test-forwarding` prüft das Modul in VMs, `just forward-probe <host>` wiederholt den Nachbar-Test auf dem laufenden Host.
 
 Warum NAT66 und keine öffentlichen Adressen für die Clients: Die Overlay-Adresse eines Clients gilt im ganzen Mesh, unabhängig vom Exit-Node – eine GUA aus aldrins Netz würde über zummi mit fremder Absenderadresse hinausgehen. Außerdem hat keiner der beiden ein geroutetes Präfix: aldrins /64 ist on-link, zummi hat eine /128.
 
@@ -99,7 +101,7 @@ Jeder Exit-Node zählt den weitergeleiteten Verkehr je Familie und Richtung in e
 
 #### Provider aus PR #215 { #netbird-provider-pr215 }
 
-Der veröffentlichte NetBird-Provider (v0.0.10) kennt `ipv6_enabled_groups` und `network_range_v6` nicht und setzt sie bei jedem Apply der Account-Settings zurück ([#243](https://github.com/netbirdio/terraform-provider-netbird/issues/243)). Bis [PR #215](https://github.com/netbirdio/terraform-provider-netbird/pull/215) veröffentlicht ist, baut `pkgs/terraform-provider-netbird.nix` den Provider aus diesem PR, und `terraform/netbird/env.sh` setzt ihn per `dev_overrides` ein; Tofu warnt deshalb bei jedem Lauf. Rückbau: Paket, Flake-Output und Block in `env.sh` entfernen, `tofu init -upgrade` ([offener Punkt](../project/open-items.md)).
+Der veröffentlichte NetBird-Provider (v0.0.10) kennt `ipv6_enabled_groups` und `network_range_v6` nicht und setzt sie bei jedem Apply der Account-Settings zurück ([#243](https://github.com/netbirdio/terraform-provider-netbird/issues/243)). Bis [PR #215](https://github.com/netbirdio/terraform-provider-netbird/pull/215) veröffentlicht ist, baut `pkgs/terraform-provider-netbird.nix` den Provider aus diesem PR, und `terraform/netbird/env.sh` setzt ihn per `dev_overrides` ein; Tofu warnt deshalb bei jedem Lauf. Rückbau: Paketdatei, ihre Zeilen in `pkgs/default.nix` und in `ownPlatforms` (`flake.nix`) und Block in `env.sh` entfernen, `tofu init -upgrade` ([offener Punkt](../project/open-items.md)).
 
 ### DNS mit AdGuard Home { #adguard }
 
@@ -152,6 +154,18 @@ dig +short mqtt.homelab.example @ursalia.peer.homelab.example -p 5354
 
 Das Gegenstück in NetBird sind Nameserver-Gruppen mit `domains` (Match-Domains): dieselbe Idee eine Ebene höher, pro Peer-Gruppe statt pro Client-Adresse.
 
+#### Clients hinter gruffi: Client-Erkennung per ECS { #adguard-ecs }
+
+Fragt ein Forwarder AdGuard im Auftrag seiner Clients, sieht AdGuard nur den Forwarder: Query-Log, Statistik, Regeln und Upstreams pro Client gelten dann für ihn. Für die IoT-Gruppen, die über gruffis dnsmasq auflösen sollen (nixlab#105, Option 4a′), nimmt AdGuard die Client-Adresse deshalb aus einem EDNS-Client-Subnet-Feld (ECS), das dnsmasq anhängt (`add-subnet=32,128`).
+
+- **Gepatchtes AdGuard Home:** `use_client_addr_from_ecs` gibt es noch in keinem Release. ursalia betreibt AdGuard Home aus nixpkgs mit sechs Patches (`pkgs/adguardhome-ecs/`, `pkgs.nixlab.adguardhome-ecs`). Das ist ein dauerhaftes Override, kein [Hotfix](../how-to/hotfix.md); nixlab#416 verfolgt, es zu entfernen, sobald AdGuard Home die Option selbst hat.
+- **Nur von vertrauenswürdigen Absendern:** AdGuard glaubt ECS nur von `trusted_proxies` (Loopback für nginx und gruffis Adresse im Server-Netz) und nur mit Host-Präfix (`/32`, `/128`). ECS von allen anderen wird ignoriert und entfernt, ein Client kann sich also nicht als ein anderer ausgeben. gruffi muss genau von der vertrauenswürdigen Adresse aus senden (`server=<AdGuard>@<Adresse>`): Von jeder anderen Adresse erscheinen seine Anfragen als gruffi, nicht als die Geräte. gruffis dnsmasq braucht dazu `strip-subnet`, sonst reicht er ein ECS-Feld weiter, das der Client selbst mitgeschickt hat.
+- **Nicht weitergereicht:** AdGuard entfernt das genutzte ECS-Feld vor dem Weiterleiten, LAN-Adressen kommen also nie bei ffmuc an. Ohne diesen Patch reicht AdGuard ECS unverändert weiter, auch bei ausgeschaltetem `edns_client_subnet` (gemessen, nixlab#105).
+- **dnsmasq-Cache:** Mit `add-subnet` beantwortet dnsmasq 2.93 nichts aus seinem Cache. Zwischen Clients wird also keine Antwort geteilt, und jede Anfrage landet in AdGuards Log. `cachesize=0` ist nicht nötig.
+- **Direkte Clients** (alle Netze, die AdGuard selbst fragen, das Mesh) sind nicht betroffen.
+
+**Credits:** Die Option stammt von elkrammer (Mauricio Massa), AdguardTeam/AdGuardHome#8571 ([0ebb59f](https://github.com/elkrammer/AdGuardHome/commit/0ebb59f02e9aa4593b2c64c61d34255beb6d2a0c), [1d449c0](https://github.com/elkrammer/AdGuardHome/commit/1d449c0460489a3affda5df80f6451bf6caf6b5f), [19e67b4](https://github.com/elkrammer/AdGuardHome/commit/19e67b4a25e6f92955551bfbddaffbc00fda4e1e)). Die Prüfung auf vertrauenswürdige Absender, die Host-Präfix-Regel und die Upstreams pro Client ([709e201](https://github.com/admin/AdGuardHome/commit/709e201890bdf0ea18516c422e224c265be0c78f), in #8571 gemergt) sowie das Entfernen vor dem Weiterleiten ([b18395b](https://github.com/admin/AdGuardHome/commit/b18395bd9b0ef862ec3dfd1303f77c7a3699ea68)) und von ECS nicht vertrauenswürdiger Absender ([7891212](https://github.com/admin/AdGuardHome/commit/7891212c64491928a488be88bd5c61ba470ee073)), beide elkrammer/AdGuardHome#2, sind von uns.
+
 ## Zugriff
 
 Öffentlich offen sind nur 22/80/443. root-SSH lässt `modules/ssh.nix` nur auf der Mesh-Adresse des Hosts zu (auch über den admin-Sprung oben); jeder Host hat ein eigenes Login-Keypair. Mesh heißt dabei beide Ranges, `192.0.2.0/24` und `2001:db8:203:0::/64` ([Dualstack](#mesh-ipv6)).
@@ -164,15 +178,15 @@ Das Gegenstück in NetBird sind Nameserver-Gruppen mit `domains` (Match-Domains)
 |---|---|---|---|
 | `to-servers` | Personen-Geräte (`homelab`, `homelab_admins`) | alle Server | TCP 80, 443 |
 | `to-smb` | Personen-Geräte | ursalia (Gruppe `smb-servers`) | TCP 445 |
-| `to-servers-icmp` | Personen-Geräte | alle Server | ICMP |
 | `admin-to-servers` | `admin-workstations` (gusto) | alle Server | alles |
 | `servers-to-servers` | `servers` | alle Server | TCP 443 |
 | `servers-telemetry` | `servers` | grammi (Gruppe `telemetry-sink`) | TCP 8427 (vmauth) |
-| `servers-to-servers-icmp` | `servers` | alle Server | ICMP |
+| `icmp-own` | jeder eigene Peer (Server, Personen-Geräte, gusto, Home Assistant, Apple TVs, gruffi, TECHO5, NanoKVM, Reiserouter) | dieselben, in beide Richtungen | ICMP |
+| `icmp-foreign` | cuckoosegg, gw-remote | alle Server, in beide Richtungen | ICMP |
 
-Personen-Geräte erreichen damit nur die Web-Eingänge (nginx, Traefik, Caddy mit ihren eigenen Regeln) und die Samba-Freigabe – nicht mehr SSH, Exporter, Garages Admin-API, VictoriaMetrics/-Logs oder Traefiks `apps`-Entrypoint. `homelab_admins` bekommt nicht mehr als `homelab`: Admin ist ein in `admin-workstations` benanntes Gerät, kein Login. ICMP ganz statt nur Ping, weil eine NetBird-Regel nicht nach ICMP-Typ filtern kann.
+Personen-Geräte erreichen damit nur die Web-Eingänge (nginx, Traefik, Caddy mit ihren eigenen Regeln) und die Samba-Freigabe – nicht mehr SSH, Exporter, Garages Admin-API, VictoriaMetrics/-Logs oder Traefiks `apps`-Entrypoint. `homelab_admins` bekommt nicht mehr als `homelab`: Admin ist ein in `admin-workstations` benanntes Gerät, kein Login. Ping geht seit 2026-11-15 zwischen allen eigenen Peers, IPv4 und IPv6; cuckoosegg und gw-remote, die auf fremd administrierter Hardware laufen bzw. fremde Netze anbinden, pingen nur die Server und erfahren von keinem anderen Peer. ICMP ganz statt nur Ping, weil eine NetBird-Regel nicht nach ICMP-Typ filtern kann.
 
-Der Reverse Proxy braucht keine dieser Policies: NetBird erlaubt seinen Peers den Port jedes Dienst-Ziels von selbst (`management/server/types/legacynmap/proxy_policies.go`, 0.81.0). Eigene Policies haben weiter cuckoosegg und gw-remote (nur 8427 auf grammi), Home Assistant und die Exit-Nodes. Zwischen den Servern ist seit 2026-11 nur offen, was sie nutzen ([nixlab#14](https://github.com/admin/nixlab/issues/14)): 443 für ursalia → zorlock (Ollama), aldrin → ursalia (Immich-Freigabelinks) und grammi → zummi (Pocket ID für den Gruppen-Sync), dazu der Ingest. Garage S3, die Pocket-ID-Logins und den NetBird-Management-Server erreichen die Server über deren öffentliche Adressen; Deploys kommen von den Admin-Arbeitsplätzen.
+Der Reverse Proxy braucht keine dieser Policies: NetBird erlaubt seinen Peers den Port jedes Dienst-Ziels von selbst (`management/server/types/legacynmap/proxy_policies.go`, 0.81.0). Eigene Policies haben weiter cuckoosegg und gw-remote (nur 8427 auf grammi, dazu ICMP), Home Assistant und die Exit-Nodes. Zwischen den Servern ist seit 2026-11 nur offen, was sie nutzen ([nixlab#14](https://github.com/admin/nixlab/issues/14)): 443 für ursalia → zorlock (Ollama), aldrin → ursalia (Immich-Freigabelinks) und grammi → zummi (Pocket ID für den Gruppen-Sync), dazu der Ingest. Garage S3, die Pocket-ID-Logins und den NetBird-Management-Server erreichen die Server über deren öffentliche Adressen; Deploys kommen von den Admin-Arbeitsplätzen.
 
 Prüfen von einem Gerät nur in `homelab` (MacBook Pro, iPhone): `nc -zv grammi.peer.homelab.example 443` verbindet, `nc -zv grammi.peer.homelab.example 8090` und `… 8427` laufen in den Timeout. Von einem Server, z. B. aldrin: 443 auf einem anderen Server und 8427 auf grammi verbinden, 22 und 8090 laufen in den Timeout.
 

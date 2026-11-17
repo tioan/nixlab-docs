@@ -2,6 +2,9 @@
 # which interface, which addresses, which routes - stays in each host's own
 # configuration.nix under networking.ifstate.settings; only the shape of the
 # setup lives here, so a new machine inherits it by importing this module.
+let
+  inherit (import ../resolvers.nix) ffmuc;
+in
 {
   # ifstate rather than the NixOS defaults or systemd-networkd: these are
   # rented VMs with static addressing handed out by the provider, often with
@@ -59,12 +62,8 @@
   services.resolved = {
     enable = true;
     settings.Resolve = {
-      DNS = [
-        "5.1.66.255#dot.ffmuc.net"
-        "185.150.99.255#dot.ffmuc.net"
-        "2001:678:e68:f000::#dot.ffmuc.net"
-        "2001:678:ed0:f000::#dot.ffmuc.net"
-      ];
+      # Freifunk München (resolvers.nix).
+      DNS = map (a: "${a}#${ffmuc.name}") ffmuc.addresses;
       DNSOverTLS = "true";
 
       # systemd ships compiled-in fallbacks (Cloudflare, Google, Quad9) that

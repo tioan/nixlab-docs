@@ -28,9 +28,14 @@
 { config, lib, pkgs, ... }:
 let
   cfg = config.services.intelGpuMetrics;
-  out = "${config.services.metricsTextfile.directory}/intel-gpu.prom";
+  # Its own writer directory (modules/textfile-metrics.nix), root-owned
+  # because the unit stays root (see below).
+  dir = config.services.textfileMetrics.directories.intel-gpu-metrics;
+  out = "${dir.path}/intel-gpu.prom";
 in
 {
+  imports = [ ./textfile-metrics.nix ];
+
   options.services.intelGpuMetrics = {
     enable = lib.mkEnableOption "Intel iGPU load metrics from intel_gpu_top";
     device = lib.mkOption {
@@ -42,6 +47,11 @@ in
   };
 
   config = lib.mkIf cfg.enable {
+    services.textfileMetrics.directories.intel-gpu-metrics = {
+      user = "root";
+      legacyFiles = [ "intel-gpu.prom" ];
+    };
+
     systemd.services.intel-gpu-metrics = {
       description = "Intel iGPU load for node_exporter's textfile collector";
       wantedBy = [ "multi-user.target" ];
@@ -58,33 +68,24 @@ in
       serviceConfig = {
         Restart = "always";
         RestartSec = "30s";
-        # Root for the textfile directory (root-owned) and for the client
-        # list, which reads other services' /proc/<pid>/fdinfo. Everything
-        # else is taken away: i915's PMU needs CAP_PERFMON, fdinfo of other
-        # users CAP_SYS_PTRACE (read access only, ptrace attach is blocked by
-        # SystemCallFilter), CAP_DAC_READ_SEARCH for /proc/<pid>/fd.
-        CapabilityBoundingSet = [ "CAP_PERFMON" "CAP_SYS_PTRACE" "CAP_DAC_READ_SEARCH" ];
-        NoNewPrivileges = true;
-        ProtectSystem = "strict";
-        ReadWritePaths = [ config.services.metricsTextfile.directory ];
-        ProtectHome = true;
-        PrivateTmp = true;
-        PrivateNetwork = true;
-        ProtectKernelTunables = true;
-        ProtectKernelModules = true;
-        ProtectControlGroups = true;
-        ProtectClock = true;
-        ProtectHostname = true;
-        RestrictAddressFamilies = [ "AF_UNIX" ];
-        RestrictNamespaces = true;
-        RestrictRealtime = true;
-        LockPersonality = true;
-        MemoryDenyWriteExecute = true;
-        SystemCallArchitectures = "native";
-        SystemCallFilter = [ "@system-service" "perf_event_open" "~@privileged" ];
-        DevicePolicy = "closed";
-        DeviceAllow = [ "char-drm rw" ];
+        ExecStartPre = [ dir.execStartPre ];
         Nice = 10;
+      };
+      # Root for the client list, which reads other services'
+      # /proc/<pid>/fdinfo; writable is only its own textfile directory.
+      # Everything else is taken away (modules/hardening.nix): i915's PMU
+      # needs CAP_PERFMON and perf_event_open, fdinfo of other users
+      # CAP_SYS_PTRACE (read access only, ptrace attach is blocked by the
+      # system call filter), CAP_DAC_READ_SEARCH for /proc/<pid>/fd.
+      hardening = {
+        enable = true;
+        level = "strict";
+        capabilities = [ "CAP_PERFMON" "CAP_SYS_PTRACE" "CAP_DAC_READ_SEARCH" ];
+        systemCalls = [ "perf_event_open" ];
+        devices = [ "char-drm rw" ];
+        seeProcesses = true;
+        writablePaths = [ "-${dir.path}" ];
+        umask = "0022";
       };
     };
   };

@@ -32,7 +32,21 @@
 }:
 let
   cfg = config.services.v64Measure;
-  textfileDir = config.services.metricsTextfile.directory;
+  # Its own writer directory (modules/textfile-metrics.nix), shared by the
+  # four units below, which all run as this user.
+  user = "v64-measure";
+  textfileDir = config.services.textfileMetrics.directories.${user}.path;
+  # Creates that directory before the sandbox needs it (see the option).
+  prepareDir = config.services.textfileMetrics.directories.${user}.execStartPre;
+  # nft needs CAP_NET_ADMIN and a netlink socket; nothing here needs more.
+  sandbox = extra: lib.recursiveUpdate {
+    enable = true;
+    level = "strict";
+    network = "netlink";
+    capabilities = [ "CAP_NET_ADMIN" ];
+    umask = "0022";
+    writablePaths = [ "-${textfileDir}" ];
+  } extra;
   bouncer = config.services.crowdsec-firewall-bouncer.settings;
   stateDir = "/var/lib/v64-measure";
   url = "https://ipv64.net/blocklists/ipv64_blocklist_v64.txt";
@@ -79,9 +93,24 @@ let
   '';
 in
 {
+  imports = [ ./textfile-metrics.nix ];
+
   options.services.v64Measure.enable = lib.mkEnableOption "counting traffic from ipv64.net's v64 blocklist";
 
   config = lib.mkIf cfg.enable {
+    users.users.${user} = {
+      isSystemUser = true;
+      group = user;
+      description = "v64 blocklist measurement";
+    };
+    users.groups.${user} = { };
+
+    services.textfileMetrics.directories.${user}.legacyFiles = [
+      "v64-counters.prom"
+      "v64-list.prom"
+      "v64-overlap.prom"
+    ];
+
     # The table itself. Started before anything that uses it, loads the
     # cached list right away (a reboot or restart needs no download), and
     # deletes the table when stopped - removing this module removes it.
@@ -93,9 +122,12 @@ in
       serviceConfig = {
         Type = "oneshot";
         RemainAfterExit = true;
+        User = user;
+        ExecStartPre = [ prepareDir ];
         StateDirectory = "v64-measure";
         ExecStop = "${pkgs.nftables}/bin/nft delete table inet v64";
       };
+      hardening = sandbox { };
       script = ''
         set -euo pipefail
         nft list table inet v64 > /dev/null 2>&1 || nft -f ${skeleton}
@@ -112,7 +144,14 @@ in
       path = [ pkgs.nftables pkgs.curl ];
       serviceConfig = {
         Type = "oneshot";
+        User = user;
+        ExecStartPre = [ prepareDir ];
         StateDirectory = "v64-measure";
+      };
+      # The download: IP sockets to anywhere, on top of the netlink one.
+      hardening = sandbox {
+        network = "any";
+        addressFamilies = [ "AF_NETLINK" ];
       };
       script = ''
         set -euo pipefail
@@ -162,7 +201,12 @@ in
       after = [ "v64-table.service" ];
       requisite = [ "v64-table.service" ];
       path = [ pkgs.nftables pkgs.jq ];
-      serviceConfig.Type = "oneshot";
+      serviceConfig = {
+        Type = "oneshot";
+        User = user;
+        ExecStartPre = [ prepareDir ];
+      };
+      hardening = sandbox { };
       script = ''
         set -euo pipefail
         out=${textfileDir}/v64-counters.prom
@@ -197,7 +241,12 @@ in
       after = [ "v64-table.service" ];
       requisite = [ "v64-table.service" ];
       path = [ pkgs.nftables ];
-      serviceConfig.Type = "oneshot";
+      serviceConfig = {
+        Type = "oneshot";
+        User = user;
+        ExecStartPre = [ prepareDir ];
+      };
+      hardening = sandbox { };
       script = overlapCmd;
     };
 

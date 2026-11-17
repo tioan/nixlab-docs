@@ -188,8 +188,7 @@ Hosts deployed before the check existed fall back to a plain pull.
 
 Refuses while `just try` holds the host on a branch that /etc/nixos does
 not contain yet; once it does (merged and pulled), the hold is lifted and
-the rebuild runs. `command -v`: hosts from before modules/deploy-hold.nix
-have no holds.
+the rebuild runs. Every pull-deployed host has modules/deploy-hold.nix.
 Rebuild a remote host from its current /etc/nixos checkout
 
 ## `just check host`
@@ -235,6 +234,24 @@ Drop a host's `just try` hold without merging
 
 Every `just try` hold on every NixOS host.
 
+## `just flake-check`
+
+Every check of this flake for this machine's system (nixlab#324). On the
+Mac: the pure evaluations - every host's system derivation, inventory,
+OpenWrt settings, generated files - and the small darwin builds, a couple
+of minutes. The NixOS VM tests exist for x86_64-linux only: `just test-vm`.
+
+## `just test-vm *names`
+
+The NixOS VM tests under checks.x86_64-linux, built on ursalia: all of them,
+or only the ones named. Which checks are VM tests is read from the flake
+(x86_64-linux only, with a test driver), so a new test needs no edit here.
+
+```
+just test-vm                  all, about 15 min
+just test-vm forwarding       one
+```
+
 ## `just test-restic-verified`
 
 Forced failures for modules/restic-verified.nix in a throwaway VM on ursalia:
@@ -255,6 +272,27 @@ service must answer on [::1] too, and on no other address. About 1 min.
 gw-remote in a user namespace in a throwaway VM on ursalia: the real container
 with a throwaway PKI, keys owned like aldrin's, OpenVPN/nftables/WireGuard
 inside, then the switch back without one. No secrets, a few minutes.
+
+## `just test-forwarding`
+
+modules/forwarding.nix in throwaway VMs on ursalia: an overlay, a
+neighbour and a container bridge behind one router; nothing from the
+neighbour may get into the overlay or onto the bridge (#311). About 2 min.
+
+## `just test-exit-counters`
+
+The exit node's traffic counters (modules/netbird-exit-node.nix) in
+throwaway VMs on ursalia: client traffic moves them, the router's own
+WireGuard traffic does not (#367). About 1 min.
+
+## `just forward-probe host`
+
+Live check of the forward filter on a routing host (#311): a namespace on
+the host plays an on-link neighbour and tries to reach the host's metrics
+endpoint on grammi over the mesh. Must end "blocked" everywhere. The neighbour's address is one NetBird
+would masquerade on that host: inside the routed network on ursalia (home
+LAN, outside the DHCP pool) and cuckoosegg (a Subraum range), any address
+on the exit nodes. Runtime only, cleans up after itself.
 
 ## `just pve-image host pve`
 
@@ -342,11 +380,12 @@ four hosts. Commit, then deploy.
 
 ## `just waf-key host`
 
-Register the WAF's nginx bouncer with a host's CrowdSec LAPI and store its
-key in hosts/<host>/waf.yaml (sops, host + admin - see modules/waf.nix).
+Register the WAF's bouncer - nginx-appsec, or traefik-appsec on a host
+with Traefik - with a host's CrowdSec LAPI and store its key in
+hosts/<host>/waf.yaml (sops, host + admin - see modules/waf-lab.nix).
 The key goes from cscli on the host straight into `sops encrypt` here,
 never printed or on disk in plaintext. Refuses to overwrite: rotating
-means `cscli bouncers delete nginx-appsec` on the host, `rm` the file, and
+means `cscli bouncers delete <name>` on the host, `rm` the file, and
 running this again. Commit, then deploy the host.
 
 ## `just mac-upgrade`
@@ -405,7 +444,8 @@ Copy every run from zorlock to .version-check/ in the checkout
 
 ## `just gc host`
 
-Manually trigger garbage collection on a remote host (nix.gc already runs nightly)
+Run the host's nightly garbage collection now (modules/nix.nix): keeps the
+last 10 system generations, then collects everything they do not need.
 
 ## `just tf-state-passphrase`
 
@@ -610,6 +650,30 @@ service has its certificate; runs at the end of `just netbird-apply`.
 A new name has to be in public DNS first (DNSControl, a few minutes
 ahead), or Let's Encrypt cannot reach the proxy for it.
 
+## `just netbird-debug-upload-secret`
+
+Secret path segment for the public way in to the upload server
+(https://mesh.homelab.example/debug-upload/<secret>/, hosts/grammi/
+netbird-debug-upload.nix): random hex straight into hosts/grammi/
+netbird-debug-upload.yaml, never printed. Commit it and deploy grammi;
+only jobs running right then notice a change.
+New secret path for NetBird debug bundle uploads.
+
+## `just netbird-debug-bundle-list`
+
+Stored bundles on grammi: key, size, upload time. Nothing else.
+
+## `just netbird-debug-bundle-dns key`
+
+The DNS-related lines of a bundle - resolved domains, the status' DNS
+lines, and matching lines of the client and app logs. Runs on grammi; the
+zip (with the peer's private key) never comes over.
+Show only the DNS-related lines of a stored bundle.
+
+## `just netbird-debug-bundle-rm key`
+
+Delete a bundle before its 24 h are up.
+
 ## `just dokumente-share-pin`
 
 The NetBird reverse proxy service dokumente (terraform/netbird/
@@ -768,6 +832,15 @@ Security, name "grammi metrics"), copy it, then run this. It takes the
 token from the clipboard into hosts/grammi/ha-metrics.yaml and clears the
 clipboard; the token never shows in a terminal.
 
+## `just grafana-shares-token`
+
+Token for the list of public dashboards (hosts/grammi/grafana-shares.nix,
+#320): in Grafana, Administration -> Users and access -> Service accounts,
+add "public-shares" with role Viewer, add a token without expiry, copy it,
+then run this. It takes the token from the clipboard into
+hosts/grammi/grafana-shares.yaml and clears the clipboard; until that file
+exists the writer uses the admin password.
+
 ## `just floccus-password`
 
 Password for floccus' account on tabs.homelab.example (hosts/aldrin/
@@ -792,12 +865,13 @@ HealthLog's OIDC client secret (terraform/pocket-id/healthlog.tf) from Tofu
 state into hosts/ursalia/healthlog-oidc.yaml. Run after pocketid-apply has
 created (or replaced) the client.
 
-## `just adguard-metrics-password`
+## `just adguard-api-password user`
 
-Password of AdGuard Home's "metrics" user on ursalia (exporter in
-hosts/ursalia/adguardhome.nix): random, known to the host only, so nothing
-goes to 1Password. Writes the password and its bcrypt hash to
-hosts/ursalia/adguard-metrics.yaml. Also the rotation: run again, commit,
+Password of one of AdGuard Home's API users on ursalia (apiUsers in
+hosts/ursalia/adguardhome.nix: metrics for the exporter, intercept for
+ph-intercept): random, known to the host only, so nothing goes to
+1Password. Writes the password and its bcrypt hash to
+hosts/ursalia/adguard-<user>.yaml. Also the rotation: run again, commit,
 deploy ursalia.
 
 ## `just adguardhome-password`
@@ -853,7 +927,7 @@ the client.
 
 Build the OpenInvento test image on ursalia and switch to it, no deploy
 needed. Merges upstream main with the refs listed one per line in
-~/Projects/upstream/openinvento-testbuild.refs (outside every repo; origin/pr/N
+~/Projects/upstream/openinvento/testbuild.refs (outside every repo; origin/pr/N
 means the current head of that upstream PR) in the local throwaway branch
 test/ursalia, never pushed. Runs the backend tests, copies the database,
 restarts, checks /api/health. Conflicts stop it; resolved ones are replayed by

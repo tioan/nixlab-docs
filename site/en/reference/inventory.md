@@ -73,6 +73,8 @@ All fields with type, default and meaning: [Inventory schema → hosts](inventor
 | `phone`, `tablet`, `watch` | Mobile devices: iPhone, iPad, Apple Watch; usually with `availability: intermittent` |
 | `appliance` | Anything else with an address: Apple TV, printer, … |
 
+**Web interface.** `web` records how an unmanaged device's own web interface stands against the web baseline the NixOS hosts follow (`modules/web-baseline.nix`): `redirect` – port 80 only redirects to https, probed from ursalia like the lab's own port 80 (`modules/public-probes-targets.nix`, unless `availability` is `intermittent`); `plain` – pages over plain HTTP, an accepted gap whose reason goes into `gap`; `none` – no web interface. Without a `web` entry a device counts as `none`. `gap` also holds what a redirecting device still lacks, such as headers or a trusted certificate.
+
 Whether a host is virtual follows from `kind` (`vm`, `container`) – not from `runsOn`. A rented VM is a `vm` without `runsOn`: the provider's hypervisor is not in the inventory.
 
 ### networks
@@ -232,7 +234,7 @@ Not checked: whether a Tang server actually runs Tang. That lives in its config,
 - references point at an existing entry of the right section
 
 ```
-hosts.vps.critcality: unknown field (known: availability, contracts, criticality, inside, interfaces, kind, managed, manages, model, note, owner, power, productId, runsOn, serial, site, sshHostKeys, unlock, vendor)
+hosts.vps.critcality: unknown field (known: availability, contracts, criticality, inside, interfaces, kind, managed, manages, model, note, owner, power, productId, runsOn, serial, site, sshHostKeys, unlock, vendor, web)
 hosts.nas.interfaces.eno1.mac: "52-54-00-12-34-56" is not a lower-case MAC address like aa:bb:cc:dd:ee:ff
 hosts.app.runsOn: "pve2" is not in hosts
 uplinks.fiber-home.asn: expected a whole number, got "AS64496"
@@ -246,6 +248,7 @@ uplinks.fiber-home.asn: expected a whole number, got "AS64496"
 - `site` present or inheritable; an explicit `site` matches the inherited one
 - every site has an uplink; no uplink, site or owner without use; IPv6 details of an uplink only with `ipv6`
 - `unlock`: at least a method or a fallback; `threshold` ≤ number of methods; `tang` exactly when `nbde`
+- `web` only on unmanaged devices; `web.gap` required with `http: plain`
 - `managed` agrees with `flake.nix`: every `nixosConfigurations`/`darwinConfigurations` entry is in here as managed, and every managed entry has a configuration
 - hardware: `vendor`/`productId`/`serial` not on `vm`/`container`; no serial twice
 - SSH keys: key data matches the type, no key on two devices
@@ -422,10 +425,11 @@ Derived: `contracts.vps-plan.monthly` = `1000`, `providers.hoster.monthly` = `{"
 
 Derived: `docs.upstreamHosts` = `app, nas, pve, ups1, vps`; `auth.neededBy` = `notes`, `auth.usedBy` = `docs`; `providers.mail.degrades` = `auth`; `gaps` lists `storage` (only btrbk on its own disk).
 
-**Reading it elsewhere.** In Nix (another flake output, a module via `specialArgs`):
+**Reading it elsewhere.** In Nix, another flake output reads `self.lib.inventory`; every host and its modules get the same validated value as the module argument `inventory` – never `builtins.readFile` on `inventory.json` (`checks.inventory-direct-reads`):
 
 ```nix
-self.lib.inventory.inventory.hosts.app.upstream   # [ "pve" "ups1" ]
+self.lib.inventory.inventory.hosts.app.upstream   # flake output: [ "pve" "ups1" ]
+{ inventory, ... }: { … inventory.hosts.app.upstream … }   # host or module
 ```
 
 In OpenTofu – the raw data, without derived values and without validation (that stays with `nix flake check`):

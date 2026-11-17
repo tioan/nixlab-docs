@@ -18,7 +18,8 @@
 # by name, and once per host and kind of address also with `Host:
 # localhost` and an unknown name, the two cases that once got a page
 # instead (modules/web-baseline.nix has the default servers). Mesh names
-# are probed from grammi, the rest as above.
+# are probed from grammi, the rest as above. The appliances' own web
+# interfaces (LuCI, cameras) are probed from ursalia, see applianceProbes.
 { lib, inventory }:
 let
   # path: what to request. status: the one status code that counts as
@@ -152,6 +153,27 @@ let
     lib.concatMap (ep: redirectProbesOf ep (lib.take 1 redirectVariants)) web
     ++ lib.concatMap (ep: redirectProbesOf ep (lib.drop 1 redirectVariants)) representatives;
 
+  # --- Appliances (nixlab#372) ------------------------------------------------
+  # Home devices with `web.http` "redirect" in inventory.json: port 80 by
+  # address, IPv4 only, from ursalia - the one prober inside the home
+  # network; gruffi lets it reach port 80 of exactly these
+  # (openwrt/web-probe-targets.nix feeds both). A device's own firmware picks
+  # the redirect code (Reolink answers 302, NanoKVM 307), so any
+  # redirect counts as long as it points at https.
+  applianceProbes = map (t: {
+    id = t.name;
+    fqdn = t.name;
+    path = "/ (port 80)";
+    status = [ 301 302 307 308 ];
+    family = "4";
+    body = [ ];
+    hostHeader = null;
+    location = "^https://";
+    prober = "ursalia";
+    url = "http://${t.address}/";
+    module = "appliance-${t.name}-http-ip4";
+  }) (import ../openwrt/web-probe-targets.nix { inherit lib; inherit (inventory) hosts; });
+
   probesOf =
     ep:
     let
@@ -179,5 +201,5 @@ let
     );
 in
 {
-  probes = lib.concatMap probesOf publicEndpoints ++ redirectProbes;
+  probes = lib.concatMap probesOf publicEndpoints ++ redirectProbes ++ applianceProbes;
 }

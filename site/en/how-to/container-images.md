@@ -1,6 +1,6 @@
 # Update a container image
 
-The few services that run as Podman containers (on ursalia: Bambuddy, HealthLog, the ESPHome builder) pull their images by digest, not by tag. A tag such as `latest` or `1.3.1` is whatever the registry says it is today; a digest is the content itself, just as a fetcher's hash is in Nix. Nothing updates on its own: there is no `podman auto-update` and no auto-update label. [`modules/container-pins.nix`](https://github.com/tioan/nixlab-docs/blob/main/modules/container-pins.nix) refuses to evaluate a host that has either (admin/nixlab#305).
+The few services that run as Podman containers (on ursalia: Bambuddy, HealthLog, ph-intercept, the ESPHome builder) pull their images by digest, not by tag. A tag such as `latest` or `1.3.1` is whatever the registry says it is today; a digest is the content itself, just as a fetcher's hash is in Nix. Nothing updates on its own: there is no `podman auto-update` and no auto-update label. [`modules/container-pins.nix`](https://github.com/tioan/nixlab-docs/blob/main/modules/container-pins.nix) refuses to evaluate a host that has either (admin/nixlab#305).
 
 ## Where the pins are
 

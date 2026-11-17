@@ -58,6 +58,8 @@ let
   };
 in
 {
+  imports = [ ./hardening.nix ];
+
   options.services.telemetryIngest = {
     enable = lib.mkEnableOption "vmauth as the authenticated ingest endpoint for VictoriaMetrics and VictoriaLogs";
 
@@ -170,16 +172,13 @@ in
         DynamicUser = true;
         Restart = "on-failure";
         RestartSec = "5s";
-        PrivateTmp = true;
-        PrivateDevices = true;
-        ProtectSystem = "strict";
-        ProtectHome = true;
-        ProtectKernelTunables = true;
-        ProtectKernelModules = true;
-        ProtectControlGroups = true;
-        NoNewPrivileges = true;
-        RestrictAddressFamilies = [ "AF_INET" "AF_INET6" "AF_UNIX" ];
-        SystemCallFilter = [ "@system-service" "~@privileged" ];
+      };
+      # The shared sandbox (modules/hardening.nix): the ingest listens on
+      # the mesh, the backends are on loopback.
+      hardening = {
+        enable = true;
+        level = "strict";
+        network = "any";
       };
       # A changed password needs a restart (the environment is read at
       # start): restartUnits on whatever writes environmentFile. A changed

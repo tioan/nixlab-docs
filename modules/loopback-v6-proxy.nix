@@ -16,6 +16,8 @@ let
   proxyd = "${config.systemd.package}/lib/systemd/systemd-socket-proxyd";
 in
 {
+  imports = [ ./hardening.nix ];
+
   options.services.loopbackV6Proxy = lib.mkOption {
     default = { };
     example = { restic-exporter.port = 9753; };
@@ -45,14 +47,13 @@ in
       serviceConfig = {
         ExecStart = "${proxyd} 127.0.0.1:${toString p.port}";
         DynamicUser = true;
-        PrivateTmp = true;
-        PrivateDevices = true;
-        ProtectSystem = "strict";
-        ProtectHome = true;
-        NoNewPrivileges = true;
-        # Loopback only, in both directions.
-        IPAddressDeny = "any";
-        IPAddressAllow = "localhost";
+      };
+      # The shared sandbox (modules/hardening.nix); loopback only, in both
+      # directions.
+      hardening = {
+        enable = true;
+        level = "strict";
+        network = "loopback";
       };
     }) cfg;
   };

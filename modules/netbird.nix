@@ -38,6 +38,7 @@ let
 in
 {
   imports = [
+    ./forwarding.nix
     {
       options.services.netbirdMesh.setupKeyPath = lib.mkOption {
         type = lib.types.nullOr lib.types.str;
@@ -227,4 +228,9 @@ in
   # any peer -> servers), which the client enforces in its own nftables
   # table before this firewall sees the packet.
   networking.firewall.trustedInterfaces = [ client.interface ];
+
+  # On hosts that forward (modules/forwarding.nix): nothing from outside the
+  # mesh may open connections into it - NetBird's own forward chain only
+  # judges traffic coming out of the mesh (admin/nixlab#311).
+  networking.forwardFilter.overlayInterfaces = [ client.interface ];
 }

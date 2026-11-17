@@ -1,6 +1,6 @@
 # Container-Image aktualisieren
 
-Die wenigen Dienste, die als Podman-Container laufen (auf ursalia: Bambuddy, HealthLog, der ESPHome-Builder), ziehen ihre Images per Digest, nicht per Tag. Ein Tag wie `latest` oder `1.3.1` ist das, was die Registry heute dafür hält; ein Digest ist der Inhalt selbst, so wie der Hash eines Fetchers in Nix. Nichts aktualisiert sich von selbst: kein `podman auto-update` und kein Auto-Update-Label. [`modules/container-pins.nix`](https://github.com/tioan/nixlab-docs/blob/main/modules/container-pins.nix) lässt einen Host mit einem davon nicht auswerten (admin/nixlab#305).
+Die wenigen Dienste, die als Podman-Container laufen (auf ursalia: Bambuddy, HealthLog, ph-intercept, der ESPHome-Builder), ziehen ihre Images per Digest, nicht per Tag. Ein Tag wie `latest` oder `1.3.1` ist das, was die Registry heute dafür hält; ein Digest ist der Inhalt selbst, so wie der Hash eines Fetchers in Nix. Nichts aktualisiert sich von selbst: kein `podman auto-update` und kein Auto-Update-Label. [`modules/container-pins.nix`](https://github.com/tioan/nixlab-docs/blob/main/modules/container-pins.nix) lässt einen Host mit einem davon nicht auswerten (admin/nixlab#305).
 
 ## Wo die Pins liegen
 

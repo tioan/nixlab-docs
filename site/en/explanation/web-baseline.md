@@ -32,6 +32,10 @@ A request for a name no vhost serves used to land in the first vhost on that add
 
 Whether port 80 really only redirects is probed continuously (`modules/public-probes-targets.nix`): every web endpoint the lab serves itself – public and mesh ones on their own host, proxied ones on the proxy's host – by name, and once per host and kind of address with `Host: localhost` and an unknown name. Expected: 301 or 308 with a `Location` on `https://`, IPv4 and IPv6 apart. Mesh names are probed from grammi, the rest from the usual probers; a failure raises `PublicServiceDown` and shows on the *Public endpoints* dashboard.
 
+## Appliances
+
+Devices outside NixOS (LuCI on the OpenWrt devices, cameras, the modem, ESP-class devices) are measured against the same rule and recorded in `inventory.json` under `web` (nixlab#372). `redirect`: port 80 only redirects to https – LuCI gets `redirect_https` from `openwrt/luci.nix`, and ursalia probes these devices by address, IPv4 only, any redirect code with a `Location` on `https://` (*Appliances at home* on the *Public endpoints* dashboard); gruffi lets ursalia reach exactly their port 80 (`openwrt/web-probe-targets.nix`). `plain`: the firmware has no TLS or the device's API needs plain HTTP – an accepted gap, its reason in `web.gap`. No device can add security headers itself (uhttpd has no option for it); that gap is recorded the same way.
+
 ## The vhost helper
 
 `lab.vhosts.<name>` for the shape that kept repeating: a DNS-01 certificate, `forceSSL`, a proxy to a loopback port, websockets, mesh-only `allow`/`deny`, maintenance and WAF registration.

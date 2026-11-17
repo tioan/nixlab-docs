@@ -7,6 +7,8 @@
 | `just release <host>` / `holds` | Drop a hold without merging / list every hold |
 | `just test-restic-verified` | Forced backup failures in a throwaway VM on ursalia ([When a backup counts as successful](../explanation/monitoring.md#backup-verified)) |
 | `just test-gw-remote-private-users` | gw-remote in a user namespace in a throwaway VM on ursalia: OpenVPN, nftables, WireGuard inside, then the switch back without one |
+| `just test-forwarding` | The forward filter in throwaway VMs on ursalia: nothing from a neighbour into the overlay or onto a container bridge ([Exit nodes](../explanation/secrets-network-access.md)) |
+| `just forward-probe <host>` | Live check on a routing host: a namespace neighbour must not reach the mesh; runtime only, cleans up |
 | `just restore-test <host> [isolation]` | Restore grammi or zummi from restic into a throwaway VM on ursalia without network and measure the RTO ([Test a restore](../how-to/restore-test.md)) |
 | `just check <host>` | `git pull` + `nixos-rebuild dry-activate` |
 | `just secrets <host>` / `pull-secrets <host>` | Edit host secrets on the host and fetch them back |
@@ -45,7 +47,7 @@
 | `just apps [term] [--host h]` / `just apps install\|uninstall <name>…` / `apps-list [host]` / `apps-rm <name> [host]` | Software of a Mac (`hosts/<host>/apps.json`): a round of searching nixpkgs, Homebrew and the App Store, adding (after a pin check) and removing, then one switch and one commit; install or uninstall exact names like brew; list; remove one entry – on gusto also as `apps`, `apps-list`, `apps-rm` from any directory, see [Software on the Macs](../how-to/software.md) |
 | `just mac-upgrade` | On gusto: update the Homebrew pins, switch, `brew upgrade`, NetBird version next to the mesh pin; commit `flake.lock` |
 | `just container-bump <host> <name> [tag]` | Pin a container image to the newest release tag's digest (or the given tag's) in `hosts/<host>/container-images.json`; then commit and deploy ([Update a container image](../how-to/container-images.md)) |
-| `just gc <host>` | Delete store generations older than 7 days |
+| `just gc <host>` | Run the nightly garbage collection now (keeps the last 10 generations) |
 | `just docs` | Build this documentation: private PDFs (de/en) and the anonymised public version (README, PDFs, site sources, modules) in `public-docs/` (gitignored clone of `nixlab-docs`), committed and pushed there; GitHub builds the site from it |
 | `just docs-serve` | Build the private site with real values locally and serve it at `http://127.0.0.1:8000` |
 

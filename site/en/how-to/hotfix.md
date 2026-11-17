@@ -42,6 +42,16 @@ hotfix: final: prev: {
 
 `fixPatch` is optional; it only makes sense where the nixpkgs patch will have a recognisable name (CVE number). Fill in the hash: first leave `lib.fakeHash`, then copy the right value from the build error.
 
+An own package (`pkgs.nixlab.<name>`, `pkgs/default.nix`) is overridden inside its scope; the own overlay comes before the hotfix overlays:
+
+```nix
+hotfix: final: prev: {
+  nixlab = prev.nixlab.overrideScope (f: p: {
+    garage-ui = hotfix { name = "…"; pkg = p.garage-ui; fixedVersion = "…"; override = pkg: …; };
+  });
+}
+```
+
 ## Package from a different nixpkgs: `hotfix` in the host module { #host-module }
 
 Packages from `import nixpkgs-unstable { … }` (paperless, Grist, …) do not see the overlays. There, `hotfix` is used as a module argument:

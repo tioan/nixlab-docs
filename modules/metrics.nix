@@ -13,24 +13,18 @@
   ...
 }:
 let
-  textfileDir = "/var/lib/prometheus-node-exporter-text-files";
   nginxStatusPort = 8079;
   # The S3 vhost's own access log (modules/crowdsec.nix), where it exists.
   bucketLog = lib.attrByPath [ "services" "crowdsecBuckets" "logFile" ] null config;
 in
 {
-  # The textfile directory as an option, so other modules read it from here
-  # instead of repeating the path (modules/state-metrics.nix).
   imports = [
-    {
-      options.services.metricsTextfile.directory = lib.mkOption {
-        type = lib.types.str;
-        default = textfileDir;
-        readOnly = true;
-        description = "Directory node_exporter's textfile collector reads *.prom files from.";
-      };
-    }
+    ./hardening.nix
+    ./textfile-metrics.nix
   ];
+
+  # The textfile directory and its writers: modules/textfile-metrics.nix.
+  services.textfileMetrics.enable = true;
 
   services.prometheus.exporters = {
     # Host basics: CPU, memory, load, filesystem fill, disk I/O, network,
@@ -44,10 +38,8 @@ in
       enabledCollectors = [
         "systemd"
         "processes"
-        "textfile"
       ];
       extraFlags = [
-        "--collector.textfile.directory=${textfileDir}"
         # node_network_address_info: the IPs per device. The MAC is already
         # in node_network_info. Compared with inventory.json by the
         # AddressNotInInventory rule (hosts/grammi/alerting.nix).
@@ -133,18 +125,6 @@ in
   systemd.services.prometheus-nginxlog-exporter.serviceConfig.SupplementaryGroups =
     lib.mkIf config.services.nginx.enable [ "nginx" ];
 
-  # The directory node_exporter's textfile collector reads (the option
-  # above). Writers put a temporary name there and rename it, because the
-  # collector reads whatever is in the directory whenever it is scraped:
-  # without the atomic rename it would eventually parse a half-written file.
-  systemd.tmpfiles.settings."10-node-exporter-textfile".${textfileDir}.d = {
-    user = "root";
-    group = "root";
-    # World-readable on purpose: the writers are root units, the reader is
-    # node_exporter under a DynamicUser that shares no group with it.
-    mode = "0755";
-  };
-
   # CPU and memory per systemd service, read from its cgroup. node_exporter's
   # systemd collector only knows unit states, and prometheus-systemd-exporter
   # measures a unit's main process alone - for a podman unit that is conmon,
@@ -157,15 +137,15 @@ in
   #   unit_cgroup_memory_bytes{unit}       memory.current, page cache included
   #   unit_cgroup_memory_anon_bytes{unit}  anon from memory.stat - what the
   #                                        processes actually hold
-  systemd.services.unit-metrics = {
+  services.textfileMetrics.writers.unit-metrics = {
     description = "Per-service cgroup CPU/memory for node_exporter's textfile collector";
-    path = [ pkgs.gawk pkgs.coreutils ];
-    serviceConfig.Type = "oneshot";
+    file = "unit-cgroup.prom";
+    path = [ pkgs.gawk ];
     # The text format wants all samples of one family together, hence three
     # buffers printed at the end. A unit that stops between the glob and the
-    # read is skipped rather than failing the run.
+    # read is skipped rather than failing the run. /sys/fs/cgroup stays
+    # readable under ProtectControlGroups.
     script = ''
-      set -euo pipefail
       cpu="" mem="" anon=""
       for d in /sys/fs/cgroup/system.slice/*.service; do
         u=''${d##*/}
@@ -177,24 +157,17 @@ in
         mem+="unit_cgroup_memory_bytes{unit=\"$u\"} $m"$'\n'
         anon+="unit_cgroup_memory_anon_bytes{unit=\"$u\"} $a"$'\n'
       done
-      {
-        echo "# HELP unit_cgroup_cpu_seconds_total CPU time of all processes in the unit's cgroup."
-        echo "# TYPE unit_cgroup_cpu_seconds_total counter"
-        printf '%s' "$cpu"
-        echo "# HELP unit_cgroup_memory_bytes Memory charged to the unit's cgroup, page cache included."
-        echo "# TYPE unit_cgroup_memory_bytes gauge"
-        printf '%s' "$mem"
-        echo "# HELP unit_cgroup_memory_anon_bytes Anonymous memory of the unit's cgroup."
-        echo "# TYPE unit_cgroup_memory_anon_bytes gauge"
-        printf '%s' "$anon"
-      } > ${textfileDir}/unit-cgroup.prom.tmp
-      chmod 0644 ${textfileDir}/unit-cgroup.prom.tmp
-      mv ${textfileDir}/unit-cgroup.prom.tmp ${textfileDir}/unit-cgroup.prom
+      echo "# HELP unit_cgroup_cpu_seconds_total CPU time of all processes in the unit's cgroup."
+      echo "# TYPE unit_cgroup_cpu_seconds_total counter"
+      printf '%s' "$cpu"
+      echo "# HELP unit_cgroup_memory_bytes Memory charged to the unit's cgroup, page cache included."
+      echo "# TYPE unit_cgroup_memory_bytes gauge"
+      printf '%s' "$mem"
+      echo "# HELP unit_cgroup_memory_anon_bytes Anonymous memory of the unit's cgroup."
+      echo "# TYPE unit_cgroup_memory_anon_bytes gauge"
+      printf '%s' "$anon"
     '';
-  };
-  systemd.timers.unit-metrics = {
-    wantedBy = [ "timers.target" ];
-    timerConfig = {
+    timer = {
       OnBootSec = "1min";
       OnUnitActiveSec = "15s";
       AccuracySec = "1s";

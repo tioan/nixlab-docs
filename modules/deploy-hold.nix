@@ -23,7 +23,6 @@ let
   holdFile = "/etc/nixos-hold";
   # Same directory modules/metrics.nix points node_exporter's textfile
   # collector at.
-  textfileDir = "/var/lib/prometheus-node-exporter-text-files";
 
   nixos-hold = pkgs.writeShellApplication {
     name = "nixos-hold";
@@ -85,6 +84,8 @@ let
   };
 in
 {
+  imports = [ ./textfile-metrics.nix ];
+
   environment.systemPackages = [ nixos-hold ];
 
   # Interactive shells only, so `ssh host <command>` output stays clean.
@@ -102,28 +103,19 @@ in
   # One sample while a hold exists, none otherwise, so the panel empties
   # itself after a merge. Labels lose quotes and backslashes; git allows a
   # quote in a branch name, the text format does not without escaping.
-  systemd.services.deploy-hold-metrics = {
+  services.textfileMetrics.writers.deploy-hold-metrics = {
     description = "Deploy hold for node_exporter's textfile collector";
-    path = [ pkgs.coreutils pkgs.gnused ];
-    serviceConfig.Type = "oneshot";
+    file = "deploy-hold.prom";
+    path = [ pkgs.gnused ];
     script = ''
-      set -euo pipefail
-      out=${textfileDir}/deploy-hold.prom
-      {
-        echo "# HELP nixlab_deploy_hold_since_seconds Unix time a topic branch was deployed with just try; absent without a hold."
-        echo "# TYPE nixlab_deploy_hold_since_seconds gauge"
-        if [ -e ${holdFile} ]; then
-          f() { sed -n "s/^$1=//p" ${holdFile} | head -n1 | tr -d '"\\'; }
-          echo "nixlab_deploy_hold_since_seconds{branch=\"$(f branch)\",commit=\"$(f commit)\"} $(f since)"
-        fi
-      } > "$out.tmp"
-      chmod 0644 "$out.tmp"
-      mv "$out.tmp" "$out"
+      echo "# HELP nixlab_deploy_hold_since_seconds Unix time a topic branch was deployed with just try; absent without a hold."
+      echo "# TYPE nixlab_deploy_hold_since_seconds gauge"
+      if [ -e ${holdFile} ]; then
+        f() { sed -n "s/^$1=//p" ${holdFile} | head -n1 | tr -d '"\\'; }
+        echo "nixlab_deploy_hold_since_seconds{branch=\"$(f branch)\",commit=\"$(f commit)\"} $(f since)"
+      fi
     '';
-  };
-  systemd.timers.deploy-hold-metrics = {
-    wantedBy = [ "timers.target" ];
-    timerConfig = {
+    timer = {
       OnBootSec = "1min";
       OnUnitActiveSec = "15min";
     };

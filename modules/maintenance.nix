@@ -129,6 +129,8 @@ let
   };
 in
 {
+  imports = [ ./hardening.nix ];
+
   options.services.maintenance = {
     enable = lib.mkEnableOption "maintenance mode and error pages for the host's web front (nginx/Traefik)";
 
@@ -248,30 +250,13 @@ in
           LoadCredential = lib.mkIf hasToken [ "bypass-token:${tokenPath}" ];
           DynamicUser = true;
           Restart = "on-failure";
-
-          NoNewPrivileges = true;
-          ProtectSystem = "strict";
-          ProtectHome = true;
-          PrivateTmp = true;
-          PrivateDevices = true;
-          ProtectKernelTunables = true;
-          ProtectKernelModules = true;
-          ProtectKernelLogs = true;
-          ProtectControlGroups = true;
-          ProtectClock = true;
-          ProtectHostname = true;
-          ProtectProc = "invisible";
-          ProcSubset = "pid";
-          RestrictAddressFamilies = [ "AF_INET" "AF_INET6" "AF_UNIX" ];
-          RestrictNamespaces = true;
-          RestrictRealtime = true;
-          RestrictSUIDSGID = true;
-          LockPersonality = true;
-          MemoryDenyWriteExecute = true;
-          CapabilityBoundingSet = "";
-          SystemCallArchitectures = "native";
-          SystemCallFilter = [ "@system-service" "~@privileged" ];
-          UMask = "0077";
+        };
+        # The shared sandbox (modules/hardening.nix): its socket listens on
+        # loopback, so nothing else may reach it either.
+        hardening = {
+          enable = true;
+          level = "strict";
+          network = "loopback";
         };
       };
     }
@@ -411,6 +396,16 @@ in
             cfg.traefik.entryPoint "nixlab-maintenance" cookieName
             (if hasToken then tokenPath else "")
           ];
+        };
+        # Root, but it may only write Traefik's dynamic directory (0750
+        # traefik, hence CAP_DAC_OVERRIDE) and hand its file to traefik
+        # (CAP_CHOWN); the shared sandbox otherwise (modules/hardening.nix).
+        hardening = {
+          enable = true;
+          level = "strict";
+          capabilities = [ "CAP_CHOWN" "CAP_DAC_OVERRIDE" ];
+          systemCalls = [ "@chown" ];
+          writablePaths = [ cfg.traefik.dynamicDir ];
         };
       };
 

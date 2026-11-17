@@ -32,6 +32,10 @@ Eine Anfrage für einen Namen, den kein vHost bedient, landete bisher im ersten 
 
 Ob Port 80 wirklich nur umleitet, wird laufend geprüft (`modules/public-probes-targets.nix`): jeder Web-Endpoint, den das Lab selbst bedient – öffentliche und Mesh-Endpoints auf ihrem eigenen Host, solche hinter dem Proxy auf dessen Host –, mit seinem Namen, und einmal pro Host und Adressart mit `Host: localhost` und einem unbekannten Namen. Erwartet wird 301 oder 308 mit einem `Location` auf `https://`, IPv4 und IPv6 getrennt. Mesh-Namen prüft grammi, den Rest die üblichen Prober; ein Fehlschlag löst `PublicServiceDown` aus und erscheint im Dashboard *Public endpoints*.
 
+## Appliances
+
+Geräte außerhalb von NixOS (LuCI auf den OpenWrt-Geräten, Kameras, das Modem, Geräte der ESP-Klasse) werden an derselben Regel gemessen und in `inventory.json` unter `web` festgehalten (nixlab#372). `redirect`: Port 80 leitet nur auf https um – LuCI bekommt `redirect_https` aus `openwrt/luci.nix`, und ursalia prüft diese Geräte per Adresse, nur IPv4, jeder Umleitungscode mit einem `Location` auf `https://` (*Appliances at home* im Dashboard *Public endpoints*); gruffi lässt ursalia genau an ihren Port 80 (`openwrt/web-probe-targets.nix`). `plain`: Die Firmware kann kein TLS oder die API des Geräts braucht reines HTTP – eine akzeptierte Lücke, die Begründung steht in `web.gap`. Security-Header kann kein Gerät selbst setzen (uhttpd hat keine Option dafür); diese Lücke steht genauso dort.
+
 ## Der vHost-Helfer
 
 `lab.vhosts.<name>` für die Form, die sich immer wiederholte: DNS-01-Zertifikat, `forceSSL`, Proxy auf einen Loopback-Port, Websockets, `allow`/`deny` nur fürs Mesh, Eintrag in Wartungsmodus und WAF.

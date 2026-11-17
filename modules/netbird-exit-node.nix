@@ -5,35 +5,47 @@
 # Routing and NAT are NetBird's: with masquerade on the route, the client
 # puts its own masquerade rules (v4 and v6) and the policy's forward ACL
 # into its nftables tables. What this module adds:
-#  - forwarding for both families, set here so it does not depend on the
-#    client switching it on and is visible in the config (same reasoning as
-#    on ursalia),
+#  - forwarding for both families through modules/forwarding.nix, set here
+#    so it does not depend on the client switching it on and is visible in
+#    the config: new connections only from nb-mesh out of the public
+#    interface, nothing from the public side into the mesh
+#    (admin/nixlab#311),
 #  - counters of the forwarded traffic per family and direction, for the
 #    "Exit nodes" panels in hosts/grammi/dashboards/netbird.json.
 #
 # Reverse-path filtering stays at modules/firewall.nix' "strict": client
 # packets arrive on nb-mesh from the overlay ranges (connected routes on
 # nb-mesh), the internet's replies on the public interface, whose default
-# routes cover them. Forwarding is not filtered by the NixOS firewall
-# (filterForward stays off, as on every host).
+# routes cover them.
 { config, lib, pkgs, ... }:
 let
   cfg = config.services.netbirdExitNode;
   mesh = config.services.netbird.clients.mesh.interface;
-  textfileDir = "/var/lib/prometheus-node-exporter-text-files";
   table = "netbird-exit-node";
 
   # Named counters, one per family and direction: "out" is client ->
   # internet (counted before masquerade, which runs in postrouting), "in"
   # the internet's replies.
+  #
+  # "out" also requires a source address that is not the host's own. The
+  # kernel's WireGuard sends its encrypted outer packets on the skb of the
+  # plaintext packet, so postrouting sees them with iifname nb-mesh as
+  # well, and "iifname nb-mesh oifname <wan>" alone counted everything the
+  # host itself sends into the mesh (admin/nixlab#367). Those packets carry
+  # the host's own address; forwarded client packets still carry the
+  # client's overlay address, as masquerade runs later. "in" needs no such
+  # condition: locally generated packets have no input interface on the
+  # way out through nb-mesh, and inbound WireGuard packets never reach
+  # postrouting.
   counters = lib.cartesianProduct { family = [ "ipv4" "ipv6" ]; direction = [ "out" "in" ]; };
   counterName = c: "${c.family}_${c.direction}";
   counterRule = c:
     let
       iif = if c.direction == "out" then mesh else cfg.wanInterface;
       oif = if c.direction == "out" then cfg.wanInterface else mesh;
+      notLocal = lib.optionalString (c.direction == "out") " fib saddr type != local";
     in
-    ''iifname "${iif}" oifname "${oif}" meta nfproto ${c.family} counter name "${counterName c}"'';
+    ''iifname "${iif}" oifname "${oif}" meta nfproto ${c.family}${notLocal} counter name "${counterName c}"'';
 in
 {
   options.services.netbirdExitNode = {
@@ -45,7 +57,14 @@ in
     };
   };
 
+  imports = [ ./forwarding.nix ./textfile-metrics.nix ];
+
   config = lib.mkIf cfg.enable {
+    networking.forwardFilter = {
+      enable = true;
+      allow = [{ from = mesh; to = cfg.wanInterface; }];
+    };
+
     # Both hosts set their v6 address and default route statically through
     # ifstate, so the public interface must ignore router advertisements.
     # modules/networking.nix sets accept_ra = 0 for "all" and "default",
@@ -54,10 +73,6 @@ in
     # failed to add default route" on every RA (216 a day) as the provider's
     # route collided with ifstate's ::/0 via fe80::1. Pinned per interface
     # here, where ifstate owns it.
-    boot.kernel.sysctl = {
-      "net.ipv4.ip_forward" = 1;
-      "net.ipv6.conf.all.forwarding" = 1;
-    };
     networking.ifstate.settings.interfaces.${cfg.wanInterface}.sysctl.ipv6.accept_ra = 0;
 
     # The pin alone does not survive a client restart. When routing starts,
@@ -93,7 +108,7 @@ in
     # on 2026-10-25: all four counters at 0 after a test through the exit
     # node. Postrouting chains are left alone; forwarded packets still
     # carry their input interface there, and only what the forward chains
-    # (NetBird's, CrowdSec's) let through gets this far.
+    # (NetBird's, the firewall's, CrowdSec's) let through gets this far.
     #
     # Tables declared here are recreated on firewall reloads, which resets
     # the counters; rate()/increase() take that as a counter reset.
@@ -108,16 +123,19 @@ in
       '';
     };
 
-    # Into node_exporter's textfile collector (modules/metrics.nix): a timer,
-    # a temporary file and an atomic rename.
-    systemd.services.netbird-exit-node-metrics = {
+    # Into node_exporter's textfile collector (modules/textfile-metrics.nix):
+    # reading the counters takes CAP_NET_ADMIN and a netlink socket, nothing
+    # else.
+    services.textfileMetrics.writers.netbird-exit-node-metrics = {
       description = "NetBird exit node traffic counters for node_exporter's textfile collector";
-      after = [ "nftables.service" ];
+      file = "netbird-exit-node.prom";
       path = [ pkgs.nftables pkgs.jq ];
-      serviceConfig.Type = "oneshot";
+      unit.after = [ "nftables.service" ];
+      hardening = {
+        network = "netlink";
+        capabilities = [ "CAP_NET_ADMIN" ];
+      };
       script = ''
-        set -euo pipefail
-        out=${textfileDir}/netbird-exit-node.prom
         nft -j list counters table inet ${table} | jq -r '
           [.nftables[] | select(.counter) | .counter | (.name | split("_")) as [$f, $d] | {f: $f, d: $d, bytes, packets}] as $c
           | "# HELP netbird_exit_node_bytes_total Bytes forwarded between nb-mesh and the public interface.",
@@ -126,15 +144,9 @@ in
             "# HELP netbird_exit_node_packets_total Packets forwarded between nb-mesh and the public interface.",
             "# TYPE netbird_exit_node_packets_total counter",
             ($c[] | "netbird_exit_node_packets_total{family=\"\(.f)\",direction=\"\(.d)\"} \(.packets)")
-        ' > "$out.tmp"
-        chmod 0644 "$out.tmp"
-        mv "$out.tmp" "$out"
+        '
       '';
-    };
-
-    systemd.timers.netbird-exit-node-metrics = {
-      wantedBy = [ "timers.target" ];
-      timerConfig = {
+      timer = {
         OnBootSec = "1min";
         OnUnitActiveSec = "30s";
       };

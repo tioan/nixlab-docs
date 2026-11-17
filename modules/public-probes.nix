@@ -107,6 +107,8 @@ let
   '';
 in
 {
+  imports = [ ./hardening.nix ];
+
   options.services.publicProbes = {
     enable = lib.mkEnableOption "probes of the public endpoints assigned to this host (modules/public-probes-targets.nix)";
 
@@ -151,6 +153,12 @@ in
           DynamicUser = true;
           LoadCredential = [ "ping-url:${config.sops.secrets.${secretName}.path}" ];
           ExecStart = heartbeat;
+        };
+        # Asks the local blackbox exporter, then one HTTPS call out.
+        hardening = {
+          enable = true;
+          level = "strict";
+          network = "any";
         };
       };
 
