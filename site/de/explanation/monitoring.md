@@ -53,7 +53,7 @@ Die Dashboards liegen als JSON in `hosts/grammi/dashboards/` und werden aus dem 
 
 ## Alerting
 
-**vmalert** auf grammi wertet Regeln aus, eine Instanz gegen VictoriaMetrics, eine gegen VictoriaLogs. **Alertmanager** gruppiert, schaltet stumm und wiederholt. **Home Assistant** macht aus jeder Gruppe eine Push-Meldung aufs iPhone und eine Benachrichtigung in der HA-Weboberfläche. Beide verschwinden wieder, sobald der Alarm behoben ist. Alles lauscht nur auf `127.0.0.1`. Der einzige Weg hinaus ist der Webhook zu HA über das Mesh (Policy `alerting-home-assistant`, nur grammi → HA:8123). Alertmanagers Weboberfläche (Alarme, Silences) liegt unter `alertmanager.homelab.example` bzw. `alerts.homelab.example` hinter dem Reverse Proxy mit SSO, nur für `homelab_admins`. Code: `hosts/grammi/alerting.nix`.
+**vmalert** auf grammi wertet Regeln aus, eine Instanz gegen VictoriaMetrics, eine gegen VictoriaLogs. **Alertmanager** gruppiert, schaltet stumm und wiederholt. **Home Assistant** macht aus jeder Gruppe eine Push-Meldung aufs iPhone und eine Benachrichtigung in der HA-Weboberfläche. Beide verschwinden wieder, sobald der Alarm behoben ist. Alles lauscht nur auf `127.0.0.1`. Der einzige Weg hinaus ist der Webhook zu HA über das Mesh (Policy `alerting-home-assistant`, nur grammi → HA:8123). Alertmanagers Weboberfläche (Alarme, Silences) liegt unter `alertmanager.homelab.example` bzw. `alerts.homelab.example` hinter dem Reverse Proxy mit SSO, nur für `homelab_admins`. Code: `hosts/grammi/alerting.nix`, die Regeln in `hosts/grammi/alerting/`.
 
 | Alarm | Grundlage | Auslöser |
 | --- | --- | --- |

@@ -575,7 +575,7 @@ file and deploy grammi when it changed. Via a temp file, so a failed
 Write the mesh addresses of the admin devices - the group
 admin-workstations (terraform/netbird/admin-peers.tf) to terraform/netbird/admin-peers.json - the allow list of
 the private docs site on aldrin and ursalia (flake.nix, docs-site) and of
-pocket-id's admin paths on zummi (hosts/zummi/configuration.nix). Runs
+pocket-id's admin paths on zummi (hosts/zummi/pocket-id.nix). Runs
 after every netbird-apply; when the file changed, commit it and deploy
 aldrin, ursalia and zummi. Via a temp file, and refuses an empty list: an empty
 allow list would lock every admin out (the module asserts it as well).

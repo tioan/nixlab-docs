@@ -67,7 +67,7 @@ All per name, under `services.waf.hosts."<name>"`:
 | `nixlab_waf_appsec_up` | textfile writer `waf-appsec-up`, once a minute |
 | `cs_appsec_reqs_total`, `cs_appsec_block_total`, `cs_appsec_rule_hits` | CrowdSec itself |
 
-Alerts (`hosts/grammi/alerting.nix`): `WafAppsecDown` (no answer for 5 minutes), `WafBlocksHigh` (more than 100 refused requests an hour on one name). Dashboard: Web & Security, row "AppSec WAF".
+Alerts (`hosts/grammi/alerting/security.nix`): `WafAppsecDown` (no answer for 5 minutes), `WafBlocksHigh` (more than 100 refused requests an hour on one name). Dashboard: Web & Security, row "AppSec WAF".
 
 ## Hosts
 

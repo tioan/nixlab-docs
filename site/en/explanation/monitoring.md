@@ -53,7 +53,7 @@ The dashboards are JSON in `hosts/grammi/dashboards/`, provisioned from the repo
 
 ## Alerting
 
-**vmalert** on grammi evaluates rules, one instance against VictoriaMetrics, one against VictoriaLogs. **Alertmanager** groups, mutes and repeats. **Home Assistant** turns each group into a push notification on the iPhone and a notification in HA's web UI. Both disappear again once the alert resolves. Everything listens on `127.0.0.1` only. The single way out is the webhook to HA over the mesh (policy `alerting-home-assistant`, grammi → HA:8123 only). Alertmanager's web UI (alerts, silences) is at `alertmanager.homelab.example` or `alerts.homelab.example`, behind the reverse proxy with SSO, `homelab_admins` only. Code: `hosts/grammi/alerting.nix`.
+**vmalert** on grammi evaluates rules, one instance against VictoriaMetrics, one against VictoriaLogs. **Alertmanager** groups, mutes and repeats. **Home Assistant** turns each group into a push notification on the iPhone and a notification in HA's web UI. Both disappear again once the alert resolves. Everything listens on `127.0.0.1` only. The single way out is the webhook to HA over the mesh (policy `alerting-home-assistant`, grammi → HA:8123 only). Alertmanager's web UI (alerts, silences) is at `alertmanager.homelab.example` or `alerts.homelab.example`, behind the reverse proxy with SSO, `homelab_admins` only. Code: `hosts/grammi/alerting.nix`, the rules in `hosts/grammi/alerting/`.
 
 | Alert | Based on | Fires when |
 | --- | --- | --- |

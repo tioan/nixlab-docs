@@ -231,7 +231,7 @@ The private version of this documentation (`doku.homelab.example`, on aldrin and
 
 ### Pocket ID: admin pages only from admin devices { #pocket-id-admin }
 
-Since 2026-10-25 nginx on zummi answers Pocket ID's admin paths with 403 unless the request comes from an address in `admin-peers.json` – the same list as for the private docs. Closed is everything an admin session or an admin API key can do: `/settings/admin`, users, groups, OIDC clients, APIs, API keys, settings, audit log, signup tokens, SCIM (list: `$pocketid_admin_path` in `hosts/zummi/configuration.nix`, by the permissions of Pocket ID 2.19.2's routes – re-check on every minor bump). Login, account pages (`/api/users/me…`), the OIDC endpoints and logos stay public. The one other exception: the [group sync](#group-sync)'s reads from grammi.
+Since 2026-10-25 nginx on zummi answers Pocket ID's admin paths with 403 unless the request comes from an address in `admin-peers.json` – the same list as for the private docs. Closed is everything an admin session or an admin API key can do: `/settings/admin`, users, groups, OIDC clients, APIs, API keys, settings, audit log, signup tokens, SCIM (list: `$pocketid_admin_path` in `hosts/zummi/pocket-id.nix`, by the permissions of Pocket ID 2.19.2's routes – re-check on every minor bump). Login, account pages (`/api/users/me…`), the OIDC endpoints and logos stay public. The one other exception: the [group sync](#group-sync)'s reads from grammi.
 
 So that admin devices arrive with their mesh address, a NetBird DNS zone points `auth.homelab.example` at zummi's mesh addresses for `admin-workstations` only (`terraform/netbird/pocket-id-admin.tf`); the vhost listens on the wildcard for it. Every other peer, NetBird's server on grammi included, keeps the public record.
 
@@ -262,7 +262,7 @@ Decided 2026-11-01 (1b) over an unattended `tofu apply` (applies everything, the
 - **NetBird:** token of the service user `group-sync` (`terraform/netbird/group-sync.tf`), role admin – NetBird 0.81 allows nothing narrower for updating users (`network_admin` may only read them). Whoever owns grammi owns NetBird's database anyway. Store: `just netbird-group-sync-token`, renew yearly: `just netbird-group-sync-token renew`.
 - **Pocket ID:** API key of the dedicated admin user `netbird-group-sync` (no passkey, only for this key; shows up separately in the audit log, disabling the user locks the key at once). Pocket ID 2.19.2 cannot scope API keys: the key can do anything an admin can. It is fenced in on zummi: from grammi's mesh addresses nginx lets through only `GET` on the user list, single users and the key's own key list (`$pocketid_sync_allowed`), from the internet every admin path is 403. Fully usable, the key would only be from the admin devices. That is why the sync reaches Pocket ID at zummi's mesh name (TLS still for `auth.homelab.example`). Creating the key: log in as `netbird-group-sync` with a login code from the admin UI, create the API key "netbird-group-sync" valid for a year, delete that user's old keys, then `just netbird-group-sync-pocketid-key`.
 
-Then commit and deploy grammi each time. **Alerts** (`hosts/grammi/alerting.nix`): NetbirdGroupSyncStale (an hour without a clean run), SyncCredentialExpiring (token or key expire in less than 30 days), PersonNotManaged (someone is in `homelab`/`homelab_admins` in Pocket ID but not in `people.tf`); every failed run also trips UnitFailed.
+Then commit and deploy grammi each time. **Alerts** (`hosts/grammi/alerting/identity.nix`): NetbirdGroupSyncStale (an hour without a clean run), SyncCredentialExpiring (token or key expire in less than 30 days), PersonNotManaged (someone is in `homelab`/`homelab_admins` in Pocket ID but not in `people.tf`); every failed run also trips UnitFailed.
 
 - A new person: after `just netbird-apply` commit the new `terraform/netbird/group-sync.json` and deploy grammi.
 - `group-sync.json` also holds grammi's mesh addresses; when they change (new v6 address), deploy zummi.
@@ -314,7 +314,7 @@ Since 2026-10-23 dashboards can be shared outside ("Share externally", "public d
 **Accepted on purpose:**
 
 - The token in the link is the only secret, no PIN in front. A public dashboard is read-only and can be paused or deleted in Grafana at any time.
-- Grafana does share dashboards with template variables, but panels using one (e.g. `$job` in Hosts Overview) stay empty for guests; those need a copy without variables. The column "Variables" in "Homelab / Shared dashboards" shows which share is affected. Every panel also needs its datasource's uid, which is why the uids are pinned in provisioning and named in every dashboard (`hosts/grammi/configuration.nix`).
+- Grafana does share dashboards with template variables, but panels using one (e.g. `$job` in Hosts Overview) stay empty for guests; those need a copy without variables. The column "Variables" in "Homelab / Shared dashboards" shows which share is affected. Every panel also needs its datasource's uid, which is why the uids are pinned in provisioning and named in every dashboard (`hosts/grammi/grafana.nix`).
 - As with every proxy name, CrowdSec on grammi only sees what Traefik logs on the `apps` entrypoint, not the TLS part in front of it.
 
 ### MQTT from outside: TLS passthrough to Home Assistant

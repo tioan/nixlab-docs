@@ -350,7 +350,7 @@ Die private Fassung dieser Doku (`doku.homelab.example`, auf aldrin und ursalia)
 
 #### Pocket ID: Admin-Bereich nur von Admin-Geräten
 
-Seit 2026-10-25 beantwortet nginx auf zummi die Admin-Pfade von Pocket ID mit 403, außer die Anfrage kommt von einer Adresse aus `admin-peers.json` – derselben Liste wie bei der privaten Doku. Gesperrt ist alles, was eine Admin-Sitzung oder ein Admin-API-Key kann: `/settings/admin`, Nutzer, Gruppen, OIDC-Clients, APIs, API-Keys, Einstellungen, Audit-Log, Signup-Tokens, SCIM (Liste: `$pocketid_admin_path` in `hosts/zummi/configuration.nix`, nach den Berechtigungen der Routen in Pocket ID 2.19.2 – bei jedem Minor-Update prüfen). Login, Konto-Seiten (`/api/users/me…`), OIDC-Endpunkte und Logos bleiben öffentlich. Einzige weitere Ausnahme: lesende Zugriffe des [Gruppensyncs](#pocket-id--netbird-gruppensync) von grammi.
+Seit 2026-10-25 beantwortet nginx auf zummi die Admin-Pfade von Pocket ID mit 403, außer die Anfrage kommt von einer Adresse aus `admin-peers.json` – derselben Liste wie bei der privaten Doku. Gesperrt ist alles, was eine Admin-Sitzung oder ein Admin-API-Key kann: `/settings/admin`, Nutzer, Gruppen, OIDC-Clients, APIs, API-Keys, Einstellungen, Audit-Log, Signup-Tokens, SCIM (Liste: `$pocketid_admin_path` in `hosts/zummi/pocket-id.nix`, nach den Berechtigungen der Routen in Pocket ID 2.19.2 – bei jedem Minor-Update prüfen). Login, Konto-Seiten (`/api/users/me…`), OIDC-Endpunkte und Logos bleiben öffentlich. Einzige weitere Ausnahme: lesende Zugriffe des [Gruppensyncs](#pocket-id--netbird-gruppensync) von grammi.
 
 Damit die Admin-Geräte mit ihrer Mesh-Adresse ankommen, zeigt eine NetBird-DNS-Zone `auth.homelab.example` nur für `admin-workstations` auf zummis Mesh-Adressen (`terraform/netbird/pocket-id-admin.tf`); der vhost lauscht dafür auf der Wildcard. Alle anderen Peers, auch NetBirds Server auf grammi, behalten den öffentlichen Eintrag.
 
@@ -381,7 +381,7 @@ Entschieden 2026-11-01 (1b) gegen ein unbeaufsichtigtes `tofu apply` (wendet all
 - **NetBird:** Token des Service-Users `group-sync` (`terraform/netbird/group-sync.tf`), Rolle admin – weniger erlaubt NetBird 0.81 für das Ändern von Nutzern nicht (`network_admin` darf Nutzer nur lesen). Wer grammi übernimmt, hat NetBirds Datenbank ohnehin. Ablegen: `just netbird-group-sync-token`, jährlich erneuern: `just netbird-group-sync-token renew`.
 - **Pocket ID:** API-Key des eigenen Admin-Users `netbird-group-sync` (ohne Passkey, nur für diesen Key; im Audit-Log getrennt sichtbar, Deaktivieren des Users sperrt den Key sofort). Pocket ID 2.19.2 kann API-Keys nicht einschränken: Der Key kann alles, was ein Admin kann. Eingehegt wird er auf zummi: Von grammis Mesh-Adressen lässt nginx nur `GET` auf die Nutzerliste, einzelne Nutzer und die eigene Key-Liste durch (`$pocketid_sync_allowed`), aus dem Internet ist jeder Admin-Pfad 403. Voll nutzbar wäre der Key also nur von den Admin-Geräten. Deshalb spricht der Sync Pocket ID über zummis Mesh-Namen an (TLS weiter für `auth.homelab.example`). Key anlegen: als `netbird-group-sync` per Login-Code aus der Admin-Oberfläche anmelden, API-Key „netbird-group-sync“ mit einem Jahr Laufzeit erzeugen, alte Keys dieses Users löschen, dann `just netbird-group-sync-pocketid-key`.
 
-Danach jeweils Commit und Deploy von grammi. **Alarme** (`hosts/grammi/alerting.nix`): NetbirdGroupSyncStale (eine Stunde ohne fehlerfreien Lauf), SyncCredentialExpiring (Token oder Key laufen in weniger als 30 Tagen ab), PersonNotManaged (jemand ist in Pocket ID in `homelab`/`homelab_admins`, steht aber nicht in `people.tf`); jeder Fehlschlag löst außerdem UnitFailed aus.
+Danach jeweils Commit und Deploy von grammi. **Alarme** (`hosts/grammi/alerting/identity.nix`): NetbirdGroupSyncStale (eine Stunde ohne fehlerfreien Lauf), SyncCredentialExpiring (Token oder Key laufen in weniger als 30 Tagen ab), PersonNotManaged (jemand ist in Pocket ID in `homelab`/`homelab_admins`, steht aber nicht in `people.tf`); jeder Fehlschlag löst außerdem UnitFailed aus.
 
 - Neue Person: nach `just netbird-apply` die neue `terraform/netbird/group-sync.json` committen und grammi deployen.
 - `group-sync.json` enthält auch grammis Mesh-Adressen; ändern die sich (neue v6-Adresse), zummi deployen.
@@ -433,7 +433,7 @@ Seit 2026-10-23 lassen sich Dashboards nach außen teilen („Share externally�
 **Was das bewusst in Kauf nimmt:**
 
 - Der Token im Link ist das einzige Geheimnis, keine PIN davor. Ein öffentliches Dashboard ist nur lesbar, und in Grafana lässt es sich jederzeit pausieren oder löschen.
-- Dashboards mit Template-Variablen teilt Grafana zwar, aber Panels, die eine Variable nutzen (etwa `$job` in Hosts Overview), bleiben für Gäste leer; dafür braucht es eine Kopie ohne Variablen. Die Spalte „Variables“ in „Homelab / Shared dashboards“ zeigt, welche Freigabe das betrifft. Außerdem braucht jedes Panel die UID seiner Datenquelle; die UIDs sind deshalb in der Provisionierung festgelegt und in allen Dashboards eingetragen (`hosts/grammi/configuration.nix`).
+- Dashboards mit Template-Variablen teilt Grafana zwar, aber Panels, die eine Variable nutzen (etwa `$job` in Hosts Overview), bleiben für Gäste leer; dafür braucht es eine Kopie ohne Variablen. Die Spalte „Variables“ in „Homelab / Shared dashboards“ zeigt, welche Freigabe das betrifft. Außerdem braucht jedes Panel die UID seiner Datenquelle; die UIDs sind deshalb in der Provisionierung festgelegt und in allen Dashboards eingetragen (`hosts/grammi/grafana.nix`).
 - Wie bei allen Proxy-Namen sieht CrowdSec auf grammi nur, was Traefik im Entrypoint `apps` loggt, nicht den TLS-Teil davor.
 
 #### MQTT von außen: TLS-Passthrough zu Home Assistant
@@ -682,7 +682,7 @@ Die Dashboards liegen als JSON in `hosts/grammi/dashboards/` und werden aus dem 
 
 ### Alerting
 
-**vmalert** auf grammi wertet Regeln aus, eine Instanz gegen VictoriaMetrics, eine gegen VictoriaLogs. **Alertmanager** gruppiert, schaltet stumm und wiederholt. **Home Assistant** macht aus jeder Gruppe eine Push-Meldung aufs iPhone und eine Benachrichtigung in der HA-Weboberfläche. Beide verschwinden wieder, sobald der Alarm behoben ist. Alles lauscht nur auf `127.0.0.1`. Der einzige Weg hinaus ist der Webhook zu HA über das Mesh (Policy `alerting-home-assistant`, nur grammi → HA:8123). Alertmanagers Weboberfläche (Alarme, Silences) liegt unter `alertmanager.homelab.example` bzw. `alerts.homelab.example` hinter dem Reverse Proxy mit SSO, nur für `homelab_admins`. Code: `hosts/grammi/alerting.nix`.
+**vmalert** auf grammi wertet Regeln aus, eine Instanz gegen VictoriaMetrics, eine gegen VictoriaLogs. **Alertmanager** gruppiert, schaltet stumm und wiederholt. **Home Assistant** macht aus jeder Gruppe eine Push-Meldung aufs iPhone und eine Benachrichtigung in der HA-Weboberfläche. Beide verschwinden wieder, sobald der Alarm behoben ist. Alles lauscht nur auf `127.0.0.1`. Der einzige Weg hinaus ist der Webhook zu HA über das Mesh (Policy `alerting-home-assistant`, nur grammi → HA:8123). Alertmanagers Weboberfläche (Alarme, Silences) liegt unter `alertmanager.homelab.example` bzw. `alerts.homelab.example` hinter dem Reverse Proxy mit SSO, nur für `homelab_admins`. Code: `hosts/grammi/alerting.nix`, die Regeln in `hosts/grammi/alerting/`.
 
 | Alarm | Grundlage | Auslöser |
 | --- | --- | --- |
@@ -865,7 +865,7 @@ Alle pro Name, unter `services.waf.hosts."<name>"`:
 | `nixlab_waf_appsec_up` | Textfile-Writer `waf-appsec-up`, einmal pro Minute |
 | `cs_appsec_reqs_total`, `cs_appsec_block_total`, `cs_appsec_rule_hits` | CrowdSec selbst |
 
-Alarme (`hosts/grammi/alerting.nix`): `WafAppsecDown` (5 Minuten keine Antwort), `WafBlocksHigh` (mehr als 100 abgewiesene Requests pro Stunde auf einem Namen). Dashboard: Web & Security, Zeile „AppSec WAF“.
+Alarme (`hosts/grammi/alerting/security.nix`): `WafAppsecDown` (5 Minuten keine Antwort), `WafBlocksHigh` (mehr als 100 abgewiesene Requests pro Stunde auf einem Namen). Dashboard: Web & Security, Zeile „AppSec WAF“.
 
 ### Hosts
 
