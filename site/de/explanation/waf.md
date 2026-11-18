@@ -83,7 +83,7 @@ Ein Traefik-Plugin auf grammi schützt die Dienste anderer Hosts nicht: Traefik 
 
 ## Einen Host oder Namen hinzufügen
 
-1. `services.waf.enable = true;` und `./modules/waf-lab.nix` in die Modulliste des Hosts in `flake.nix`; `waf` in die Zeile des Hosts in `.sops.yaml`. nginx: `lab.vhosts."<name>".waf = true;` (oder `services.waf.nginx.vhosts`). Traefik: Der Router nennt `config.services.waf.traefik.middleware`.
+1. `services.waf.enable = true;` und `./modules/waf-lab.nix` in die Module des Hosts in `flake.nix` (die öffentlichen VMs haben es über das Profil `public-vm`); `waf` in die Zeile des Hosts in `.sops.yaml`. nginx: `lab.vhosts."<name>".waf = true;` (oder `services.waf.nginx.vhosts`). Traefik: Der Router nennt `config.services.waf.traefik.middleware`.
 2. Neue Namen in `detect`: `services.waf.hosts."<name>".mode = "detect";`.
 3. Deployen. Die AppSec-Engine läuft dann; noch fragt sie kein Proxy.
 4. `just waf-key <host>` – registriert `nginx-appsec` bzw. `traefik-appsec` bei der LAPI des Hosts und schreibt den Schlüssel nach `hosts/<host>/waf.yaml`. Committen, deployen.

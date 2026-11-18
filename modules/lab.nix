@@ -1,5 +1,5 @@
 # Lab-wide constants that several modules and hosts need, declared once.
-# The values are set by flake.nix from inventory.json (labConstants there);
+# The values are set from inventory.json by profiles/services.nix;
 # this file only declares them, so the modules that read them stay free of
 # lab values.
 #

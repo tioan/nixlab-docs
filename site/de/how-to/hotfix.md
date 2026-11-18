@@ -54,12 +54,12 @@ hotfix: final: prev: {
 
 ## Paket aus einem anderen nixpkgs: `hotfix` im Host-Modul { #host-module }
 
-Pakete aus `import nixpkgs-unstable { … }` (paperless, Grist, …) sehen die Overlays nicht. Dort wird `hotfix` als Modul-Argument benutzt:
+Pakete aus `inputs.nixpkgs-unstable.legacyPackages.${system}` (paperless, Grist, …) sehen die Overlays nicht. Dort wird `hotfix` als Modul-Argument benutzt:
 
 ```nix
-{ pkgs, nixpkgs-unstable, hotfix, ... }:
+{ pkgs, inputs, hotfix, ... }:
 let
-  unstable = import nixpkgs-unstable { inherit (pkgs.stdenv.hostPlatform) system; };
+  unstable = inputs.nixpkgs-unstable.legacyPackages.${pkgs.stdenv.hostPlatform.system};
   paperless = hotfix {
     name = "paperless-ngx GHSA-…";
     pkg = unstable.paperless-ngx;

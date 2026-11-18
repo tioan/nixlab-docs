@@ -1,10 +1,12 @@
 # Repository layout
 
-One flake, `nixosConfigurations` for five hosts plus `darwinConfigurations` for the two Macs (zorlock, gusto) and two `devShells`: one for working on the repo, one with dnscontrol for the DNSControl repo. Every host gets an explicit module list in `flake.nix`; whatever is missing is missing with the reason in a comment next to it.
+One flake, `nixosConfigurations` for five hosts plus `darwinConfigurations` for the two Macs (zorlock, gusto) and two `devShells`: one for working on the repo, one with dnscontrol for the DNSControl repo. Every host is built by `mkHost` or `mkDarwin` (`lib/hosts.nix`) from its profiles (`profiles/*.nix`) and the modules only it has; a profile it does not import is missing with the reason in a comment next to it.
 
 | Path | Contents |
 | --- | --- |
 | `flake.nix` / `flake.lock` | Inputs, host definitions, packages, `lib.topology`, `lib.inventory`, `checks` |
+| `lib/hosts.nix` | `mkHost` and `mkDarwin`: profiles + own modules + `hosts/<host>/configuration.nix`, module arguments `inputs` and `inventory` |
+| `profiles/` | Module lists several hosts share: `common`, `pulled`, `public-vm`, `services`, `home-nuc`, `docs-site`, `darwin` |
 | `modules/` | 18 shared modules: base, nix, hotfixes, ssh, firewall, networking (ifstate), acme, crowdsec, netbird, metrics/metrics-shipping, logging/log-shipping, qemu-guest, deploy, auto-upgrade-git, docs-site, maintenance |
 | `modules/darwin/` | For the Macs: `homebrew.nix` (one Homebrew policy for every darwin host) and `rebuild.sh` (the engine behind the `mac-*` recipes) |
 | `hosts/gusto/` | The workstation: `configuration.nix` (system, casks, macOS settings), `home.nix` and `ssh.nix` (home-manager), `ssh/*.pub` (public halves of the 1Password SSH keys) |

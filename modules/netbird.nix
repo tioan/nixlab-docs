@@ -11,9 +11,9 @@
 # 192.0.2.0/24, in the group its setup key assigns (terraform/netbird,
 # local.hosts): "servers" for the lab's own hosts, "subraum-devices" for
 # cuckoosegg, which only gets what terraform/netbird/subraum.tf grants.
-{ config, lib, pkgs, nixpkgs-netbird, ... }:
+{ config, lib, pkgs, inputs, ... }:
 let
-  nb = import nixpkgs-netbird { inherit (pkgs.stdenv.hostPlatform) system; };
+  nb = inputs.nixpkgs-netbird.legacyPackages.${pkgs.stdenv.hostPlatform.system};
 
   # services.netbird.clients.mesh -> service netbird-mesh, CLI wrapper
   # `netbird-mesh`, interface nb-mesh, hardened user/group netbird-mesh.

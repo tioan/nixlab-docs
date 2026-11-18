@@ -9,13 +9,13 @@ Rented VMs are created by hand at the provider; bare metal and the Subraum VM fo
 ## 2. Create the configuration
 
 - Create `hosts/<host>/configuration.nix` and `hardware-configuration.nix`.
-- Add it to `nixosConfigurations` in `flake.nix` with an explicit module list. Whatever is left out on purpose gets a comment saying why.
+- Add it to `nixosConfigurations` in `flake.nix`: the host's profiles by their names in `lib/hosts.nix` (`pulled`, `publicVm`, `services`, `homeNuc`, `docsSite`, from the files `profiles/pulled.nix`, `public-vm.nix`, … – `common` is always in) and the modules only it has. `mkHost` adds `hosts/<host>/configuration.nix` itself. A profile the host does not import gets a comment saying why ("does not import profile X because …"). A module reads another nixpkgs as `inputs.<pin>.legacyPackages.${system}`, never as an argument of its own (`checks.no-pin-args`).
 
 ## 3. Add it wherever hosts are listed
 
 | File | Entry |
 | --- | --- |
-| `flake.nix` | `nixosConfigurations.<host>` |
+| `flake.nix` | `nixosConfigurations.<host>` (profiles and own modules) |
 | `inventory.json` | `hosts.<host>` with `"managed": true` – kind, site, owner, unlock (see [Inventory](../reference/inventory.md)) |
 | `justfile` | `hosts := "…"` (pull hosts only, for `ship-all`) |
 | `terraform/netbird/main.tf` | `local.hosts`: host → setup key group (`servers` or similar) |

@@ -46,7 +46,7 @@
 # Hotfixes for packages from the host's own pkgs go into modules/hotfixes/,
 # one overlay per file, as `hotfix: final: prev: { <pkg> = hotfix { ... }; }`;
 # every file there is loaded on every NixOS host. Packages taken from another
-# nixpkgs (`import nixpkgs-unstable { ... }`) do not see these overlays - call
+# nixpkgs (`inputs.<pin>.legacyPackages.${system}`) do not see these overlays - call
 # `hotfix` on them in the host module instead.
 { lib, ... }:
 let

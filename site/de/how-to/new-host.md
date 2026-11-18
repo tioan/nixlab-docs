@@ -9,13 +9,13 @@ Gemietete VMs werden beim Anbieter von Hand angelegt; Bare Metal und die Subraum
 ## 2. Konfiguration anlegen
 
 - `hosts/<host>/configuration.nix` und `hardware-configuration.nix` anlegen.
-- In `flake.nix` unter `nixosConfigurations` eintragen, mit expliziter Modulliste. Was bewusst fehlt, bekommt einen Kommentar mit Begründung daneben.
+- In `flake.nix` unter `nixosConfigurations` eintragen: die Profile des Hosts mit ihren Namen aus `lib/hosts.nix` (`pulled`, `publicVm`, `services`, `homeNuc`, `docsSite`, aus den Dateien `profiles/pulled.nix`, `public-vm.nix`, … – `common` kommt immer dazu) und die Module, die nur er hat. `mkHost` hängt `hosts/<host>/configuration.nix` selbst an. Ein Profil, das der Host nicht importiert, bekommt einen Kommentar mit Begründung („importiert Profil X nicht, weil …“). Ein anderes nixpkgs liest ein Modul als `inputs.<pin>.legacyPackages.${system}`, nie als eigenes Argument (`checks.no-pin-args`).
 
 ## 3. Überall eintragen, wo Hosts aufgezählt sind
 
 | Datei | Eintrag |
 | --- | --- |
-| `flake.nix` | `nixosConfigurations.<host>` |
+| `flake.nix` | `nixosConfigurations.<host>` (Profile und eigene Module) |
 | `inventory.json` | `hosts.<host>` mit `"managed": true` – Art, Site, Owner, Entsperren (siehe [Inventar](../reference/inventory.md)) |
 | `justfile` | `hosts := "…"` (nur Pull-Hosts, für `ship-all`) |
 | `terraform/netbird/main.tf` | `local.hosts`: Host → Setup-Key-Gruppe (`servers` o. ä.) |

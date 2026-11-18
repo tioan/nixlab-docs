@@ -1,6 +1,6 @@
 # Reusable module: ship this host's journald log and nginx's access log to a
 # central VictoriaLogs instance (grammi) via Vector. Switched on per host with
-# services.logShipping.enable (see hosts/aldrin, hosts/zummi).
+# services.logShipping.enable (on every NixOS host: profiles/common.nix).
 #
 # nginx access log: /var/log/nginx is drwxr-x--- nginx:nginx, same obstacle
 # CrowdSec and the nginxlog Prometheus exporter hit (see modules/crowdsec.nix,

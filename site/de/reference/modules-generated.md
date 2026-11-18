@@ -545,7 +545,7 @@ Ours adds the warning: there the override goes quiet without telling anyone.
 Hotfixes for packages from the host's own pkgs go into modules/hotfixes/,
 one overlay per file, as `hotfix: final: prev: { <pkg> = hotfix { ... }; }`;
 every file there is loaded on every NixOS host. Packages taken from another
-nixpkgs (`import nixpkgs-unstable { ... }`) do not see these overlays - call
+nixpkgs (`inputs.<pin>.legacyPackages.${system}`) do not see these overlays - call
 `hotfix` on them in the host module instead.
 
 [Quelltext](https://github.com/tioan/nixlab-docs/blob/main/modules/hotfixes.nix)
@@ -596,7 +596,7 @@ are reduced to the program name.
 ## lab.nix
 
 Lab-wide constants that several modules and hosts need, declared once.
-The values are set by flake.nix from inventory.json (labConstants there);
+The values are set from inventory.json by profiles/services.nix;
 this file only declares them, so the modules that read them stay free of
 lab values.
 
@@ -618,7 +618,7 @@ move over one by one - the list is in that issue.
 
 Reusable module: ship this host's journald log and nginx's access log to a
 central VictoriaLogs instance (grammi) via Vector. Switched on per host with
-services.logShipping.enable (see hosts/aldrin, hosts/zummi).
+services.logShipping.enable (on every NixOS host: profiles/common.nix).
 
 nginx access log: /var/log/nginx is drwxr-x--- nginx:nginx, same obstacle
 CrowdSec and the nginxlog Prometheus exporter hit (see modules/crowdsec.nix,
