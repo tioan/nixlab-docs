@@ -25,7 +25,7 @@
 | `just netbird-plan` / `netbird-apply` | Change the NetBird account; apply also rewrites `expected-peers.json` (commit it, deploy grammi) and `admin-peers.json` (commit it, deploy aldrin and ursalia) |
 | `just netbird-proxy-certs` | Get proxy services without a certificate one and bring the dashboard up to date (NetBird #7118); runs at the end of `netbird-apply` |
 | `just dokumente-share-pin` / `dokumente-share-pin-show` | New random PIN for Paperless share links from outside (then `netbird-apply`), or show the current one |
-| `just netbird-key <host>` | New setup key for a host, 24 h to deploy |
+| `just netbird-key <host>` | New setup key for a host, 24 h to deploy – a targeted `tofu apply` of that one key; tofu shows the plan and asks first, like every `netbird-key*` recipe |
 | `just netbird-key-techo5` | Setup key for a TECHO5 device (Echo Show 8) onto the Mac's clipboard, never printed; valid 24 h, steps in `terraform/netbird/techo5.tf` |
 | `just netbird-import` | Rebuild the Tofu state from the account – only needed when git does not have it either ([Tofu state](../explanation/nixos-opentofu.md#state)) |
 | `just netbird-renew-token` | Renew the service user token (valid 90 days; alert NetbirdTokenExpiring three weeks before) |
@@ -39,6 +39,8 @@
 | `just data-backup-secrets <host>` | The same for the bucket `<host>-data-backups` into `hosts/<host>/backup-data.yaml` (`modules/restic-data.nix`) – once per host, after `garage-apply` |
 | `just garage-admin-token` | Copy Garage's admin token from aldrin into `terraform/secrets.yaml` over SSH – once per workstation key, and again after rotating it |
 | `just desec-key <host>` / `desec-verify` | Rotate a deSEC token, or check the scopes from every host |
+| `just desec-ddns-key` | Mint the home line's dyndns token (only its A and AAAA) into `openwrt/gruffi/secrets.yaml` |
+| `just gruffi-ddns-install` | Put the dyndns updater on the running gruffi until the next image (from gusto, LAN or mesh) |
 | `just desec-names` | Rewrite `terraform/desec-tokens/acme-names.json` from the flake (the names each token may write); then `desec-apply` |
 | `just nanokvm-mcp-key` | Store the NanoKVM Go+ MCP API key encrypted for ursalia (then commit, deploy ursalia) |
 | `just nanokvm-cert` | Fetch the NanoKVM Go+'s self-signed certificate as ursalia sees it and pin it after comparing (then commit, deploy ursalia) |
@@ -48,7 +50,7 @@
 | `just mac-upgrade` | On gusto: update the Homebrew pins, switch, `brew upgrade`, NetBird version next to the mesh pin; commit `flake.lock` |
 | `just container-bump <host> <name> [tag]` | Pin a container image to the newest release tag's digest (or the given tag's) in `hosts/<host>/container-images.json`; then commit and deploy ([Update a container image](../how-to/container-images.md)) |
 | `just gc <host>` | Run the nightly garbage collection now (keeps the last 10 generations) |
-| `just docs` | Build this documentation: private PDFs (de/en) and the anonymised public version (README, PDFs, site sources, modules) in `public-docs/` (gitignored clone of `nixlab-docs`), committed and pushed there; GitHub builds the site from it |
+| `just docs` | Build this documentation: private PDFs (de/en, local only, gitignored) and the anonymised public version (README, PDFs, site sources, modules) in `public-docs/` (gitignored clone of `nixlab-docs`), committed and pushed there; GitHub builds the site from it |
 | `just docs-serve` | Build the private site with real values locally and serve it at `http://127.0.0.1:8000` |
 
 Recipes that need sops get the workstation's age key from 1Password through `SOPS_AGE_KEY_CMD`. On gusto home-manager sets it and `op` unlocks through the 1Password app (Touch ID); sops, tofu and age come from the devShell (direnv in the checkout). Without that setup:

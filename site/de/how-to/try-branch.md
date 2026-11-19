@@ -66,7 +66,7 @@ Das Muster – einspielen, von außen prüfen, nur bei Bestätigung innerhalb ei
 | --- | --- |
 | nächtliches `nixos-upgrade` | übersprungen (`ExecCondition`, kein Fehlschlag): kein Flake-Update, kein Switch, kein Reboot. Ist der gehaltene Commit inzwischen in `/etc/nixos`, hebt es den Halt auf und läuft. |
 | `just rebuild`/`deploy`/`ship`/`deploy-all` | Abbruch, außer der gehaltene Commit ist im frisch gepullten `/etc/nixos` – dann Halt weg und Deploy |
-| `just deploy-push <host>` | dieselbe Regel gegen den `HEAD` des lokalen Checkouts |
+| `just deploy-push <host>` | dieselbe Regel gegen den `HEAD` des lokalen Checkouts; es lehnt uncommittete Änderungen ab, damit `HEAD` auch das ist, was deployt wird, und bricht ab, wenn es den Host nicht nach seinem Halt fragen kann (nur ein Host ganz ohne `nixos-hold`, ein frischer beim Bootstrap, gilt als ungehalten) |
 | ursalias nächtlicher Push nach cuckoosegg | übersprungen, außer der gehaltene Commit ist in ursalias `/etc/nixos` |
 
 Die Regel ist überall dieselbe: Ein Halt blockiert, solange das, was deployt werden soll, den gehaltenen Commit nicht enthält. Ein **Rebase-Merge** schreibt den Commit neu – dann erkennt nichts den Merge, und der Halt muss mit `just release <host>` weg.

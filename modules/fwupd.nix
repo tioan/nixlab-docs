@@ -28,7 +28,10 @@
   services.textfileMetrics.writers.fwupd-updates-metric = {
     description = "Pending fwupd firmware updates for node_exporter's textfile collector";
     file = "fwupd.prom";
-    path = [ config.services.fwupd.package pkgs.jq ];
+    path = [
+      config.services.fwupd.package
+      pkgs.jq
+    ];
     unit = {
       after = [ "fwupd.service" ];
       wants = [ "fwupd.service" ];

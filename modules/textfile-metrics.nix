@@ -226,20 +226,29 @@ let
       dir = cfg.directories.${name}.path;
       run = pkgs.writeShellScript "${name}-run" ''
         set -euo pipefail
-        ${if w.file != null then ''
-          tmp=${lib.escapeShellArg "${dir}/.${w.file}.tmp"}
-          {
-          ${w.script}
-          } > "$tmp"
-          chmod 0644 "$tmp"
-          mv "$tmp" ${lib.escapeShellArg "${dir}/${w.file}"}
-        '' else w.script}
+        ${
+          if w.file != null then
+            ''
+              tmp=${lib.escapeShellArg "${dir}/.${w.file}.tmp"}
+              {
+              ${w.script}
+              } > "$tmp"
+              chmod 0644 "$tmp"
+              mv "$tmp" ${lib.escapeShellArg "${dir}/${w.file}"}
+            ''
+          else
+            w.script
+        }
       '';
     in
     lib.mkMerge [
       {
         inherit (w) description;
-        path = [ writeProm pkgs.coreutils ] ++ w.path;
+        path = [
+          writeProm
+          pkgs.coreutils
+        ]
+        ++ w.path;
         environment.TEXTFILE_DIR = dir;
         wantedBy = lib.optional w.startOnActivation "multi-user.target";
         after = [ "systemd-tmpfiles-setup.service" ];
@@ -256,7 +265,9 @@ let
           level = lib.mkDefault "strict";
           network = lib.mkDefault "none";
           umask = lib.mkDefault "0022";
-        } // w.hardening // {
+        }
+        // w.hardening
+        // {
           # "-": optional at namespace setup, so the root ExecStartPre can
           # still create a missing directory; ExecStart gets it writable.
           writablePaths = [ "-${dir}" ] ++ (w.hardening.writablePaths or [ ]);
@@ -271,7 +282,8 @@ in
     # The name the option had while it lived in modules/metrics.nix.
     (lib.mkAliasOptionModule
       [ "services" "metricsTextfile" "directory" ]
-      [ "services" "textfileMetrics" "directory" ])
+      [ "services" "textfileMetrics" "directory" ]
+    )
   ];
 
   options.services.textfileMetrics = {
@@ -309,61 +321,85 @@ in
     };
   };
 
-  config = lib.mkIf cfg.enable (lib.mkMerge [
-    {
-      services.prometheus.exporters.node.enabledCollectors = [ "textfile" ];
-      services.prometheus.exporters.node.extraFlags = [
-        "--collector.textfile.directory=${cfg.directory}"
-        "--collector.textfile.directory=${writersRoot}/*"
-      ];
+  config = lib.mkIf cfg.enable (
+    lib.mkMerge [
+      {
+        services.prometheus.exporters.node.enabledCollectors = [ "textfile" ];
+        services.prometheus.exporters.node.extraFlags = [
+          "--collector.textfile.directory=${cfg.directory}"
+          "--collector.textfile.directory=${writersRoot}/*"
+        ];
 
-      systemd.tmpfiles.settings."10-textfile-metrics" =
-        {
+        systemd.tmpfiles.settings."10-textfile-metrics" = {
           # Root-owned and world-readable: node_exporter reads it as its own
           # user; only root jobs write here directly.
-          ${cfg.directory}.d = { user = "root"; group = "root"; mode = "0755"; };
-          ${writersRoot}.d = { user = "root"; group = "root"; mode = "0755"; };
+          ${cfg.directory}.d = {
+            user = "root";
+            group = "root";
+            mode = "0755";
+          };
+          ${writersRoot}.d = {
+            user = "root";
+            group = "root";
+            mode = "0755";
+          };
         }
-        // lib.mapAttrs' (_: d: lib.nameValuePair d.path {
-          d = { inherit (d) user group; mode = "0755"; };
-        }) cfg.directories
-        // lib.listToAttrs (lib.concatMap (d: map (f: lib.nameValuePair "${cfg.directory}/${f}" { r = { }; }) d.legacyFiles)
-          (lib.attrValues cfg.directories));
-    }
+        // lib.mapAttrs' (
+          _: d:
+          lib.nameValuePair d.path {
+            d = {
+              inherit (d) user group;
+              mode = "0755";
+            };
+          }
+        ) cfg.directories
+        // lib.listToAttrs (
+          lib.concatMap (d: map (f: lib.nameValuePair "${cfg.directory}/${f}" { r = { }; }) d.legacyFiles) (
+            lib.attrValues cfg.directories
+          )
+        );
+      }
 
-    (lib.mkIf (cfg.writers != { }) {
-      assertions = lib.flatten (lib.mapAttrsToList (name: w: [
-        {
-          assertion = w.user != "root" || (w.hardening.capabilities or [ ]) != [ ];
-          message = "services.textfileMetrics.writers.${name}: user root needs an explicit hardening.capabilities list.";
-        }
-        {
-          assertion = w.user != null || lib.stringLength name <= 31;
-          message = "services.textfileMetrics.writers.${name}: name too long for a user name - set `user`.";
-        }
-      ]) cfg.writers);
+      (lib.mkIf (cfg.writers != { }) {
+        assertions = lib.flatten (
+          lib.mapAttrsToList (name: w: [
+            {
+              assertion = w.user != "root" || (w.hardening.capabilities or [ ]) != [ ];
+              message = "services.textfileMetrics.writers.${name}: user root needs an explicit hardening.capabilities list.";
+            }
+            {
+              assertion = w.user != null || lib.stringLength name <= 31;
+              message = "services.textfileMetrics.writers.${name}: name too long for a user name - set `user`.";
+            }
+          ]) cfg.writers
+        );
 
-      services.textfileMetrics.directories = lib.mapAttrs (name: w: {
-        user = userOf name w;
-        group = if w.group != null then w.group
-          else if w.user == null then name
-          else config.users.users.${w.user}.group;
-        inherit (w) legacyFiles;
-      }) cfg.writers;
+        services.textfileMetrics.directories = lib.mapAttrs (name: w: {
+          user = userOf name w;
+          group =
+            if w.group != null then
+              w.group
+            else if w.user == null then
+              name
+            else
+              config.users.users.${w.user}.group;
+          inherit (w) legacyFiles;
+        }) cfg.writers;
 
-      users.users = lib.mapAttrs (name: _: {
-        isSystemUser = true;
-        group = name;
-        description = "textfile metrics writer ${name}";
-      }) (lib.filterAttrs (_: w: w.user == null) cfg.writers);
-      users.groups = lib.mapAttrs (_: _: { }) (lib.filterAttrs (_: w: w.user == null) cfg.writers);
+        users.users = lib.mapAttrs (name: _: {
+          isSystemUser = true;
+          group = name;
+          description = "textfile metrics writer ${name}";
+        }) (lib.filterAttrs (_: w: w.user == null) cfg.writers);
+        users.groups = lib.mapAttrs (_: _: { }) (lib.filterAttrs (_: w: w.user == null) cfg.writers);
 
-      systemd.services = lib.mapAttrs mkWriterService cfg.writers;
+        systemd.services = lib.mapAttrs mkWriterService cfg.writers;
 
-      systemd.timers = lib.mapAttrs (_: w: {
-        wantedBy = [ "timers.target" ];
-        timerConfig = w.timer;
-      }) (lib.filterAttrs (_: w: w.timer != null) cfg.writers);
-    })
-  ]);
+        systemd.timers = lib.mapAttrs (_: w: {
+          wantedBy = [ "timers.target" ];
+          timerConfig = w.timer;
+        }) (lib.filterAttrs (_: w: w.timer != null) cfg.writers);
+      })
+    ]
+  );
 }

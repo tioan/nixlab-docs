@@ -20,41 +20,51 @@ in
 
   options.services.loopbackV6Proxy = lib.mkOption {
     default = { };
-    example = { restic-exporter.port = 9753; };
+    example = {
+      restic-exporter.port = 9753;
+    };
     description = ''
       One proxy per name: [::1]:<port> forwards to 127.0.0.1:<port>. The name
       only labels the units (loopback-v6-proxy-<name>.{socket,service}).
     '';
-    type = lib.types.attrsOf (lib.types.submodule {
-      options.port = lib.mkOption {
-        type = lib.types.port;
-        description = "Port the service listens on at 127.0.0.1, and the one answered on [::1].";
-      };
-    });
+    type = lib.types.attrsOf (
+      lib.types.submodule {
+        options.port = lib.mkOption {
+          type = lib.types.port;
+          description = "Port the service listens on at 127.0.0.1, and the one answered on [::1].";
+        };
+      }
+    );
   };
 
   config = lib.mkIf (cfg != { }) {
-    systemd.sockets = lib.mapAttrs' (name: p: lib.nameValuePair "loopback-v6-proxy-${name}" {
-      description = "[::1]:${toString p.port} for ${name}";
-      wantedBy = [ "sockets.target" ];
-      listenStreams = [ "[::1]:${toString p.port}" ];
-      # Without this a v6 socket on [::1] is v6-only anyway; stated for the reader.
-      socketConfig.BindIPv6Only = "ipv6-only";
-    }) cfg;
+    systemd.sockets = lib.mapAttrs' (
+      name: p:
+      lib.nameValuePair "loopback-v6-proxy-${name}" {
+        description = "[::1]:${toString p.port} for ${name}";
+        wantedBy = [ "sockets.target" ];
+        listenStreams = [ "[::1]:${toString p.port}" ];
+        # Without this a v6 socket on [::1] is v6-only anyway; stated for the reader.
+        socketConfig.BindIPv6Only = "ipv6-only";
+      }
+    ) cfg;
 
-    systemd.services = lib.mapAttrs' (name: p: lib.nameValuePair "loopback-v6-proxy-${name}" {
-      description = "Forward [::1]:${toString p.port} to 127.0.0.1:${toString p.port} (${name})";
-      serviceConfig = {
-        ExecStart = "${proxyd} 127.0.0.1:${toString p.port}";
-        DynamicUser = true;
-      };
-      # The shared sandbox (modules/hardening.nix); loopback only, in both
-      # directions.
-      hardening = {
-        enable = true;
-        level = "strict";
-        network = "loopback";
-      };
-    }) cfg;
+    systemd.services = lib.mapAttrs' (
+      name: p:
+      lib.nameValuePair "loopback-v6-proxy-${name}" {
+        description = "Forward [::1]:${toString p.port} to 127.0.0.1:${toString p.port} (${name})";
+        serviceConfig = {
+          ExecStart = "${proxyd} 127.0.0.1:${toString p.port}";
+          DynamicUser = true;
+        };
+        # The shared sandbox (modules/hardening.nix); loopback only, in both
+        # directions.
+        hardening = {
+          enable = true;
+          level = "strict";
+          network = "loopback";
+        };
+      }
+    ) cfg;
   };
 }

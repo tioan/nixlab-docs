@@ -42,7 +42,7 @@ in
       extraFlags = [
         # node_network_address_info: the IPs per device. The MAC is already
         # in node_network_info. Compared with inventory.json by the
-        # AddressNotInInventory rule (hosts/grammi/alerting.nix).
+        # AddressNotInInventory rule (hosts/grammi/alerting/inventory.nix).
         "--collector.netdev.address-info"
       ];
     };
@@ -97,8 +97,14 @@ in
   services.nginx = lib.mkIf config.services.nginx.enable {
     statusPage = true;
     virtualHosts.localhost.listen = [
-      { addr = "127.0.0.1"; port = nginxStatusPort; }
-      { addr = "[::1]"; port = nginxStatusPort; }
+      {
+        addr = "127.0.0.1";
+        port = nginxStatusPort;
+      }
+      {
+        addr = "[::1]";
+        port = nginxStatusPort;
+      }
     ];
   };
 
@@ -123,7 +129,8 @@ in
   # to read the log at all - the same obstacle CrowdSec hit, with the same
   # silent failure mode: the service runs, it just never sees a line.
   systemd.services.prometheus-nginxlog-exporter.serviceConfig.SupplementaryGroups =
-    lib.mkIf config.services.nginx.enable [ "nginx" ];
+    lib.mkIf config.services.nginx.enable
+      [ "nginx" ];
 
   # CPU and memory per systemd service, read from its cgroup. node_exporter's
   # systemd collector only knows unit states, and prometheus-systemd-exporter

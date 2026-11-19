@@ -70,180 +70,180 @@ Jeder Abschnitt mit allen Feldern – **fett** sind Pflichtfelder, verschachtelt
 <title>inventory</title>
 <g id="node1" class="node">
 <title>contracts</title>
-<polygon fill="#f1efe8" stroke="none" points="1243.75,-757.64 1110.75,-757.64 1110.75,-525.14 1243.75,-525.14 1243.75,-757.64"/>
-<polygon fill="#f1efe8" stroke="none" points="1110.75,-525.14 1110.75,-757.64 1243.75,-757.64 1243.75,-525.14 1110.75,-525.14"/>
+<polygon fill="#f1efe8" stroke="none" points="1243.75,-774.64 1110.75,-774.64 1110.75,-542.14 1243.75,-542.14 1243.75,-774.64"/>
+<polygon fill="#f1efe8" stroke="none" points="1110.75,-542.14 1110.75,-774.64 1243.75,-774.64 1243.75,-542.14 1110.75,-542.14"/>
 <g id="a_node1_0"><a data-target="contracts" tabindex="0" role="link"><title>contracts</title>
-<polygon fill="#d3d1c7" stroke="none" points="1110.75,-738.39 1110.75,-757.64 1243.75,-757.64 1243.75,-738.39 1110.75,-738.39"/>
-<polygon fill="none" stroke="#b4b2a9" points="1110.75,-738.39 1110.75,-757.64 1243.75,-757.64 1243.75,-738.39 1110.75,-738.39"/>
-<text text-anchor="start" x="1155.88" y="-745.14" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">contracts</text>
+<polygon fill="#d3d1c7" stroke="none" points="1110.75,-755.39 1110.75,-774.64 1243.75,-774.64 1243.75,-755.39 1110.75,-755.39"/>
+<polygon fill="none" stroke="#b4b2a9" points="1110.75,-755.39 1110.75,-774.64 1243.75,-774.64 1243.75,-755.39 1110.75,-755.39"/>
+<text text-anchor="start" x="1155.88" y="-762.14" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">contracts</text>
 </a>
 </g>
 <g id="a_node1_1"><a data-target="contracts-cost" tabindex="0" role="link"><title>contracts.cost</title>
-<polygon fill="none" stroke="#b4b2a9" points="1110.75,-719.14 1110.75,-738.39 1183.25,-738.39 1183.25,-719.14 1110.75,-719.14"/>
-<text text-anchor="start" x="1114.75" y="-724.89" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">cost</text>
+<polygon fill="none" stroke="#b4b2a9" points="1110.75,-736.14 1110.75,-755.39 1183.25,-755.39 1183.25,-736.14 1110.75,-736.14"/>
+<text text-anchor="start" x="1114.75" y="-741.89" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">cost</text>
 </a>
 </g>
 <g id="a_node1_2"><a data-target="contracts-cost" tabindex="0" role="link"><title>contracts.cost</title>
-<polygon fill="none" stroke="#b4b2a9" points="1183.25,-719.14 1183.25,-738.39 1243.75,-738.39 1243.75,-719.14 1183.25,-719.14"/>
-<text text-anchor="start" x="1187.25" y="-724.89" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">object</text>
+<polygon fill="none" stroke="#b4b2a9" points="1183.25,-736.14 1183.25,-755.39 1243.75,-755.39 1243.75,-736.14 1183.25,-736.14"/>
+<text text-anchor="start" x="1187.25" y="-741.89" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">object</text>
 </a>
 </g>
 <g id="a_node1_3"><a data-target="contracts-cost-amount" tabindex="0" role="link"><title>contracts.cost.amount</title>
-<polygon fill="none" stroke="#b4b2a9" points="1110.75,-699.89 1110.75,-719.14 1183.25,-719.14 1183.25,-699.89 1110.75,-699.89"/>
-<text text-anchor="start" x="1114.75" y="-706.64" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">cost.amount</text>
+<polygon fill="none" stroke="#b4b2a9" points="1110.75,-716.89 1110.75,-736.14 1183.25,-736.14 1183.25,-716.89 1110.75,-716.89"/>
+<text text-anchor="start" x="1114.75" y="-723.64" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">cost.amount</text>
 </a>
 </g>
 <g id="a_node1_4"><a data-target="contracts-cost-amount" tabindex="0" role="link"><title>contracts.cost.amount</title>
-<polygon fill="none" stroke="#b4b2a9" points="1183.25,-699.89 1183.25,-719.14 1243.75,-719.14 1243.75,-699.89 1183.25,-699.89"/>
-<text text-anchor="start" x="1187.25" y="-705.64" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">integer</text>
+<polygon fill="none" stroke="#b4b2a9" points="1183.25,-716.89 1183.25,-736.14 1243.75,-736.14 1243.75,-716.89 1183.25,-716.89"/>
+<text text-anchor="start" x="1187.25" y="-722.64" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">integer</text>
 </a>
 </g>
 <g id="a_node1_5"><a data-target="contracts-cost-currency" tabindex="0" role="link"><title>contracts.cost.currency</title>
-<polygon fill="none" stroke="#b4b2a9" points="1110.75,-680.64 1110.75,-699.89 1183.25,-699.89 1183.25,-680.64 1110.75,-680.64"/>
-<text text-anchor="start" x="1114.75" y="-687.39" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">cost.currency</text>
+<polygon fill="none" stroke="#b4b2a9" points="1110.75,-697.64 1110.75,-716.89 1183.25,-716.89 1183.25,-697.64 1110.75,-697.64"/>
+<text text-anchor="start" x="1114.75" y="-704.39" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">cost.currency</text>
 </a>
 </g>
 <g id="a_node1_6"><a data-target="contracts-cost-currency" tabindex="0" role="link"><title>contracts.cost.currency</title>
-<polygon fill="none" stroke="#b4b2a9" points="1183.25,-680.64 1183.25,-699.89 1243.75,-699.89 1243.75,-680.64 1183.25,-680.64"/>
-<text text-anchor="start" x="1187.25" y="-686.39" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">enum</text>
+<polygon fill="none" stroke="#b4b2a9" points="1183.25,-697.64 1183.25,-716.89 1243.75,-716.89 1243.75,-697.64 1183.25,-697.64"/>
+<text text-anchor="start" x="1187.25" y="-703.39" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">enum</text>
 </a>
 </g>
 <g id="a_node1_7"><a data-target="contracts-cost-duemonth" tabindex="0" role="link"><title>contracts.cost.dueMonth</title>
-<polygon fill="none" stroke="#b4b2a9" points="1110.75,-661.39 1110.75,-680.64 1183.25,-680.64 1183.25,-661.39 1110.75,-661.39"/>
-<text text-anchor="start" x="1114.75" y="-667.14" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">cost.dueMonth</text>
+<polygon fill="none" stroke="#b4b2a9" points="1110.75,-678.39 1110.75,-697.64 1183.25,-697.64 1183.25,-678.39 1110.75,-678.39"/>
+<text text-anchor="start" x="1114.75" y="-684.14" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">cost.dueMonth</text>
 </a>
 </g>
 <g id="a_node1_8"><a data-target="contracts-cost-duemonth" tabindex="0" role="link"><title>contracts.cost.dueMonth</title>
-<polygon fill="none" stroke="#b4b2a9" points="1183.25,-661.39 1183.25,-680.64 1243.75,-680.64 1243.75,-661.39 1183.25,-661.39"/>
-<text text-anchor="start" x="1187.25" y="-667.14" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">integer</text>
+<polygon fill="none" stroke="#b4b2a9" points="1183.25,-678.39 1183.25,-697.64 1243.75,-697.64 1243.75,-678.39 1183.25,-678.39"/>
+<text text-anchor="start" x="1187.25" y="-684.14" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">integer</text>
 </a>
 </g>
 <g id="a_node1_9"><a data-target="contracts-cost-period" tabindex="0" role="link"><title>contracts.cost.period</title>
-<polygon fill="none" stroke="#b4b2a9" points="1110.75,-642.14 1110.75,-661.39 1183.25,-661.39 1183.25,-642.14 1110.75,-642.14"/>
-<text text-anchor="start" x="1114.75" y="-648.89" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">cost.period</text>
+<polygon fill="none" stroke="#b4b2a9" points="1110.75,-659.14 1110.75,-678.39 1183.25,-678.39 1183.25,-659.14 1110.75,-659.14"/>
+<text text-anchor="start" x="1114.75" y="-665.89" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">cost.period</text>
 </a>
 </g>
 <g id="a_node1_10"><a data-target="contracts-cost-period" tabindex="0" role="link"><title>contracts.cost.period</title>
-<polygon fill="none" stroke="#b4b2a9" points="1183.25,-642.14 1183.25,-661.39 1243.75,-661.39 1243.75,-642.14 1183.25,-642.14"/>
-<text text-anchor="start" x="1187.25" y="-647.89" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">enum</text>
+<polygon fill="none" stroke="#b4b2a9" points="1183.25,-659.14 1183.25,-678.39 1243.75,-678.39 1243.75,-659.14 1183.25,-659.14"/>
+<text text-anchor="start" x="1187.25" y="-664.89" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">enum</text>
 </a>
 </g>
 <g id="a_node1_11"><a data-target="contracts-note" tabindex="0" role="link"><title>contracts.note</title>
-<polygon fill="none" stroke="#b4b2a9" points="1110.75,-622.89 1110.75,-642.14 1183.25,-642.14 1183.25,-622.89 1110.75,-622.89"/>
-<text text-anchor="start" x="1114.75" y="-628.64" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">note</text>
+<polygon fill="none" stroke="#b4b2a9" points="1110.75,-639.89 1110.75,-659.14 1183.25,-659.14 1183.25,-639.89 1110.75,-639.89"/>
+<text text-anchor="start" x="1114.75" y="-645.64" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">note</text>
 </a>
 </g>
 <g id="a_node1_12"><a data-target="contracts-note" tabindex="0" role="link"><title>contracts.note</title>
-<polygon fill="none" stroke="#b4b2a9" points="1183.25,-622.89 1183.25,-642.14 1243.75,-642.14 1243.75,-622.89 1183.25,-622.89"/>
-<text text-anchor="start" x="1187.25" y="-628.64" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
+<polygon fill="none" stroke="#b4b2a9" points="1183.25,-639.89 1183.25,-659.14 1243.75,-659.14 1243.75,-639.89 1183.25,-639.89"/>
+<text text-anchor="start" x="1187.25" y="-645.64" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
 </a>
 </g>
 <g id="a_node1_13"><a data-target="contracts-notice" tabindex="0" role="link"><title>contracts.notice</title>
-<polygon fill="none" stroke="#b4b2a9" points="1110.75,-603.64 1110.75,-622.89 1183.25,-622.89 1183.25,-603.64 1110.75,-603.64"/>
-<text text-anchor="start" x="1114.75" y="-609.39" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">notice</text>
+<polygon fill="none" stroke="#b4b2a9" points="1110.75,-620.64 1110.75,-639.89 1183.25,-639.89 1183.25,-620.64 1110.75,-620.64"/>
+<text text-anchor="start" x="1114.75" y="-626.39" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">notice</text>
 </a>
 </g>
 <g id="a_node1_14"><a data-target="contracts-notice" tabindex="0" role="link"><title>contracts.notice</title>
-<polygon fill="none" stroke="#b4b2a9" points="1183.25,-603.64 1183.25,-622.89 1243.75,-622.89 1243.75,-603.64 1183.25,-603.64"/>
-<text text-anchor="start" x="1187.25" y="-609.39" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
+<polygon fill="none" stroke="#b4b2a9" points="1183.25,-620.64 1183.25,-639.89 1243.75,-639.89 1243.75,-620.64 1183.25,-620.64"/>
+<text text-anchor="start" x="1187.25" y="-626.39" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
 </a>
 </g>
 <g id="a_node1_15"><a data-target="contracts-product" tabindex="0" role="link"><title>contracts.product</title>
-<polygon fill="none" stroke="#b4b2a9" points="1110.75,-584.39 1110.75,-603.64 1183.25,-603.64 1183.25,-584.39 1110.75,-584.39"/>
-<text text-anchor="start" x="1114.75" y="-590.14" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">product</text>
+<polygon fill="none" stroke="#b4b2a9" points="1110.75,-601.39 1110.75,-620.64 1183.25,-620.64 1183.25,-601.39 1110.75,-601.39"/>
+<text text-anchor="start" x="1114.75" y="-607.14" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">product</text>
 </a>
 </g>
 <g id="a_node1_16"><a data-target="contracts-product" tabindex="0" role="link"><title>contracts.product</title>
-<polygon fill="none" stroke="#b4b2a9" points="1183.25,-584.39 1183.25,-603.64 1243.75,-603.64 1243.75,-584.39 1183.25,-584.39"/>
-<text text-anchor="start" x="1187.25" y="-590.14" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
+<polygon fill="none" stroke="#b4b2a9" points="1183.25,-601.39 1183.25,-620.64 1243.75,-620.64 1243.75,-601.39 1183.25,-601.39"/>
+<text text-anchor="start" x="1187.25" y="-607.14" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
 </a>
 </g>
 <g id="a_node1_17"><a data-target="contracts-provider" tabindex="0" role="link"><title>contracts.provider</title>
-<polygon fill="none" stroke="#b4b2a9" points="1110.75,-563.64 1110.75,-584.39 1183.25,-584.39 1183.25,-563.64 1110.75,-563.64"/>
-<text text-anchor="start" x="1114.75" y="-571.14" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">provider</text>
+<polygon fill="none" stroke="#b4b2a9" points="1110.75,-580.64 1110.75,-601.39 1183.25,-601.39 1183.25,-580.64 1110.75,-580.64"/>
+<text text-anchor="start" x="1114.75" y="-588.14" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">provider</text>
 </a>
 </g>
 <g id="a_node1_18"><a data-target="contracts-provider" tabindex="0" role="link"><title>contracts.provider</title>
-<polygon fill="none" stroke="#b4b2a9" points="1183.25,-563.64 1183.25,-584.39 1243.75,-584.39 1243.75,-563.64 1183.25,-563.64"/>
-<text text-anchor="start" x="1187.25" y="-570.89" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">→ providers</text>
+<polygon fill="none" stroke="#b4b2a9" points="1183.25,-580.64 1183.25,-601.39 1243.75,-601.39 1243.75,-580.64 1183.25,-580.64"/>
+<text text-anchor="start" x="1187.25" y="-587.89" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">→ providers</text>
 </a>
 </g>
 <g id="a_node1_19"><a data-target="contracts-renews" tabindex="0" role="link"><title>contracts.renews</title>
-<polygon fill="none" stroke="#b4b2a9" points="1110.75,-544.39 1110.75,-563.64 1183.25,-563.64 1183.25,-544.39 1110.75,-544.39"/>
-<text text-anchor="start" x="1114.75" y="-550.14" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">renews</text>
+<polygon fill="none" stroke="#b4b2a9" points="1110.75,-561.39 1110.75,-580.64 1183.25,-580.64 1183.25,-561.39 1110.75,-561.39"/>
+<text text-anchor="start" x="1114.75" y="-567.14" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">renews</text>
 </a>
 </g>
 <g id="a_node1_20"><a data-target="contracts-renews" tabindex="0" role="link"><title>contracts.renews</title>
-<polygon fill="none" stroke="#b4b2a9" points="1183.25,-544.39 1183.25,-563.64 1243.75,-563.64 1243.75,-544.39 1183.25,-544.39"/>
-<text text-anchor="start" x="1187.25" y="-550.14" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
+<polygon fill="none" stroke="#b4b2a9" points="1183.25,-561.39 1183.25,-580.64 1243.75,-580.64 1243.75,-561.39 1183.25,-561.39"/>
+<text text-anchor="start" x="1187.25" y="-567.14" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
 </a>
 </g>
 <g id="a_node1_21"><a data-target="contracts-since" tabindex="0" role="link"><title>contracts.since</title>
-<polygon fill="none" stroke="#b4b2a9" points="1110.75,-525.14 1110.75,-544.39 1183.25,-544.39 1183.25,-525.14 1110.75,-525.14"/>
-<text text-anchor="start" x="1114.75" y="-530.89" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">since</text>
+<polygon fill="none" stroke="#b4b2a9" points="1110.75,-542.14 1110.75,-561.39 1183.25,-561.39 1183.25,-542.14 1110.75,-542.14"/>
+<text text-anchor="start" x="1114.75" y="-547.89" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">since</text>
 </a>
 </g>
 <g id="a_node1_22"><a data-target="contracts-since" tabindex="0" role="link"><title>contracts.since</title>
-<polygon fill="none" stroke="#b4b2a9" points="1183.25,-525.14 1183.25,-544.39 1243.75,-544.39 1243.75,-525.14 1183.25,-525.14"/>
-<text text-anchor="start" x="1187.25" y="-530.89" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
+<polygon fill="none" stroke="#b4b2a9" points="1183.25,-542.14 1183.25,-561.39 1243.75,-561.39 1243.75,-542.14 1183.25,-542.14"/>
+<text text-anchor="start" x="1187.25" y="-547.89" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
 </a>
 </g>
 </g>
 <g id="node6" class="node">
 <title>providers</title>
-<polygon fill="#f1efe8" stroke="none" points="1381,-309.52 1308.75,-309.52 1308.75,-213.27 1381,-213.27 1381,-309.52"/>
-<polygon fill="#f1efe8" stroke="none" points="1308.75,-213.27 1308.75,-309.52 1381,-309.52 1381,-213.27 1308.75,-213.27"/>
+<polygon fill="#f1efe8" stroke="none" points="1381,-324.52 1308.75,-324.52 1308.75,-228.27 1381,-228.27 1381,-324.52"/>
+<polygon fill="#f1efe8" stroke="none" points="1308.75,-228.27 1308.75,-324.52 1381,-324.52 1381,-228.27 1308.75,-228.27"/>
 <g id="a_node6_23"><a data-target="providers" tabindex="0" role="link"><title>providers</title>
-<polygon fill="#d3d1c7" stroke="none" points="1308.75,-290.27 1308.75,-309.52 1381,-309.52 1381,-290.27 1308.75,-290.27"/>
-<polygon fill="none" stroke="#b4b2a9" points="1308.75,-290.27 1308.75,-309.52 1381,-309.52 1381,-290.27 1308.75,-290.27"/>
-<text text-anchor="start" x="1322.75" y="-297.02" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">providers</text>
+<polygon fill="#d3d1c7" stroke="none" points="1308.75,-305.27 1308.75,-324.52 1381,-324.52 1381,-305.27 1308.75,-305.27"/>
+<polygon fill="none" stroke="#b4b2a9" points="1308.75,-305.27 1308.75,-324.52 1381,-324.52 1381,-305.27 1308.75,-305.27"/>
+<text text-anchor="start" x="1322.75" y="-312.02" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">providers</text>
 </a>
 </g>
 <g id="a_node6_24"><a data-target="providers-contact" tabindex="0" role="link"><title>providers.contact</title>
-<polygon fill="none" stroke="#b4b2a9" points="1308.75,-271.02 1308.75,-290.27 1349,-290.27 1349,-271.02 1308.75,-271.02"/>
-<text text-anchor="start" x="1312.75" y="-276.77" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">contact</text>
+<polygon fill="none" stroke="#b4b2a9" points="1308.75,-286.02 1308.75,-305.27 1349,-305.27 1349,-286.02 1308.75,-286.02"/>
+<text text-anchor="start" x="1312.75" y="-291.77" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">contact</text>
 </a>
 </g>
 <g id="a_node6_25"><a data-target="providers-contact" tabindex="0" role="link"><title>providers.contact</title>
-<polygon fill="none" stroke="#b4b2a9" points="1349,-271.02 1349,-290.27 1381,-290.27 1381,-271.02 1349,-271.02"/>
-<text text-anchor="start" x="1353" y="-276.77" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
+<polygon fill="none" stroke="#b4b2a9" points="1349,-286.02 1349,-305.27 1381,-305.27 1381,-286.02 1349,-286.02"/>
+<text text-anchor="start" x="1353" y="-291.77" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
 </a>
 </g>
 <g id="a_node6_26"><a data-target="providers-name" tabindex="0" role="link"><title>providers.name</title>
-<polygon fill="none" stroke="#b4b2a9" points="1308.75,-251.77 1308.75,-271.02 1349,-271.02 1349,-251.77 1308.75,-251.77"/>
-<text text-anchor="start" x="1312.75" y="-258.52" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">name</text>
+<polygon fill="none" stroke="#b4b2a9" points="1308.75,-266.77 1308.75,-286.02 1349,-286.02 1349,-266.77 1308.75,-266.77"/>
+<text text-anchor="start" x="1312.75" y="-273.52" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">name</text>
 </a>
 </g>
 <g id="a_node6_27"><a data-target="providers-name" tabindex="0" role="link"><title>providers.name</title>
-<polygon fill="none" stroke="#b4b2a9" points="1349,-251.77 1349,-271.02 1381,-271.02 1381,-251.77 1349,-251.77"/>
-<text text-anchor="start" x="1353" y="-257.52" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
+<polygon fill="none" stroke="#b4b2a9" points="1349,-266.77 1349,-286.02 1381,-286.02 1381,-266.77 1349,-266.77"/>
+<text text-anchor="start" x="1353" y="-272.52" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
 </a>
 </g>
 <g id="a_node6_28"><a data-target="providers-note" tabindex="0" role="link"><title>providers.note</title>
-<polygon fill="none" stroke="#b4b2a9" points="1308.75,-232.52 1308.75,-251.77 1349,-251.77 1349,-232.52 1308.75,-232.52"/>
-<text text-anchor="start" x="1312.75" y="-238.27" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">note</text>
+<polygon fill="none" stroke="#b4b2a9" points="1308.75,-247.52 1308.75,-266.77 1349,-266.77 1349,-247.52 1308.75,-247.52"/>
+<text text-anchor="start" x="1312.75" y="-253.27" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">note</text>
 </a>
 </g>
 <g id="a_node6_29"><a data-target="providers-note" tabindex="0" role="link"><title>providers.note</title>
-<polygon fill="none" stroke="#b4b2a9" points="1349,-232.52 1349,-251.77 1381,-251.77 1381,-232.52 1349,-232.52"/>
-<text text-anchor="start" x="1353" y="-238.27" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
+<polygon fill="none" stroke="#b4b2a9" points="1349,-247.52 1349,-266.77 1381,-266.77 1381,-247.52 1349,-247.52"/>
+<text text-anchor="start" x="1353" y="-253.27" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
 </a>
 </g>
 <g id="a_node6_30"><a data-target="providers-url" tabindex="0" role="link"><title>providers.url</title>
-<polygon fill="none" stroke="#b4b2a9" points="1308.75,-213.27 1308.75,-232.52 1349,-232.52 1349,-213.27 1308.75,-213.27"/>
-<text text-anchor="start" x="1312.75" y="-219.02" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">url</text>
+<polygon fill="none" stroke="#b4b2a9" points="1308.75,-228.27 1308.75,-247.52 1349,-247.52 1349,-228.27 1308.75,-228.27"/>
+<text text-anchor="start" x="1312.75" y="-234.02" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">url</text>
 </a>
 </g>
 <g id="a_node6_31"><a data-target="providers-url" tabindex="0" role="link"><title>providers.url</title>
-<polygon fill="none" stroke="#b4b2a9" points="1349,-213.27 1349,-232.52 1381,-232.52 1381,-213.27 1349,-213.27"/>
-<text text-anchor="start" x="1353" y="-219.02" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
+<polygon fill="none" stroke="#b4b2a9" points="1349,-228.27 1349,-247.52 1381,-247.52 1381,-228.27 1349,-228.27"/>
+<text text-anchor="start" x="1353" y="-234.02" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
 </a>
 </g>
 </g>
 <g id="edge1" class="edge">
 <title>contracts:e&#45;&gt;providers:h</title>
-<path fill="none" stroke="#888780" stroke-width="1.1" d="M1243.75,-574.02C1366.27,-574.02 1191.36,-311.54 1301.1,-300.27"/>
-<polygon fill="#888780" stroke="#888780" stroke-width="1.1" points="1301.2,-302.36 1307.09,-299.97 1300.99,-298.17 1301.2,-302.36"/>
+<path fill="none" stroke="#888780" stroke-width="1.1" d="M1243.75,-591.02C1367.24,-591.02 1190.22,-326.1 1301.38,-315.23"/>
+<polygon fill="#888780" stroke="#888780" stroke-width="1.1" points="1301.19,-317.35 1307.09,-314.97 1301,-313.15 1301.19,-317.35"/>
 </g>
 <g id="node2" class="node">
 <title>hosts</title>
@@ -698,134 +698,134 @@ Jeder Abschnitt mit allen Feldern – **fett** sind Pflichtfelder, verschachtelt
 </g>
 <g id="edge2" class="edge">
 <title>hosts:e&#45;&gt;contracts:h</title>
-<path fill="none" stroke="#888780" stroke-width="1.1" d="M474.25,-898.39C762.37,-898.39 819.09,-750.65 1103.14,-748.05"/>
-<polygon fill="#888780" stroke="#888780" stroke-width="1.1" points="1103.09,-750.15 1109.09,-748.02 1103.08,-745.95 1103.09,-750.15"/>
+<path fill="none" stroke="#888780" stroke-width="1.1" d="M474.25,-898.39C760.74,-898.39 820.67,-767.35 1103.18,-765.05"/>
+<polygon fill="#888780" stroke="#888780" stroke-width="1.1" points="1103.09,-767.15 1109.09,-765.02 1103.08,-762.95 1103.09,-767.15"/>
 </g>
 <g id="node3" class="node">
 <title>networks</title>
-<polygon fill="#f1efe8" stroke="none" points="660.25,-688.39 539.25,-688.39 539.25,-454.39 660.25,-454.39 660.25,-688.39"/>
-<polygon fill="#f1efe8" stroke="none" points="539.25,-454.39 539.25,-688.39 660.25,-688.39 660.25,-454.39 539.25,-454.39"/>
+<polygon fill="#f1efe8" stroke="none" points="660.25,-709.39 539.25,-709.39 539.25,-475.39 660.25,-475.39 660.25,-709.39"/>
+<polygon fill="#f1efe8" stroke="none" points="539.25,-475.39 539.25,-709.39 660.25,-709.39 660.25,-475.39 539.25,-475.39"/>
 <g id="a_node3_121"><a data-target="networks" tabindex="0" role="link"><title>networks</title>
-<polygon fill="#d3d1c7" stroke="none" points="539.25,-669.14 539.25,-688.39 660.25,-688.39 660.25,-669.14 539.25,-669.14"/>
-<polygon fill="none" stroke="#b4b2a9" points="539.25,-669.14 539.25,-688.39 660.25,-688.39 660.25,-669.14 539.25,-669.14"/>
-<text text-anchor="start" x="578.75" y="-675.89" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">networks</text>
+<polygon fill="#d3d1c7" stroke="none" points="539.25,-690.14 539.25,-709.39 660.25,-709.39 660.25,-690.14 539.25,-690.14"/>
+<polygon fill="none" stroke="#b4b2a9" points="539.25,-690.14 539.25,-709.39 660.25,-709.39 660.25,-690.14 539.25,-690.14"/>
+<text text-anchor="start" x="578.75" y="-696.89" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">networks</text>
 </a>
 </g>
 <g id="a_node3_122"><a data-target="networks-dhcppool" tabindex="0" role="link"><title>networks.dhcpPool</title>
-<polygon fill="none" stroke="#b4b2a9" points="539.25,-649.89 539.25,-669.14 615.5,-669.14 615.5,-649.89 539.25,-649.89"/>
-<text text-anchor="start" x="543.25" y="-655.64" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">dhcpPool</text>
+<polygon fill="none" stroke="#b4b2a9" points="539.25,-670.89 539.25,-690.14 615.5,-690.14 615.5,-670.89 539.25,-670.89"/>
+<text text-anchor="start" x="543.25" y="-676.64" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">dhcpPool</text>
 </a>
 </g>
 <g id="a_node3_123"><a data-target="networks-dhcppool" tabindex="0" role="link"><title>networks.dhcpPool</title>
-<polygon fill="none" stroke="#b4b2a9" points="615.5,-649.89 615.5,-669.14 660.25,-669.14 660.25,-649.89 615.5,-649.89"/>
-<text text-anchor="start" x="619.5" y="-655.64" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">object</text>
+<polygon fill="none" stroke="#b4b2a9" points="615.5,-670.89 615.5,-690.14 660.25,-690.14 660.25,-670.89 615.5,-670.89"/>
+<text text-anchor="start" x="619.5" y="-676.64" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">object</text>
 </a>
 </g>
 <g id="a_node3_124"><a data-target="networks-dhcppool-end" tabindex="0" role="link"><title>networks.dhcpPool.end</title>
-<polygon fill="none" stroke="#b4b2a9" points="539.25,-630.64 539.25,-649.89 615.5,-649.89 615.5,-630.64 539.25,-630.64"/>
-<text text-anchor="start" x="543.25" y="-637.39" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">dhcpPool.end</text>
+<polygon fill="none" stroke="#b4b2a9" points="539.25,-651.64 539.25,-670.89 615.5,-670.89 615.5,-651.64 539.25,-651.64"/>
+<text text-anchor="start" x="543.25" y="-658.39" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">dhcpPool.end</text>
 </a>
 </g>
 <g id="a_node3_125"><a data-target="networks-dhcppool-end" tabindex="0" role="link"><title>networks.dhcpPool.end</title>
-<polygon fill="none" stroke="#b4b2a9" points="615.5,-630.64 615.5,-649.89 660.25,-649.89 660.25,-630.64 615.5,-630.64"/>
-<text text-anchor="start" x="619.5" y="-636.39" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
+<polygon fill="none" stroke="#b4b2a9" points="615.5,-651.64 615.5,-670.89 660.25,-670.89 660.25,-651.64 615.5,-651.64"/>
+<text text-anchor="start" x="619.5" y="-657.39" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
 </a>
 </g>
 <g id="a_node3_126"><a data-target="networks-dhcppool-start" tabindex="0" role="link"><title>networks.dhcpPool.start</title>
-<polygon fill="none" stroke="#b4b2a9" points="539.25,-611.39 539.25,-630.64 615.5,-630.64 615.5,-611.39 539.25,-611.39"/>
-<text text-anchor="start" x="543.25" y="-618.14" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">dhcpPool.start</text>
+<polygon fill="none" stroke="#b4b2a9" points="539.25,-632.39 539.25,-651.64 615.5,-651.64 615.5,-632.39 539.25,-632.39"/>
+<text text-anchor="start" x="543.25" y="-639.14" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">dhcpPool.start</text>
 </a>
 </g>
 <g id="a_node3_127"><a data-target="networks-dhcppool-start" tabindex="0" role="link"><title>networks.dhcpPool.start</title>
-<polygon fill="none" stroke="#b4b2a9" points="615.5,-611.39 615.5,-630.64 660.25,-630.64 660.25,-611.39 615.5,-611.39"/>
-<text text-anchor="start" x="619.5" y="-617.14" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
+<polygon fill="none" stroke="#b4b2a9" points="615.5,-632.39 615.5,-651.64 660.25,-651.64 660.25,-632.39 615.5,-632.39"/>
+<text text-anchor="start" x="619.5" y="-638.14" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
 </a>
 </g>
 <g id="a_node3_128"><a data-target="networks-dhcpserver" tabindex="0" role="link"><title>networks.dhcpServer</title>
-<polygon fill="none" stroke="#b4b2a9" points="539.25,-590.64 539.25,-611.39 615.5,-611.39 615.5,-590.64 539.25,-590.64"/>
-<text text-anchor="start" x="543.25" y="-597.14" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">dhcpServer</text>
+<polygon fill="none" stroke="#b4b2a9" points="539.25,-611.64 539.25,-632.39 615.5,-632.39 615.5,-611.64 539.25,-611.64"/>
+<text text-anchor="start" x="543.25" y="-618.14" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">dhcpServer</text>
 </a>
 </g>
 <g id="a_node3_129"><a data-target="networks-dhcpserver" tabindex="0" role="link"><title>networks.dhcpServer</title>
-<polygon fill="none" stroke="#b4b2a9" points="615.5,-590.64 615.5,-611.39 660.25,-611.39 660.25,-590.64 615.5,-590.64"/>
-<text text-anchor="start" x="619.5" y="-597.89" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">→ hosts</text>
+<polygon fill="none" stroke="#b4b2a9" points="615.5,-611.64 615.5,-632.39 660.25,-632.39 660.25,-611.64 615.5,-611.64"/>
+<text text-anchor="start" x="619.5" y="-618.89" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">→ hosts</text>
 </a>
 </g>
 <g id="a_node3_130"><a data-target="networks-ipv4" tabindex="0" role="link"><title>networks.ipv4</title>
-<polygon fill="none" stroke="#b4b2a9" points="539.25,-571.39 539.25,-590.64 615.5,-590.64 615.5,-571.39 539.25,-571.39"/>
-<text text-anchor="start" x="543.25" y="-577.14" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">ipv4</text>
+<polygon fill="none" stroke="#b4b2a9" points="539.25,-592.39 539.25,-611.64 615.5,-611.64 615.5,-592.39 539.25,-592.39"/>
+<text text-anchor="start" x="543.25" y="-598.14" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">ipv4</text>
 </a>
 </g>
 <g id="a_node3_131"><a data-target="networks-ipv4" tabindex="0" role="link"><title>networks.ipv4</title>
-<polygon fill="none" stroke="#b4b2a9" points="615.5,-571.39 615.5,-590.64 660.25,-590.64 660.25,-571.39 615.5,-571.39"/>
-<text text-anchor="start" x="619.5" y="-577.14" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
+<polygon fill="none" stroke="#b4b2a9" points="615.5,-592.39 615.5,-611.64 660.25,-611.64 660.25,-592.39 615.5,-592.39"/>
+<text text-anchor="start" x="619.5" y="-598.14" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
 </a>
 </g>
 <g id="a_node3_132"><a data-target="networks-ipv6" tabindex="0" role="link"><title>networks.ipv6</title>
-<polygon fill="none" stroke="#b4b2a9" points="539.25,-552.14 539.25,-571.39 615.5,-571.39 615.5,-552.14 539.25,-552.14"/>
-<text text-anchor="start" x="543.25" y="-557.89" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">ipv6</text>
+<polygon fill="none" stroke="#b4b2a9" points="539.25,-573.14 539.25,-592.39 615.5,-592.39 615.5,-573.14 539.25,-573.14"/>
+<text text-anchor="start" x="543.25" y="-578.89" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">ipv6</text>
 </a>
 </g>
 <g id="a_node3_133"><a data-target="networks-ipv6" tabindex="0" role="link"><title>networks.ipv6</title>
-<polygon fill="none" stroke="#b4b2a9" points="615.5,-552.14 615.5,-571.39 660.25,-571.39 660.25,-552.14 615.5,-552.14"/>
-<text text-anchor="start" x="619.5" y="-557.89" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
+<polygon fill="none" stroke="#b4b2a9" points="615.5,-573.14 615.5,-592.39 660.25,-592.39 660.25,-573.14 615.5,-573.14"/>
+<text text-anchor="start" x="619.5" y="-578.89" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
 </a>
 </g>
 <g id="a_node3_134"><a data-target="networks-ipv6subnetid" tabindex="0" role="link"><title>networks.ipv6SubnetId</title>
-<polygon fill="none" stroke="#b4b2a9" points="539.25,-532.89 539.25,-552.14 615.5,-552.14 615.5,-532.89 539.25,-532.89"/>
-<text text-anchor="start" x="543.25" y="-538.64" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">ipv6SubnetId</text>
+<polygon fill="none" stroke="#b4b2a9" points="539.25,-553.89 539.25,-573.14 615.5,-573.14 615.5,-553.89 539.25,-553.89"/>
+<text text-anchor="start" x="543.25" y="-559.64" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">ipv6SubnetId</text>
 </a>
 </g>
 <g id="a_node3_135"><a data-target="networks-ipv6subnetid" tabindex="0" role="link"><title>networks.ipv6SubnetId</title>
-<polygon fill="none" stroke="#b4b2a9" points="615.5,-532.89 615.5,-552.14 660.25,-552.14 660.25,-532.89 615.5,-532.89"/>
-<text text-anchor="start" x="619.5" y="-538.64" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">integer</text>
+<polygon fill="none" stroke="#b4b2a9" points="615.5,-553.89 615.5,-573.14 660.25,-573.14 660.25,-553.89 615.5,-553.89"/>
+<text text-anchor="start" x="619.5" y="-559.64" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">integer</text>
 </a>
 </g>
 <g id="a_node3_136"><a data-target="networks-name" tabindex="0" role="link"><title>networks.name</title>
-<polygon fill="none" stroke="#b4b2a9" points="539.25,-513.64 539.25,-532.89 615.5,-532.89 615.5,-513.64 539.25,-513.64"/>
-<text text-anchor="start" x="543.25" y="-520.39" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">name</text>
+<polygon fill="none" stroke="#b4b2a9" points="539.25,-534.64 539.25,-553.89 615.5,-553.89 615.5,-534.64 539.25,-534.64"/>
+<text text-anchor="start" x="543.25" y="-541.39" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">name</text>
 </a>
 </g>
 <g id="a_node3_137"><a data-target="networks-name" tabindex="0" role="link"><title>networks.name</title>
-<polygon fill="none" stroke="#b4b2a9" points="615.5,-513.64 615.5,-532.89 660.25,-532.89 660.25,-513.64 615.5,-513.64"/>
-<text text-anchor="start" x="619.5" y="-519.39" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
+<polygon fill="none" stroke="#b4b2a9" points="615.5,-534.64 615.5,-553.89 660.25,-553.89 660.25,-534.64 615.5,-534.64"/>
+<text text-anchor="start" x="619.5" y="-540.39" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
 </a>
 </g>
 <g id="a_node3_138"><a data-target="networks-note" tabindex="0" role="link"><title>networks.note</title>
-<polygon fill="none" stroke="#b4b2a9" points="539.25,-494.39 539.25,-513.64 615.5,-513.64 615.5,-494.39 539.25,-494.39"/>
-<text text-anchor="start" x="543.25" y="-500.14" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">note</text>
+<polygon fill="none" stroke="#b4b2a9" points="539.25,-515.39 539.25,-534.64 615.5,-534.64 615.5,-515.39 539.25,-515.39"/>
+<text text-anchor="start" x="543.25" y="-521.14" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">note</text>
 </a>
 </g>
 <g id="a_node3_139"><a data-target="networks-note" tabindex="0" role="link"><title>networks.note</title>
-<polygon fill="none" stroke="#b4b2a9" points="615.5,-494.39 615.5,-513.64 660.25,-513.64 660.25,-494.39 615.5,-494.39"/>
-<text text-anchor="start" x="619.5" y="-500.14" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
+<polygon fill="none" stroke="#b4b2a9" points="615.5,-515.39 615.5,-534.64 660.25,-534.64 660.25,-515.39 615.5,-515.39"/>
+<text text-anchor="start" x="619.5" y="-521.14" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
 </a>
 </g>
 <g id="a_node3_140"><a data-target="networks-site" tabindex="0" role="link"><title>networks.site</title>
-<polygon fill="none" stroke="#b4b2a9" points="539.25,-473.64 539.25,-494.39 615.5,-494.39 615.5,-473.64 539.25,-473.64"/>
-<text text-anchor="start" x="543.25" y="-481.14" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">site</text>
+<polygon fill="none" stroke="#b4b2a9" points="539.25,-494.64 539.25,-515.39 615.5,-515.39 615.5,-494.64 539.25,-494.64"/>
+<text text-anchor="start" x="543.25" y="-502.14" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">site</text>
 </a>
 </g>
 <g id="a_node3_141"><a data-target="networks-site" tabindex="0" role="link"><title>networks.site</title>
-<polygon fill="none" stroke="#b4b2a9" points="615.5,-473.64 615.5,-494.39 660.25,-494.39 660.25,-473.64 615.5,-473.64"/>
-<text text-anchor="start" x="619.5" y="-480.89" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">→ sites</text>
+<polygon fill="none" stroke="#b4b2a9" points="615.5,-494.64 615.5,-515.39 660.25,-515.39 660.25,-494.64 615.5,-494.64"/>
+<text text-anchor="start" x="619.5" y="-501.89" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">→ sites</text>
 </a>
 </g>
 <g id="a_node3_142"><a data-target="networks-vlan" tabindex="0" role="link"><title>networks.vlan</title>
-<polygon fill="none" stroke="#b4b2a9" points="539.25,-454.39 539.25,-473.64 615.5,-473.64 615.5,-454.39 539.25,-454.39"/>
-<text text-anchor="start" x="543.25" y="-460.14" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">vlan</text>
+<polygon fill="none" stroke="#b4b2a9" points="539.25,-475.39 539.25,-494.64 615.5,-494.64 615.5,-475.39 539.25,-475.39"/>
+<text text-anchor="start" x="543.25" y="-481.14" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">vlan</text>
 </a>
 </g>
 <g id="a_node3_143"><a data-target="networks-vlan" tabindex="0" role="link"><title>networks.vlan</title>
-<polygon fill="none" stroke="#b4b2a9" points="615.5,-454.39 615.5,-473.64 660.25,-473.64 660.25,-454.39 615.5,-454.39"/>
-<text text-anchor="start" x="619.5" y="-460.14" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">integer</text>
+<polygon fill="none" stroke="#b4b2a9" points="615.5,-475.39 615.5,-494.64 660.25,-494.64 660.25,-475.39 615.5,-475.39"/>
+<text text-anchor="start" x="619.5" y="-481.14" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">integer</text>
 </a>
 </g>
 </g>
 <g id="edge3" class="edge">
 <title>hosts:e&#45;&gt;networks:h</title>
-<path fill="none" stroke="#888780" stroke-width="1.1" d="M474.25,-548.89C536.02,-548.89 479.97,-667.84 531.62,-678.07"/>
-<polygon fill="#888780" stroke="#888780" stroke-width="1.1" points="531.43,-680.16 537.59,-678.61 531.81,-675.98 531.43,-680.16"/>
+<path fill="none" stroke="#888780" stroke-width="1.1" d="M474.25,-548.89C544.55,-548.89 472.04,-688.78 531.74,-699.16"/>
+<polygon fill="#888780" stroke="#888780" stroke-width="1.1" points="531.44,-701.24 537.59,-699.63 531.78,-697.05 531.44,-701.24"/>
 </g>
 <g id="node5" class="node">
 <title>owners</title>
@@ -875,89 +875,89 @@ Jeder Abschnitt mit allen Feldern – **fett** sind Pflichtfelder, verschachtelt
 </g>
 <g id="node8" class="node">
 <title>sites</title>
-<polygon fill="#f1efe8" stroke="none" points="828.25,-494.27 725.25,-494.27 725.25,-356.52 828.25,-356.52 828.25,-494.27"/>
-<polygon fill="#f1efe8" stroke="none" points="725.25,-356.52 725.25,-494.27 828.25,-494.27 828.25,-356.52 725.25,-356.52"/>
+<polygon fill="#f1efe8" stroke="none" points="828.25,-515.27 725.25,-515.27 725.25,-377.52 828.25,-377.52 828.25,-515.27"/>
+<polygon fill="#f1efe8" stroke="none" points="725.25,-377.52 725.25,-515.27 828.25,-515.27 828.25,-377.52 725.25,-377.52"/>
 <g id="a_node8_151"><a data-target="sites" tabindex="0" role="link"><title>sites</title>
-<polygon fill="#d3d1c7" stroke="none" points="725.25,-475.02 725.25,-494.27 828.25,-494.27 828.25,-475.02 725.25,-475.02"/>
-<polygon fill="none" stroke="#b4b2a9" points="725.25,-475.02 725.25,-494.27 828.25,-494.27 828.25,-475.02 725.25,-475.02"/>
-<text text-anchor="start" x="765.88" y="-481.77" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">sites</text>
+<polygon fill="#d3d1c7" stroke="none" points="725.25,-496.02 725.25,-515.27 828.25,-515.27 828.25,-496.02 725.25,-496.02"/>
+<polygon fill="none" stroke="#b4b2a9" points="725.25,-496.02 725.25,-515.27 828.25,-515.27 828.25,-496.02 725.25,-496.02"/>
+<text text-anchor="start" x="765.88" y="-502.77" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">sites</text>
 </a>
 </g>
 <g id="a_node8_152"><a data-target="sites-city" tabindex="0" role="link"><title>sites.city</title>
-<polygon fill="none" stroke="#b4b2a9" points="725.25,-455.77 725.25,-475.02 767.75,-475.02 767.75,-455.77 725.25,-455.77"/>
-<text text-anchor="start" x="729.25" y="-462.52" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">city</text>
+<polygon fill="none" stroke="#b4b2a9" points="725.25,-476.77 725.25,-496.02 767.75,-496.02 767.75,-476.77 725.25,-476.77"/>
+<text text-anchor="start" x="729.25" y="-483.52" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">city</text>
 </a>
 </g>
 <g id="a_node8_153"><a data-target="sites-city" tabindex="0" role="link"><title>sites.city</title>
-<polygon fill="none" stroke="#b4b2a9" points="767.75,-455.77 767.75,-475.02 828.25,-475.02 828.25,-455.77 767.75,-455.77"/>
-<text text-anchor="start" x="771.75" y="-461.52" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
+<polygon fill="none" stroke="#b4b2a9" points="767.75,-476.77 767.75,-496.02 828.25,-496.02 828.25,-476.77 767.75,-476.77"/>
+<text text-anchor="start" x="771.75" y="-482.52" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
 </a>
 </g>
 <g id="a_node8_154"><a data-target="sites-ipv6ula" tabindex="0" role="link"><title>sites.ipv6Ula</title>
-<polygon fill="none" stroke="#b4b2a9" points="725.25,-436.52 725.25,-455.77 767.75,-455.77 767.75,-436.52 725.25,-436.52"/>
-<text text-anchor="start" x="729.25" y="-442.27" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">ipv6Ula</text>
+<polygon fill="none" stroke="#b4b2a9" points="725.25,-457.52 725.25,-476.77 767.75,-476.77 767.75,-457.52 725.25,-457.52"/>
+<text text-anchor="start" x="729.25" y="-463.27" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">ipv6Ula</text>
 </a>
 </g>
 <g id="a_node8_155"><a data-target="sites-ipv6ula" tabindex="0" role="link"><title>sites.ipv6Ula</title>
-<polygon fill="none" stroke="#b4b2a9" points="767.75,-436.52 767.75,-455.77 828.25,-455.77 828.25,-436.52 767.75,-436.52"/>
-<text text-anchor="start" x="771.75" y="-442.27" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
+<polygon fill="none" stroke="#b4b2a9" points="767.75,-457.52 767.75,-476.77 828.25,-476.77 828.25,-457.52 767.75,-457.52"/>
+<text text-anchor="start" x="771.75" y="-463.27" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
 </a>
 </g>
 <g id="a_node8_156"><a data-target="sites-kind" tabindex="0" role="link"><title>sites.kind</title>
-<polygon fill="none" stroke="#b4b2a9" points="725.25,-417.27 725.25,-436.52 767.75,-436.52 767.75,-417.27 725.25,-417.27"/>
-<text text-anchor="start" x="729.25" y="-424.02" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">kind</text>
+<polygon fill="none" stroke="#b4b2a9" points="725.25,-438.27 725.25,-457.52 767.75,-457.52 767.75,-438.27 725.25,-438.27"/>
+<text text-anchor="start" x="729.25" y="-445.02" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">kind</text>
 </a>
 </g>
 <g id="a_node8_157"><a data-target="sites-kind" tabindex="0" role="link"><title>sites.kind</title>
-<polygon fill="none" stroke="#b4b2a9" points="767.75,-417.27 767.75,-436.52 828.25,-436.52 828.25,-417.27 767.75,-417.27"/>
-<text text-anchor="start" x="771.75" y="-423.02" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">enum</text>
+<polygon fill="none" stroke="#b4b2a9" points="767.75,-438.27 767.75,-457.52 828.25,-457.52 828.25,-438.27 767.75,-438.27"/>
+<text text-anchor="start" x="771.75" y="-444.02" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">enum</text>
 </a>
 </g>
 <g id="a_node8_158"><a data-target="sites-note" tabindex="0" role="link"><title>sites.note</title>
-<polygon fill="none" stroke="#b4b2a9" points="725.25,-398.02 725.25,-417.27 767.75,-417.27 767.75,-398.02 725.25,-398.02"/>
-<text text-anchor="start" x="729.25" y="-403.77" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">note</text>
+<polygon fill="none" stroke="#b4b2a9" points="725.25,-419.02 725.25,-438.27 767.75,-438.27 767.75,-419.02 725.25,-419.02"/>
+<text text-anchor="start" x="729.25" y="-424.77" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">note</text>
 </a>
 </g>
 <g id="a_node8_159"><a data-target="sites-note" tabindex="0" role="link"><title>sites.note</title>
-<polygon fill="none" stroke="#b4b2a9" points="767.75,-398.02 767.75,-417.27 828.25,-417.27 828.25,-398.02 767.75,-398.02"/>
-<text text-anchor="start" x="771.75" y="-403.77" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
+<polygon fill="none" stroke="#b4b2a9" points="767.75,-419.02 767.75,-438.27 828.25,-438.27 828.25,-419.02 767.75,-419.02"/>
+<text text-anchor="start" x="771.75" y="-424.77" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
 </a>
 </g>
 <g id="a_node8_160"><a data-target="sites-provider" tabindex="0" role="link"><title>sites.provider</title>
-<polygon fill="none" stroke="#b4b2a9" points="725.25,-377.27 725.25,-398.02 767.75,-398.02 767.75,-377.27 725.25,-377.27"/>
-<text text-anchor="start" x="729.25" y="-383.77" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">provider</text>
+<polygon fill="none" stroke="#b4b2a9" points="725.25,-398.27 725.25,-419.02 767.75,-419.02 767.75,-398.27 725.25,-398.27"/>
+<text text-anchor="start" x="729.25" y="-404.77" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">provider</text>
 </a>
 </g>
 <g id="a_node8_161"><a data-target="sites-provider" tabindex="0" role="link"><title>sites.provider</title>
-<polygon fill="none" stroke="#b4b2a9" points="767.75,-377.27 767.75,-398.02 828.25,-398.02 828.25,-377.27 767.75,-377.27"/>
-<text text-anchor="start" x="771.75" y="-384.52" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">→ providers</text>
+<polygon fill="none" stroke="#b4b2a9" points="767.75,-398.27 767.75,-419.02 828.25,-419.02 828.25,-398.27 767.75,-398.27"/>
+<text text-anchor="start" x="771.75" y="-405.52" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">→ providers</text>
 </a>
 </g>
 <g id="a_node8_162"><a data-target="sites-uplinks" tabindex="0" role="link"><title>sites.uplinks</title>
-<polygon fill="none" stroke="#b4b2a9" points="725.25,-356.52 725.25,-377.27 767.75,-377.27 767.75,-356.52 725.25,-356.52"/>
-<text text-anchor="start" x="729.25" y="-364.02" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">uplinks</text>
+<polygon fill="none" stroke="#b4b2a9" points="725.25,-377.52 725.25,-398.27 767.75,-398.27 767.75,-377.52 725.25,-377.52"/>
+<text text-anchor="start" x="729.25" y="-385.02" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">uplinks</text>
 </a>
 </g>
 <g id="a_node8_163"><a data-target="sites-uplinks" tabindex="0" role="link"><title>sites.uplinks</title>
-<polygon fill="none" stroke="#b4b2a9" points="767.75,-356.52 767.75,-377.27 828.25,-377.27 828.25,-356.52 767.75,-356.52"/>
-<text text-anchor="start" x="771.75" y="-363.77" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">[→ uplinks]</text>
+<polygon fill="none" stroke="#b4b2a9" points="767.75,-377.52 767.75,-398.27 828.25,-398.27 828.25,-377.52 767.75,-377.52"/>
+<text text-anchor="start" x="771.75" y="-384.77" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">[→ uplinks]</text>
 </a>
 </g>
 </g>
 <g id="edge5" class="edge">
 <title>hosts:e&#45;&gt;sites:h</title>
-<path fill="none" stroke="#888780" stroke-width="1.1" d="M474.25,-271.89C557.63,-271.89 595.66,-243.66 660.25,-296.39 726.81,-350.73 641.99,-476.96 717.93,-484.31"/>
-<polygon fill="#888780" stroke="#888780" stroke-width="1.1" points="717.5,-486.39 723.59,-484.56 717.69,-482.19 717.5,-486.39"/>
+<path fill="none" stroke="#888780" stroke-width="1.1" d="M474.25,-271.89C557.63,-271.89 596.49,-242.66 660.25,-296.39 732.68,-357.43 633.57,-497.69 717.71,-505.32"/>
+<polygon fill="#888780" stroke="#888780" stroke-width="1.1" points="717.5,-507.41 723.59,-505.57 717.68,-503.21 717.5,-507.41"/>
 </g>
 <g id="edge6" class="edge">
 <title>networks:e&#45;&gt;hosts:h</title>
-<path fill="none" stroke="#888780" stroke-width="1.1" d="M661.25,-601.02C700.09,-601.02 675.1,-652.51 660.25,-688.39 630.81,-759.54 584.36,-749.99 539.25,-812.39 504.09,-861.03 534.14,-931.29 481.81,-937.24"/>
-<polygon fill="#888780" stroke="#888780" stroke-width="1.1" points="481.79,-935.13 475.91,-937.55 482.02,-939.33 481.79,-935.13"/>
+<path fill="none" stroke="#888780" stroke-width="1.1" d="M661.25,-622.02C700.09,-622.02 675.77,-673.79 660.25,-709.39 630.6,-777.4 585.08,-766.05 539.25,-824.39 505.08,-867.89 529.72,-931.35 481.85,-937.2"/>
+<polygon fill="#888780" stroke="#888780" stroke-width="1.1" points="481.78,-935.11 475.91,-937.55 482.02,-939.3 481.78,-935.11"/>
 </g>
 <g id="edge7" class="edge">
 <title>networks:e&#45;&gt;sites:h</title>
-<path fill="none" stroke="#888780" stroke-width="1.1" d="M660.25,-484.02C686.43,-484.02 694.82,-484.53 717.66,-484.63"/>
-<polygon fill="#888780" stroke="#888780" stroke-width="1.1" points="717.58,-486.73 723.59,-484.64 717.59,-482.53 717.58,-486.73"/>
+<path fill="none" stroke="#888780" stroke-width="1.1" d="M660.25,-505.02C686.43,-505.02 694.82,-505.53 717.66,-505.63"/>
+<polygon fill="#888780" stroke="#888780" stroke-width="1.1" points="717.58,-507.73 723.59,-505.64 717.59,-503.53 717.58,-507.73"/>
 </g>
 <g id="node4" class="node">
 <title>overlays</title>
@@ -1323,8 +1323,8 @@ Jeder Abschnitt mit allen Feldern – **fett** sind Pflichtfelder, verschachtelt
 </g>
 <g id="edge8" class="edge">
 <title>services:e&#45;&gt;contracts:h</title>
-<path fill="none" stroke="#888780" stroke-width="1.1" d="M174.25,-981.52C362.92,-981.52 410.08,-981.39 598.75,-981.39 598.75,-981.39 598.75,-981.39 777.75,-981.39 820.9,-981.39 1044.17,-768.51 1103.5,-749.39"/>
-<polygon fill="#888780" stroke="#888780" stroke-width="1.1" points="1103.61,-751.5 1109.11,-748.33 1102.83,-747.38 1103.61,-751.5"/>
+<path fill="none" stroke="#888780" stroke-width="1.1" d="M174.25,-981.52C362.92,-981.52 410.08,-981.39 598.75,-981.39 598.75,-981.39 598.75,-981.39 777.75,-981.39 819.81,-981.39 1044.12,-784.83 1103.26,-766.4"/>
+<polygon fill="#888780" stroke="#888780" stroke-width="1.1" points="1103.59,-768.47 1109.11,-765.32 1102.83,-764.34 1103.59,-768.47"/>
 </g>
 <g id="edge9" class="edge">
 <title>services:e&#45;&gt;hosts:h</title>
@@ -1333,169 +1333,179 @@ Jeder Abschnitt mit allen Feldern – **fett** sind Pflichtfelder, verschachtelt
 </g>
 <g id="edge10" class="edge">
 <title>services:e&#45;&gt;providers:h</title>
-<path fill="none" stroke="#888780" stroke-width="1.1" d="M174.25,-706.02C319.33,-706.02 134.84,-157.12 239.25,-56.39 354.47,54.77 438.65,-33.39 598.75,-33.39 598.75,-33.39 598.75,-33.39 970.5,-33.39 1099.07,-33.39 1151.58,-38.74 1243.75,-128.39 1300.24,-183.34 1232.07,-292.34 1301.14,-299.52"/>
-<polygon fill="#888780" stroke="#888780" stroke-width="1.1" points="1300.99,-301.61 1307.09,-299.81 1301.2,-297.42 1300.99,-301.61"/>
+<path fill="none" stroke="#888780" stroke-width="1.1" d="M174.25,-706.02C319.33,-706.02 134.84,-157.12 239.25,-56.39 354.47,54.77 438.65,-33.39 598.75,-33.39 598.75,-33.39 598.75,-33.39 970.5,-33.39 1099.67,-33.39 1152.66,-40.81 1243.75,-132.39 1302.57,-191.53 1227.62,-307.36 1301.16,-314.54"/>
+<polygon fill="#888780" stroke="#888780" stroke-width="1.1" points="1301,-316.64 1307.09,-314.81 1301.19,-312.44 1301,-316.64"/>
 </g>
 <g id="edge11" class="edge">
 <title>sites:e&#45;&gt;providers:h</title>
-<path fill="none" stroke="#888780" stroke-width="1.1" d="M828.25,-387.64C924.92,-387.64 950.34,-402.9 1045.75,-387.39 1164.85,-368.03 1184.77,-302.65 1301.3,-299.98"/>
-<polygon fill="#888780" stroke="#888780" stroke-width="1.1" points="1301.11,-302.08 1307.09,-299.91 1301.06,-297.88 1301.11,-302.08"/>
+<path fill="none" stroke="#888780" stroke-width="1.1" d="M828.25,-408.64C924.92,-408.64 950.52,-425.98 1045.75,-409.39 1165.6,-388.51 1183.83,-317.87 1301.24,-314.98"/>
+<polygon fill="#888780" stroke="#888780" stroke-width="1.1" points="1301.11,-317.08 1307.09,-314.91 1301.06,-312.88 1301.11,-317.08"/>
 </g>
 <g id="node9" class="node">
 <title>uplinks</title>
-<polygon fill="#f1efe8" stroke="none" points="1045.75,-376.64 893.25,-376.64 893.25,-104.14 1045.75,-104.14 1045.75,-376.64"/>
-<polygon fill="#f1efe8" stroke="none" points="893.25,-104.14 893.25,-376.64 1045.75,-376.64 1045.75,-104.14 893.25,-104.14"/>
+<polygon fill="#f1efe8" stroke="none" points="1045.75,-398.27 893.25,-398.27 893.25,-106.52 1045.75,-106.52 1045.75,-398.27"/>
+<polygon fill="#f1efe8" stroke="none" points="893.25,-106.52 893.25,-398.27 1045.75,-398.27 1045.75,-106.52 893.25,-106.52"/>
 <g id="a_node9_234"><a data-target="uplinks" tabindex="0" role="link"><title>uplinks</title>
-<polygon fill="#d3d1c7" stroke="none" points="893.25,-357.39 893.25,-376.64 1045.75,-376.64 1045.75,-357.39 893.25,-357.39"/>
-<polygon fill="none" stroke="#b4b2a9" points="893.25,-357.39 893.25,-376.64 1045.75,-376.64 1045.75,-357.39 893.25,-357.39"/>
-<text text-anchor="start" x="952.25" y="-364.14" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">uplinks</text>
+<polygon fill="#d3d1c7" stroke="none" points="893.25,-379.02 893.25,-398.27 1045.75,-398.27 1045.75,-379.02 893.25,-379.02"/>
+<polygon fill="none" stroke="#b4b2a9" points="893.25,-379.02 893.25,-398.27 1045.75,-398.27 1045.75,-379.02 893.25,-379.02"/>
+<text text-anchor="start" x="952.25" y="-385.77" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">uplinks</text>
 </a>
 </g>
 <g id="a_node9_235"><a data-target="uplinks-asn" tabindex="0" role="link"><title>uplinks.asn</title>
-<polygon fill="none" stroke="#b4b2a9" points="893.25,-338.14 893.25,-357.39 978.5,-357.39 978.5,-338.14 893.25,-338.14"/>
-<text text-anchor="start" x="897.25" y="-343.89" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">asn</text>
+<polygon fill="none" stroke="#b4b2a9" points="893.25,-359.77 893.25,-379.02 978.5,-379.02 978.5,-359.77 893.25,-359.77"/>
+<text text-anchor="start" x="897.25" y="-365.52" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">asn</text>
 </a>
 </g>
 <g id="a_node9_236"><a data-target="uplinks-asn" tabindex="0" role="link"><title>uplinks.asn</title>
-<polygon fill="none" stroke="#b4b2a9" points="978.5,-338.14 978.5,-357.39 1045.75,-357.39 1045.75,-338.14 978.5,-338.14"/>
-<text text-anchor="start" x="982.5" y="-343.89" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">integer</text>
+<polygon fill="none" stroke="#b4b2a9" points="978.5,-359.77 978.5,-379.02 1045.75,-379.02 1045.75,-359.77 978.5,-359.77"/>
+<text text-anchor="start" x="982.5" y="-365.52" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">integer</text>
 </a>
 </g>
 <g id="a_node9_237"><a data-target="uplinks-bandwidth" tabindex="0" role="link"><title>uplinks.bandwidth</title>
-<polygon fill="none" stroke="#b4b2a9" points="893.25,-318.89 893.25,-338.14 978.5,-338.14 978.5,-318.89 893.25,-318.89"/>
-<text text-anchor="start" x="897.25" y="-324.64" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">bandwidth</text>
+<polygon fill="none" stroke="#b4b2a9" points="893.25,-340.52 893.25,-359.77 978.5,-359.77 978.5,-340.52 893.25,-340.52"/>
+<text text-anchor="start" x="897.25" y="-346.27" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">bandwidth</text>
 </a>
 </g>
 <g id="a_node9_238"><a data-target="uplinks-bandwidth" tabindex="0" role="link"><title>uplinks.bandwidth</title>
-<polygon fill="none" stroke="#b4b2a9" points="978.5,-318.89 978.5,-338.14 1045.75,-338.14 1045.75,-318.89 978.5,-318.89"/>
-<text text-anchor="start" x="982.5" y="-324.64" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">object</text>
+<polygon fill="none" stroke="#b4b2a9" points="978.5,-340.52 978.5,-359.77 1045.75,-359.77 1045.75,-340.52 978.5,-340.52"/>
+<text text-anchor="start" x="982.5" y="-346.27" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">object</text>
 </a>
 </g>
 <g id="a_node9_239"><a data-target="uplinks-bandwidth-down" tabindex="0" role="link"><title>uplinks.bandwidth.down</title>
-<polygon fill="none" stroke="#b4b2a9" points="893.25,-299.64 893.25,-318.89 978.5,-318.89 978.5,-299.64 893.25,-299.64"/>
-<text text-anchor="start" x="897.25" y="-306.39" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">bandwidth.down</text>
+<polygon fill="none" stroke="#b4b2a9" points="893.25,-321.27 893.25,-340.52 978.5,-340.52 978.5,-321.27 893.25,-321.27"/>
+<text text-anchor="start" x="897.25" y="-328.02" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">bandwidth.down</text>
 </a>
 </g>
 <g id="a_node9_240"><a data-target="uplinks-bandwidth-down" tabindex="0" role="link"><title>uplinks.bandwidth.down</title>
-<polygon fill="none" stroke="#b4b2a9" points="978.5,-299.64 978.5,-318.89 1045.75,-318.89 1045.75,-299.64 978.5,-299.64"/>
-<text text-anchor="start" x="982.5" y="-305.39" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">integer</text>
+<polygon fill="none" stroke="#b4b2a9" points="978.5,-321.27 978.5,-340.52 1045.75,-340.52 1045.75,-321.27 978.5,-321.27"/>
+<text text-anchor="start" x="982.5" y="-327.02" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">integer</text>
 </a>
 </g>
 <g id="a_node9_241"><a data-target="uplinks-bandwidth-up" tabindex="0" role="link"><title>uplinks.bandwidth.up</title>
-<polygon fill="none" stroke="#b4b2a9" points="893.25,-280.39 893.25,-299.64 978.5,-299.64 978.5,-280.39 893.25,-280.39"/>
-<text text-anchor="start" x="897.25" y="-287.14" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">bandwidth.up</text>
+<polygon fill="none" stroke="#b4b2a9" points="893.25,-302.02 893.25,-321.27 978.5,-321.27 978.5,-302.02 893.25,-302.02"/>
+<text text-anchor="start" x="897.25" y="-308.77" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">bandwidth.up</text>
 </a>
 </g>
 <g id="a_node9_242"><a data-target="uplinks-bandwidth-up" tabindex="0" role="link"><title>uplinks.bandwidth.up</title>
-<polygon fill="none" stroke="#b4b2a9" points="978.5,-280.39 978.5,-299.64 1045.75,-299.64 1045.75,-280.39 978.5,-280.39"/>
-<text text-anchor="start" x="982.5" y="-286.14" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">integer</text>
+<polygon fill="none" stroke="#b4b2a9" points="978.5,-302.02 978.5,-321.27 1045.75,-321.27 1045.75,-302.02 978.5,-302.02"/>
+<text text-anchor="start" x="982.5" y="-307.77" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">integer</text>
 </a>
 </g>
 <g id="a_node9_243"><a data-target="uplinks-contracts" tabindex="0" role="link"><title>uplinks.contracts</title>
-<polygon fill="none" stroke="#b4b2a9" points="893.25,-259.64 893.25,-280.39 978.5,-280.39 978.5,-259.64 893.25,-259.64"/>
-<text text-anchor="start" x="897.25" y="-266.14" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">contracts</text>
+<polygon fill="none" stroke="#b4b2a9" points="893.25,-281.27 893.25,-302.02 978.5,-302.02 978.5,-281.27 893.25,-281.27"/>
+<text text-anchor="start" x="897.25" y="-287.77" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">contracts</text>
 </a>
 </g>
 <g id="a_node9_244"><a data-target="uplinks-contracts" tabindex="0" role="link"><title>uplinks.contracts</title>
-<polygon fill="none" stroke="#b4b2a9" points="978.5,-259.64 978.5,-280.39 1045.75,-280.39 1045.75,-259.64 978.5,-259.64"/>
-<text text-anchor="start" x="982.5" y="-266.89" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">[→ contracts]</text>
+<polygon fill="none" stroke="#b4b2a9" points="978.5,-281.27 978.5,-302.02 1045.75,-302.02 1045.75,-281.27 978.5,-281.27"/>
+<text text-anchor="start" x="982.5" y="-288.52" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">[→ contracts]</text>
 </a>
 </g>
-<g id="a_node9_245"><a data-target="uplinks-ipv4" tabindex="0" role="link"><title>uplinks.ipv4</title>
-<polygon fill="none" stroke="#b4b2a9" points="893.25,-240.39 893.25,-259.64 978.5,-259.64 978.5,-240.39 893.25,-240.39"/>
-<text text-anchor="start" x="897.25" y="-246.14" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">ipv4</text>
+<g id="a_node9_245"><a data-target="uplinks-dyndnsname" tabindex="0" role="link"><title>uplinks.dyndnsName</title>
+<polygon fill="none" stroke="#b4b2a9" points="893.25,-262.02 893.25,-281.27 978.5,-281.27 978.5,-262.02 893.25,-262.02"/>
+<text text-anchor="start" x="897.25" y="-267.77" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">dyndnsName</text>
 </a>
 </g>
-<g id="a_node9_246"><a data-target="uplinks-ipv4" tabindex="0" role="link"><title>uplinks.ipv4</title>
-<polygon fill="none" stroke="#b4b2a9" points="978.5,-240.39 978.5,-259.64 1045.75,-259.64 1045.75,-240.39 978.5,-240.39"/>
-<text text-anchor="start" x="982.5" y="-246.14" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">enum</text>
+<g id="a_node9_246"><a data-target="uplinks-dyndnsname" tabindex="0" role="link"><title>uplinks.dyndnsName</title>
+<polygon fill="none" stroke="#b4b2a9" points="978.5,-262.02 978.5,-281.27 1045.75,-281.27 1045.75,-262.02 978.5,-262.02"/>
+<text text-anchor="start" x="982.5" y="-267.77" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
 </a>
 </g>
-<g id="a_node9_247"><a data-target="uplinks-ipv4static" tabindex="0" role="link"><title>uplinks.ipv4Static</title>
-<polygon fill="none" stroke="#b4b2a9" points="893.25,-221.14 893.25,-240.39 978.5,-240.39 978.5,-221.14 893.25,-221.14"/>
-<text text-anchor="start" x="897.25" y="-226.89" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">ipv4Static</text>
+<g id="a_node9_247"><a data-target="uplinks-ipv4" tabindex="0" role="link"><title>uplinks.ipv4</title>
+<polygon fill="none" stroke="#b4b2a9" points="893.25,-242.77 893.25,-262.02 978.5,-262.02 978.5,-242.77 893.25,-242.77"/>
+<text text-anchor="start" x="897.25" y="-248.52" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">ipv4</text>
 </a>
 </g>
-<g id="a_node9_248"><a data-target="uplinks-ipv4static" tabindex="0" role="link"><title>uplinks.ipv4Static</title>
-<polygon fill="none" stroke="#b4b2a9" points="978.5,-221.14 978.5,-240.39 1045.75,-240.39 1045.75,-221.14 978.5,-221.14"/>
-<text text-anchor="start" x="982.5" y="-226.89" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">boolean</text>
+<g id="a_node9_248"><a data-target="uplinks-ipv4" tabindex="0" role="link"><title>uplinks.ipv4</title>
+<polygon fill="none" stroke="#b4b2a9" points="978.5,-242.77 978.5,-262.02 1045.75,-262.02 1045.75,-242.77 978.5,-242.77"/>
+<text text-anchor="start" x="982.5" y="-248.52" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">enum</text>
 </a>
 </g>
-<g id="a_node9_249"><a data-target="uplinks-ipv6" tabindex="0" role="link"><title>uplinks.ipv6</title>
-<polygon fill="none" stroke="#b4b2a9" points="893.25,-201.89 893.25,-221.14 978.5,-221.14 978.5,-201.89 893.25,-201.89"/>
-<text text-anchor="start" x="897.25" y="-207.64" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">ipv6</text>
+<g id="a_node9_249"><a data-target="uplinks-ipv4static" tabindex="0" role="link"><title>uplinks.ipv4Static</title>
+<polygon fill="none" stroke="#b4b2a9" points="893.25,-223.52 893.25,-242.77 978.5,-242.77 978.5,-223.52 893.25,-223.52"/>
+<text text-anchor="start" x="897.25" y="-229.27" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">ipv4Static</text>
 </a>
 </g>
-<g id="a_node9_250"><a data-target="uplinks-ipv6" tabindex="0" role="link"><title>uplinks.ipv6</title>
-<polygon fill="none" stroke="#b4b2a9" points="978.5,-201.89 978.5,-221.14 1045.75,-221.14 1045.75,-201.89 978.5,-201.89"/>
-<text text-anchor="start" x="982.5" y="-207.64" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">boolean</text>
+<g id="a_node9_250"><a data-target="uplinks-ipv4static" tabindex="0" role="link"><title>uplinks.ipv4Static</title>
+<polygon fill="none" stroke="#b4b2a9" points="978.5,-223.52 978.5,-242.77 1045.75,-242.77 1045.75,-223.52 978.5,-223.52"/>
+<text text-anchor="start" x="982.5" y="-229.27" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">boolean</text>
 </a>
 </g>
-<g id="a_node9_251"><a data-target="uplinks-ipv6prefixlength" tabindex="0" role="link"><title>uplinks.ipv6PrefixLength</title>
-<polygon fill="none" stroke="#b4b2a9" points="893.25,-182.64 893.25,-201.89 978.5,-201.89 978.5,-182.64 893.25,-182.64"/>
-<text text-anchor="start" x="897.25" y="-188.39" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">ipv6PrefixLength</text>
+<g id="a_node9_251"><a data-target="uplinks-ipv6" tabindex="0" role="link"><title>uplinks.ipv6</title>
+<polygon fill="none" stroke="#b4b2a9" points="893.25,-204.27 893.25,-223.52 978.5,-223.52 978.5,-204.27 893.25,-204.27"/>
+<text text-anchor="start" x="897.25" y="-210.02" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">ipv6</text>
 </a>
 </g>
-<g id="a_node9_252"><a data-target="uplinks-ipv6prefixlength" tabindex="0" role="link"><title>uplinks.ipv6PrefixLength</title>
-<polygon fill="none" stroke="#b4b2a9" points="978.5,-182.64 978.5,-201.89 1045.75,-201.89 1045.75,-182.64 978.5,-182.64"/>
-<text text-anchor="start" x="982.5" y="-188.39" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">integer</text>
+<g id="a_node9_252"><a data-target="uplinks-ipv6" tabindex="0" role="link"><title>uplinks.ipv6</title>
+<polygon fill="none" stroke="#b4b2a9" points="978.5,-204.27 978.5,-223.52 1045.75,-223.52 1045.75,-204.27 978.5,-204.27"/>
+<text text-anchor="start" x="982.5" y="-210.02" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">boolean</text>
 </a>
 </g>
-<g id="a_node9_253"><a data-target="uplinks-ipv6static" tabindex="0" role="link"><title>uplinks.ipv6Static</title>
-<polygon fill="none" stroke="#b4b2a9" points="893.25,-163.39 893.25,-182.64 978.5,-182.64 978.5,-163.39 893.25,-163.39"/>
-<text text-anchor="start" x="897.25" y="-169.14" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">ipv6Static</text>
+<g id="a_node9_253"><a data-target="uplinks-ipv6prefixlength" tabindex="0" role="link"><title>uplinks.ipv6PrefixLength</title>
+<polygon fill="none" stroke="#b4b2a9" points="893.25,-185.02 893.25,-204.27 978.5,-204.27 978.5,-185.02 893.25,-185.02"/>
+<text text-anchor="start" x="897.25" y="-190.77" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">ipv6PrefixLength</text>
 </a>
 </g>
-<g id="a_node9_254"><a data-target="uplinks-ipv6static" tabindex="0" role="link"><title>uplinks.ipv6Static</title>
-<polygon fill="none" stroke="#b4b2a9" points="978.5,-163.39 978.5,-182.64 1045.75,-182.64 1045.75,-163.39 978.5,-163.39"/>
-<text text-anchor="start" x="982.5" y="-169.14" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">boolean</text>
+<g id="a_node9_254"><a data-target="uplinks-ipv6prefixlength" tabindex="0" role="link"><title>uplinks.ipv6PrefixLength</title>
+<polygon fill="none" stroke="#b4b2a9" points="978.5,-185.02 978.5,-204.27 1045.75,-204.27 1045.75,-185.02 978.5,-185.02"/>
+<text text-anchor="start" x="982.5" y="-190.77" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">integer</text>
 </a>
 </g>
-<g id="a_node9_255"><a data-target="uplinks-medium" tabindex="0" role="link"><title>uplinks.medium</title>
-<polygon fill="none" stroke="#b4b2a9" points="893.25,-144.14 893.25,-163.39 978.5,-163.39 978.5,-144.14 893.25,-144.14"/>
-<text text-anchor="start" x="897.25" y="-149.89" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">medium</text>
+<g id="a_node9_255"><a data-target="uplinks-ipv6static" tabindex="0" role="link"><title>uplinks.ipv6Static</title>
+<polygon fill="none" stroke="#b4b2a9" points="893.25,-165.77 893.25,-185.02 978.5,-185.02 978.5,-165.77 893.25,-165.77"/>
+<text text-anchor="start" x="897.25" y="-171.52" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">ipv6Static</text>
 </a>
 </g>
-<g id="a_node9_256"><a data-target="uplinks-medium" tabindex="0" role="link"><title>uplinks.medium</title>
-<polygon fill="none" stroke="#b4b2a9" points="978.5,-144.14 978.5,-163.39 1045.75,-163.39 1045.75,-144.14 978.5,-144.14"/>
-<text text-anchor="start" x="982.5" y="-149.89" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">enum</text>
+<g id="a_node9_256"><a data-target="uplinks-ipv6static" tabindex="0" role="link"><title>uplinks.ipv6Static</title>
+<polygon fill="none" stroke="#b4b2a9" points="978.5,-165.77 978.5,-185.02 1045.75,-185.02 1045.75,-165.77 978.5,-165.77"/>
+<text text-anchor="start" x="982.5" y="-171.52" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">boolean</text>
 </a>
 </g>
-<g id="a_node9_257"><a data-target="uplinks-note" tabindex="0" role="link"><title>uplinks.note</title>
-<polygon fill="none" stroke="#b4b2a9" points="893.25,-124.89 893.25,-144.14 978.5,-144.14 978.5,-124.89 893.25,-124.89"/>
-<text text-anchor="start" x="897.25" y="-130.64" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">note</text>
+<g id="a_node9_257"><a data-target="uplinks-medium" tabindex="0" role="link"><title>uplinks.medium</title>
+<polygon fill="none" stroke="#b4b2a9" points="893.25,-146.52 893.25,-165.77 978.5,-165.77 978.5,-146.52 893.25,-146.52"/>
+<text text-anchor="start" x="897.25" y="-152.27" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">medium</text>
 </a>
 </g>
-<g id="a_node9_258"><a data-target="uplinks-note" tabindex="0" role="link"><title>uplinks.note</title>
-<polygon fill="none" stroke="#b4b2a9" points="978.5,-124.89 978.5,-144.14 1045.75,-144.14 1045.75,-124.89 978.5,-124.89"/>
-<text text-anchor="start" x="982.5" y="-130.64" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
+<g id="a_node9_258"><a data-target="uplinks-medium" tabindex="0" role="link"><title>uplinks.medium</title>
+<polygon fill="none" stroke="#b4b2a9" points="978.5,-146.52 978.5,-165.77 1045.75,-165.77 1045.75,-146.52 978.5,-146.52"/>
+<text text-anchor="start" x="982.5" y="-152.27" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">enum</text>
 </a>
 </g>
-<g id="a_node9_259"><a data-target="uplinks-provider" tabindex="0" role="link"><title>uplinks.provider</title>
-<polygon fill="none" stroke="#b4b2a9" points="893.25,-104.14 893.25,-124.89 978.5,-124.89 978.5,-104.14 893.25,-104.14"/>
-<text text-anchor="start" x="897.25" y="-110.64" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">provider</text>
+<g id="a_node9_259"><a data-target="uplinks-note" tabindex="0" role="link"><title>uplinks.note</title>
+<polygon fill="none" stroke="#b4b2a9" points="893.25,-127.27 893.25,-146.52 978.5,-146.52 978.5,-127.27 893.25,-127.27"/>
+<text text-anchor="start" x="897.25" y="-133.02" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">note</text>
 </a>
 </g>
-<g id="a_node9_260"><a data-target="uplinks-provider" tabindex="0" role="link"><title>uplinks.provider</title>
-<polygon fill="none" stroke="#b4b2a9" points="978.5,-104.14 978.5,-124.89 1045.75,-124.89 1045.75,-104.14 978.5,-104.14"/>
-<text text-anchor="start" x="982.5" y="-111.39" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">→ providers</text>
+<g id="a_node9_260"><a data-target="uplinks-note" tabindex="0" role="link"><title>uplinks.note</title>
+<polygon fill="none" stroke="#b4b2a9" points="978.5,-127.27 978.5,-146.52 1045.75,-146.52 1045.75,-127.27 978.5,-127.27"/>
+<text text-anchor="start" x="982.5" y="-133.02" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
+</a>
+</g>
+<g id="a_node9_261"><a data-target="uplinks-provider" tabindex="0" role="link"><title>uplinks.provider</title>
+<polygon fill="none" stroke="#b4b2a9" points="893.25,-106.52 893.25,-127.27 978.5,-127.27 978.5,-106.52 893.25,-106.52"/>
+<text text-anchor="start" x="897.25" y="-113.02" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">provider</text>
+</a>
+</g>
+<g id="a_node9_262"><a data-target="uplinks-provider" tabindex="0" role="link"><title>uplinks.provider</title>
+<polygon fill="none" stroke="#b4b2a9" points="978.5,-106.52 978.5,-127.27 1045.75,-127.27 1045.75,-106.52 978.5,-106.52"/>
+<text text-anchor="start" x="982.5" y="-113.77" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">→ providers</text>
 </a>
 </g>
 </g>
 <g id="edge12" class="edge">
 <title>sites:e&#45;&gt;uplinks:h</title>
-<path fill="none" stroke="#888780" stroke-width="1.1" d="M828.25,-366.89C854.43,-366.89 862.82,-366.99 885.66,-367.01"/>
-<polygon fill="#888780" stroke="#888780" stroke-width="1.1" points="885.58,-369.11 891.59,-367.02 885.59,-364.91 885.58,-369.11"/>
+<path fill="none" stroke="#888780" stroke-width="1.1" d="M828.25,-387.89C854.43,-387.89 862.82,-388.51 885.66,-388.62"/>
+<polygon fill="#888780" stroke="#888780" stroke-width="1.1" points="885.58,-390.72 891.59,-388.64 885.59,-386.52 885.58,-390.72"/>
 </g>
 <g id="edge13" class="edge">
 <title>uplinks:e&#45;&gt;contracts:h</title>
-<path fill="none" stroke="#888780" stroke-width="1.1" d="M1045.75,-270.02C1257.53,-270.02 905.15,-736.42 1103.15,-747.8"/>
-<polygon fill="#888780" stroke="#888780" stroke-width="1.1" points="1103.03,-749.9 1109.09,-747.97 1103.15,-745.7 1103.03,-749.9"/>
+<path fill="none" stroke="#888780" stroke-width="1.1" d="M1045.75,-291.64C1255.52,-291.64 907.08,-753.53 1103.23,-764.81"/>
+<polygon fill="#888780" stroke="#888780" stroke-width="1.1" points="1103.03,-766.9 1109.09,-764.97 1103.15,-762.7 1103.03,-766.9"/>
 </g>
 <g id="edge14" class="edge">
 <title>uplinks:e&#45;&gt;providers:h</title>
-<path fill="none" stroke="#888780" stroke-width="1.1" d="M1045.75,-114.52C1186.24,-114.52 1166.5,-293.43 1301.36,-299.72"/>
-<polygon fill="#888780" stroke="#888780" stroke-width="1.1" points="1301.04,-301.81 1307.09,-299.85 1301.14,-297.62 1301.04,-301.81"/>
+<path fill="none" stroke="#888780" stroke-width="1.1" d="M1045.75,-116.89C1189.49,-116.89 1163.43,-307.99 1301.2,-314.71"/>
+<polygon fill="#888780" stroke="#888780" stroke-width="1.1" points="1301.04,-316.81 1307.09,-314.85 1301.14,-312.61 1301.04,-316.81"/>
 </g>
 </g>
 </svg>
@@ -1673,6 +1683,7 @@ Ein Internetanschluss. Alle Felder sind optional, damit ein Anschluss eingetrage
 | <span id="uplinks-bandwidth-down"></span>`bandwidth.down` | Ganzzahl ≥ 1 | Pflicht | Downstream in Mbit/s. |
 | <span id="uplinks-bandwidth-up"></span>`bandwidth.up` | Ganzzahl ≥ 1 | Pflicht | Upstream in Mbit/s. |
 | <span id="uplinks-contracts"></span>`contracts` | Liste von ID aus [contracts](#contracts), ohne Duplikate |  | The contracts this is paid for by (a rented VM, its extra IPv4, a line, a plan). |
+| <span id="uplinks-dyndnsname"></span>`dyndnsName` | String: a lower-case domain name like home-ip.example.org |  | DNS name kept on the line's current public addresses: A the IPv4, AAAA one address from the delegated prefix. Its parent is a zone of its own at deSEC (low minimum TTL), the name its first label. Only for a dynamic line. |
 | <span id="uplinks-ipv4"></span>`ipv4` | eins von `public` `cgnat` `none` |  | What the line gives for IPv4. |
 | <span id="uplinks-ipv4static"></span>`ipv4Static` | Boolean |  | Whether the public IPv4 address is fixed. Only meaningful with ipv4 = public. |
 | <span id="uplinks-ipv6"></span>`ipv6` | Boolean |  | Whether the line has native IPv6. |

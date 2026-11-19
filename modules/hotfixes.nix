@@ -35,7 +35,7 @@
 # A fix that no version number marks takes `fixedWhen` instead of (or next
 # to) fixedVersion: a boolean that turns true once nixpkgs has it, e.g. "the
 # package no longer takes the argument the override replaces"
-# (modules/hotfixes/gotenberg.nix). Pick a test that flips in the same
+# (hosts/ursalia/paperless-v3.nix). Pick a test that flips in the same
 # nixpkgs commit as the fix, so it cannot switch the hotfix off early.
 #
 # Credits: the pattern is snowball's (BBBSnowball), offered for reuse on
@@ -51,29 +51,42 @@
 { lib, ... }:
 let
   hotfix =
-    { name, pkg, override, fixedVersion ? null, fixedWhen ? null, fixPatch ? null }:
-    assert lib.assertMsg (fixedVersion != null || fixedWhen != null)
-      "hotfix \"${name}\" needs fixedVersion or fixedWhen";
+    {
+      name,
+      pkg,
+      override,
+      fixedVersion ? null,
+      fixedWhen ? null,
+      fixPatch ? null,
+    }:
+    assert lib.assertMsg (
+      fixedVersion != null || fixedWhen != null
+    ) "hotfix \"${name}\" needs fixedVersion or fixedWhen";
     let
-      patched = fixPatch != null
-        && lib.any (p: lib.hasInfix fixPatch (toString p)) (pkg.patches or [ ]);
+      patched = fixPatch != null && lib.any (p: lib.hasInfix fixPatch (toString p)) (pkg.patches or [ ]);
       versionFixed = fixedVersion != null && lib.versionAtLeast pkg.version fixedVersion;
       conditionFixed = fixedWhen == true;
       fixed = versionFixed || patched || conditionFixed;
       why =
-        if patched then "has a patch matching \"${fixPatch}\""
-        else if versionFixed then "has version ${pkg.version}"
-        else "meets the hotfix's fixedWhen condition";
+        if patched then
+          "has a patch matching \"${fixPatch}\""
+        else if versionFixed then
+          "has version ${pkg.version}"
+        else
+          "meets the hotfix's fixedWhen condition";
       fixIn = lib.optionalString (fixedVersion != null) " (fix in ${fixedVersion})";
     in
-    if fixed
-    then lib.warn "hotfix \"${name}\" is no longer needed: nixpkgs' ${pkg.pname or pkg.name} ${why}${fixIn} - remove it" pkg
-    else override pkg;
+    if fixed then
+      lib.warn "hotfix \"${name}\" is no longer needed: nixpkgs' ${pkg.pname or pkg.name} ${why}${fixIn} - remove it" pkg
+    else
+      override pkg;
 
   dir = ./hotfixes;
-  files = lib.optionals (builtins.pathExists dir)
-    (lib.filter (f: lib.hasSuffix ".nix" f)
-      (lib.attrNames (lib.filterAttrs (_: t: t == "regular") (builtins.readDir dir))));
+  files = lib.optionals (builtins.pathExists dir) (
+    lib.filter (f: lib.hasSuffix ".nix" f) (
+      lib.attrNames (lib.filterAttrs (_: t: t == "regular") (builtins.readDir dir))
+    )
+  );
 in
 {
   _module.args.hotfix = hotfix;

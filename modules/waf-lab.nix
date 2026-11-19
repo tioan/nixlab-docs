@@ -11,61 +11,71 @@
 # is the mesh: the NetBird reverse proxy reaches Traefik's apps entrypoint
 # from there (hosts/grammi/traefik.nix).
 #
-# Plus the metric for "AppSec unreachable": a textfile writer
-# (modules/textfile-metrics.nix) asks the AppSec port once a minute. Both
-# bouncers fail open (services.waf.failOpen), so without it an AppSec that
-# is down would only show as a WAF that never blocks. The alert is
-# WafAppsecDown in hosts/grammi/alerting.nix.
-{ config, lib, pkgs, ... }:
+# Plus the metrics for "AppSec unreachable" and "AppSec refuses the key": a
+# textfile writer (modules/textfile-metrics.nix) runs the WAF module's probe
+# once a minute with the bouncer's key. Both bouncers fail open
+# (services.waf.failOpen), so without it an AppSec that is down would only
+# show as a WAF that never blocks. The alerts are WafAppsecDown and
+# WafAppsecProbeFailed in hosts/grammi/alerting/security.nix.
+{
+  config,
+  lib,
+  ...
+}:
 let
   cfg = config.services.waf;
   keyFile = ../hosts + "/${config.networking.hostName}/waf.yaml";
   hasKey = builtins.pathExists keyFile;
   onTraefik = config.services.traefik.enable;
+  # The key of whichever bouncer this host runs; null until `just waf-key`.
+  bouncerKey = if onTraefik then cfg.traefik.apiKeyFile else cfg.nginx.apiKeyFile;
 in
 {
   imports = [ ./waf.nix ];
 
-  config = lib.mkIf cfg.enable (lib.mkMerge [
-    {
-      services.textfileMetrics.writers.waf-appsec-up = {
-        description = "Whether the AppSec WAF answers on its port";
-        path = [ pkgs.curl ];
-        hardening.network = "loopback";
-        timer = {
-          OnBootSec = "1min";
-          OnUnitActiveSec = "1min";
+  config = lib.mkIf cfg.enable (
+    lib.mkMerge [
+      {
+        services.textfileMetrics.writers.waf-appsec-up = {
+          description = "Whether the AppSec WAF answers and accepts the bouncer key";
+          hardening.network = "loopback";
+          timer = {
+            OnBootSec = "1min";
+            OnUnitActiveSec = "1min";
+          };
+          # With the key the probe sends a full request and checks for a 200;
+          # without one it only opens a connection (modules/waf.nix,
+          # probe.package). The key comes in as a credential: the sops file
+          # stays readable by its owner only.
+          # A plain string on purpose: as an indented string the leading space
+          # counts as indentation and is stripped, which glued the argument
+          # onto the program path (admin/nixlab#452).
+          script =
+            lib.escapeShellArgs [ (lib.getExe cfg.probe.package) ]
+            + lib.optionalString (bouncerKey != null) " \"$CREDENTIALS_DIRECTORY/bouncer-key\"";
+          unit.serviceConfig.LoadCredential = lib.optional (bouncerKey != null) "bouncer-key:${bouncerKey}";
         };
-        script = ''
-          # Without the bouncer key AppSec answers 401; any HTTP answer means up.
-          code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 2 http://${cfg.listen}/ || true)
-          up=0
-          case "$code" in [1-5][0-9][0-9]) up=1 ;; esac
-          echo "# HELP ${cfg.metricPrefix}waf_appsec_up 1 if CrowdSec's AppSec component answered HTTP on its port."
-          echo "# TYPE ${cfg.metricPrefix}waf_appsec_up gauge"
-          echo "${cfg.metricPrefix}waf_appsec_up $up"
-        '';
-      };
-    }
+      }
 
-    (lib.mkIf (hasKey && !onTraefik) {
-      sops.secrets.crowdsec_nginx_bouncer_api_key = {
-        sopsFile = keyFile;
-        restartUnits = [ "nginx.service" ];
-      };
-      services.waf.nginx.apiKeyFile = config.sops.secrets.crowdsec_nginx_bouncer_api_key.path;
-    })
-    (lib.mkIf (hasKey && onTraefik) {
-      sops.secrets.crowdsec_traefik_bouncer_api_key = {
-        sopsFile = keyFile;
-        owner = config.services.traefik.user or "traefik";
-        restartUnits = [ "traefik.service" ];
-      };
-      services.waf.traefik = {
-        enable = true;
-        apiKeyFile = config.sops.secrets.crowdsec_traefik_bouncer_api_key.path;
-        trustedProxies = config.lab.mesh.networks;
-      };
-    })
-  ]);
+      (lib.mkIf (hasKey && !onTraefik) {
+        sops.secrets.crowdsec_nginx_bouncer_api_key = {
+          sopsFile = keyFile;
+          restartUnits = [ "nginx.service" ];
+        };
+        services.waf.nginx.apiKeyFile = config.sops.secrets.crowdsec_nginx_bouncer_api_key.path;
+      })
+      (lib.mkIf (hasKey && onTraefik) {
+        sops.secrets.crowdsec_traefik_bouncer_api_key = {
+          sopsFile = keyFile;
+          owner = config.services.traefik.user or "traefik";
+          restartUnits = [ "traefik.service" ];
+        };
+        services.waf.traefik = {
+          enable = true;
+          apiKeyFile = config.sops.secrets.crowdsec_traefik_bouncer_api_key.path;
+          trustedProxies = config.lab.mesh.networks;
+        };
+      })
+    ]
+  );
 }

@@ -26,7 +26,11 @@ let
 
   nixos-hold = pkgs.writeShellApplication {
     name = "nixos-hold";
-    runtimeInputs = [ pkgs.git pkgs.coreutils pkgs.gnused ];
+    runtimeInputs = [
+      pkgs.git
+      pkgs.coreutils
+      pkgs.gnused
+    ];
     text = ''
       hold=${holdFile}
       field() { sed -n "s/^$1=//p" "$hold" | head -n1; }

@@ -39,32 +39,53 @@ let
   # Creates that directory before the sandbox needs it (see the option).
   prepareDir = config.services.textfileMetrics.directories.${user}.execStartPre;
   # nft needs CAP_NET_ADMIN and a netlink socket; nothing here needs more.
-  sandbox = extra: lib.recursiveUpdate {
-    enable = true;
-    level = "strict";
-    network = "netlink";
-    capabilities = [ "CAP_NET_ADMIN" ];
-    umask = "0022";
-    writablePaths = [ "-${textfileDir}" ];
-  } extra;
+  sandbox =
+    extra:
+    lib.recursiveUpdate {
+      enable = true;
+      level = "strict";
+      network = "netlink";
+      capabilities = [ "CAP_NET_ADMIN" ];
+      umask = "0022";
+      writablePaths = [ "-${textfileDir}" ];
+    } extra;
   bouncer = config.services.crowdsec-firewall-bouncer.settings;
   stateDir = "/var/lib/v64-measure";
   url = "https://ipv64.net/blocklists/ipv64_blocklist_v64.txt";
   helper = "${pkgs.python3}/bin/python3 -I ${./v64-measure.py}";
 
   points = [
-    { name = "pre"; priority = "filter - 10"; }
-    { name = "post"; priority = "filter + 10"; }
+    {
+      name = "pre";
+      priority = "filter - 10";
+    }
+    {
+      name = "post";
+      priority = "filter + 10";
+    }
   ];
   families = [
-    { name = "ipv4"; match = "ip saddr @v4"; }
-    { name = "ipv6"; match = "ip6 saddr @v6"; }
+    {
+      name = "ipv4";
+      match = "ip saddr @v4";
+    }
+    {
+      name = "ipv6";
+      match = "ip6 saddr @v6";
+    }
   ];
 
   overlapCmd = lib.concatStringsSep " " [
-    helper "overlap" "${stateDir}/list.txt" "${textfileDir}/v64-overlap.prom"
-    "ip" bouncer.nftables.ipv4.table bouncer.blacklists_ipv4
-    "ip6" bouncer.nftables.ipv6.table bouncer.blacklists_ipv6
+    helper
+    "overlap"
+    "${stateDir}/list.txt"
+    "${textfileDir}/v64-overlap.prom"
+    "ip"
+    bouncer.nftables.ipv4.table
+    bouncer.blacklists_ipv4
+    "ip6"
+    bouncer.nftables.ipv6.table
+    bouncer.blacklists_ipv6
   ];
 
   # Replaces the set contents in one transaction; counters keep running.
@@ -80,16 +101,23 @@ let
     table inet v64 {
       set v4 { type ipv4_addr; flags interval; auto-merge; }
       set v6 { type ipv6_addr; flags interval; auto-merge; }
-    ${lib.concatMapStrings (p: lib.concatMapStrings (f: ''
-      counter ${p.name}_${f.name} { }
-    '') families) points}
-    ${lib.concatMapStrings (p: ''
-      chain ${p.name} {
-        type filter hook input priority ${p.priority}; policy accept;
-    ${lib.concatMapStrings (f: ''
-        ${f.match} counter name "${p.name}_${f.name}"
-    '') families}  }
-    '') points}}
+    ${lib.concatMapStrings (
+      p:
+      lib.concatMapStrings (f: ''
+        counter ${p.name}_${f.name} { }
+      '') families
+    ) points}
+    ${
+      lib.concatMapStrings (p: ''
+          chain ${p.name} {
+            type filter hook input priority ${p.priority}; policy accept;
+        ${
+          lib.concatMapStrings (f: ''
+            ${f.match} counter name "${p.name}_${f.name}"
+          '') families
+        }  }
+      '') points
+    }}
   '';
 in
 {
@@ -139,9 +167,15 @@ in
     systemd.services.v64-update = {
       description = "Fetch ipv64's v64 blocklist and load it, count only";
       requires = [ "v64-table.service" ];
-      after = [ "v64-table.service" "network-online.target" ];
+      after = [
+        "v64-table.service"
+        "network-online.target"
+      ];
       wants = [ "network-online.target" ];
-      path = [ pkgs.nftables pkgs.curl ];
+      path = [
+        pkgs.nftables
+        pkgs.curl
+      ];
       serviceConfig = {
         Type = "oneshot";
         User = user;
@@ -200,7 +234,10 @@ in
       description = "v64 blocklist counters for node_exporter's textfile collector";
       after = [ "v64-table.service" ];
       requisite = [ "v64-table.service" ];
-      path = [ pkgs.nftables pkgs.jq ];
+      path = [
+        pkgs.nftables
+        pkgs.jq
+      ];
       serviceConfig = {
         Type = "oneshot";
         User = user;

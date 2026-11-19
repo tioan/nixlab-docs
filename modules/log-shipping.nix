@@ -20,7 +20,11 @@
 # time, and stamps `.host` with the local hostname same as every other
 # source, so the nginx access log needs no separate _msg_field/_time_field -
 # it rides the same sink as journald.
-{ config, lib, pkgs, ... }:
+{
+  config,
+  lib,
+  ...
+}:
 let
   cfg = config.services.logShipping;
   nginx = config.services.nginx.enable;
@@ -55,7 +59,12 @@ in
       # them until the buffer is full, then backpressure holds the journal.
       default = {
         type = "custom";
-        status_codes = [ 401 408 429 ] ++ lib.filter (c: c != 501) (lib.range 500 599);
+        status_codes = [
+          401
+          408
+          429
+        ]
+        ++ lib.filter (c: c != 501) (lib.range 500 599);
       };
       description = "Vector retry_strategy for every sink that writes to the ingest with httpAuth.";
     };
@@ -92,205 +101,217 @@ in
 
   # Read-only below: the same auth block for any other Vector component on
   # this host that talks to the ingest (hosts/ursalia/flows.nix).
-  config = lib.mkMerge [{
-    services.logShipping.httpAuth = if cfg.enable && cfg.basicAuth.username != null then {
-      strategy = "basic";
-      user = cfg.basicAuth.username;
-      password = "SECRET[credentials.ingest-password]";
-    } else null;
-  } (lib.mkIf cfg.enable {
-    assertions = [{
-      assertion = (cfg.basicAuth.username == null) == (cfg.basicAuth.passwordFile == null);
-      message = "services.logShipping.basicAuth: set username and passwordFile together.";
-    }];
+  config = lib.mkMerge [
+    {
+      services.logShipping.httpAuth =
+        if cfg.enable && cfg.basicAuth.username != null then
+          {
+            strategy = "basic";
+            user = cfg.basicAuth.username;
+            password = "SECRET[credentials.ingest-password]";
+          }
+        else
+          null;
+    }
+    (lib.mkIf cfg.enable {
+      assertions = [
+        {
+          assertion = (cfg.basicAuth.username == null) == (cfg.basicAuth.passwordFile == null);
+          message = "services.logShipping.basicAuth: set username and passwordFile together.";
+        }
+      ];
 
-    services.vector = {
-      enable = true;
-      journaldAccess = true;
-      settings = {
-        # The ingest password, from the credential below: Vector reads the
-        # file at start, nothing lands in the store or the environment.
-        secret = lib.mkIf (cfg.basicAuth.passwordFile != null) {
-          credentials = {
-            type = "directory";
-            path = "/run/credentials/vector.service";
-            remove_trailing_whitespace = true;
+      services.vector = {
+        enable = true;
+        journaldAccess = true;
+        settings = {
+          # The ingest password, from the credential below: Vector reads the
+          # file at start, nothing lands in the store or the environment.
+          secret = lib.mkIf (cfg.basicAuth.passwordFile != null) {
+            credentials = {
+              type = "directory";
+              path = "/run/credentials/vector.service";
+              remove_trailing_whitespace = true;
+            };
           };
-        };
 
-        sources.journald.type = "journald";
+          sources.journald.type = "journald";
 
-        sources.nginx_access = lib.mkIf nginx {
-          type = "file";
-          include = [ "/var/log/nginx/access.log" ] ++ lib.optional (bucketLog != null) bucketLog;
-        };
+          sources.nginx_access = lib.mkIf nginx {
+            type = "file";
+            include = [ "/var/log/nginx/access.log" ] ++ lib.optional (bucketLog != null) bucketLog;
+          };
 
-        # Traefik's JSON access log (grammi), same treatment: own
-        # _SYSTEMD_UNIT, level from the HTTP status.
-        sources.traefik_access = lib.mkIf traefik {
-          type = "file";
-          include = [ "/var/log/traefik/access.log" ];
-        };
+          # Traefik's JSON access log (grammi), same treatment: own
+          # _SYSTEMD_UNIT, level from the HTTP status.
+          sources.traefik_access = lib.mkIf traefik {
+            type = "file";
+            include = [ "/var/log/traefik/access.log" ];
+          };
 
-        # journald's PRIORITY is a numeric syslog level (0-7), not a field
-        # named "level" with a text value - VictoriaLogs' vmui only
-        # colour-codes/labels rows when it finds the latter, so without this
-        # every row shows as "OTHER" regardless of actual severity. Map it
-        # once here rather than relying on any per-app convention (most units
-        # don't emit their own textual level field at all).
-        #
-        # nginx access log lines have no PRIORITY field, so they get their own
-        # branch: parse_nginx_log (VRL builtin, understands the standard
-        # combined format nginx writes - see modules/metrics.nix's nginxlog
-        # exporter, same format string) pulls out the numeric HTTP status and
-        # maps it the conventional way (5xx -> error, 4xx -> warning, else
-        # info). A line that fails to parse still gets shipped, just tagged
-        # "other" (VictoriaLogs' own bucket for anything it can't classify)
-        # rather than being dropped or silently mislabelled as "info" - that
-        # keeps unparsable lines visible instead of hiding among normal
-        # traffic. Also stamps _SYSTEMD_UNIT on the file source's events so
-        # the sink's _stream_fields grouping (see below) has something to
-        # group nginx access lines by, same as journald units.
-        #
-        # parsed.status straight out of parse_nginx_log is typed `any` by the
-        # VRL compiler once destructured via the two-value err-handling form,
-        # so comparing it directly with >= is a "fallible predicate" at
-        # compile time - Vector refuses to even start with that (error
-        # E100, all three hosts down simultaneously since this module is
-        # shared - learned the hard way). Routing it through to_int fixes
-        # that BUT to_int(parsed.status) must be a single-value assignment,
-        # not the two-value err form - the compiler already proves
-        # parse_nginx_log's status field converts cleanly, so `status, err2 =
-        # to_int(...)` is itself rejected as an "unnecessary error
-        # assignment" (error E104). Single-value assignment is what it wants.
-        transforms.add_level = {
-          type = "remap";
-          inputs = [ "journald" ]
+          # journald's PRIORITY is a numeric syslog level (0-7), not a field
+          # named "level" with a text value - VictoriaLogs' vmui only
+          # colour-codes/labels rows when it finds the latter, so without this
+          # every row shows as "OTHER" regardless of actual severity. Map it
+          # once here rather than relying on any per-app convention (most units
+          # don't emit their own textual level field at all).
+          #
+          # nginx access log lines have no PRIORITY field, so they get their own
+          # branch: parse_nginx_log (VRL builtin, understands the standard
+          # combined format nginx writes - see modules/metrics.nix's nginxlog
+          # exporter, same format string) pulls out the numeric HTTP status and
+          # maps it the conventional way (5xx -> error, 4xx -> warning, else
+          # info). A line that fails to parse still gets shipped, just tagged
+          # "other" (VictoriaLogs' own bucket for anything it can't classify)
+          # rather than being dropped or silently mislabelled as "info" - that
+          # keeps unparsable lines visible instead of hiding among normal
+          # traffic. Also stamps _SYSTEMD_UNIT on the file source's events so
+          # the sink's _stream_fields grouping (see below) has something to
+          # group nginx access lines by, same as journald units.
+          #
+          # parsed.status straight out of parse_nginx_log is typed `any` by the
+          # VRL compiler once destructured via the two-value err-handling form,
+          # so comparing it directly with >= is a "fallible predicate" at
+          # compile time - Vector refuses to even start with that (error
+          # E100, all three hosts down simultaneously since this module is
+          # shared - learned the hard way). Routing it through to_int fixes
+          # that BUT to_int(parsed.status) must be a single-value assignment,
+          # not the two-value err form - the compiler already proves
+          # parse_nginx_log's status field converts cleanly, so `status, err2 =
+          # to_int(...)` is itself rejected as an "unnecessary error
+          # assignment" (error E104). Single-value assignment is what it wants.
+          transforms.add_level = {
+            type = "remap";
+            inputs = [
+              "journald"
+            ]
             ++ lib.optional nginx "nginx_access"
             ++ lib.optional traefik "traefik_access";
-          source = ''
-            if .source_type == "file" && starts_with(string(.file) ?? "", "/var/log/traefik/") {
-              ._SYSTEMD_UNIT = "traefik-access.log"
-              parsed, err = parse_json(.message)
-              status, err2 = to_int(parsed.DownstreamStatus)
-              if err != null || err2 != null {
-                .level = "other"
-              } else {
-                .level = if status >= 500 {
-                  "error"
-                } else if status >= 400 {
-                  "warning"
+            source = ''
+              if .source_type == "file" && starts_with(string(.file) ?? "", "/var/log/traefik/") {
+                ._SYSTEMD_UNIT = "traefik-access.log"
+                parsed, err = parse_json(.message)
+                status, err2 = to_int(parsed.DownstreamStatus)
+                if err != null || err2 != null {
+                  .level = "other"
                 } else {
+                  .level = if status >= 500 {
+                    "error"
+                  } else if status >= 400 {
+                    "warning"
+                  } else {
+                    "info"
+                  }
+                }
+              } else if .source_type == "file" {
+                ._SYSTEMD_UNIT = "nginx-access.log"
+                parsed, err = parse_nginx_log(.message, "combined")
+                if err != null {
+                  .level = "other"
+                } else {
+                  status = to_int(parsed.status)
+                  .level = if status >= 500 {
+                    "error"
+                  } else if status >= 400 {
+                    "warning"
+                  } else {
+                    "info"
+                  }
+                }
+              } else {
+                # root's session bus (user@0, started by every deploy or root
+                # login) finds systemd's D-Bus service files twice - through
+                # system-path and through XDG_DATA_DIRS - and logs each at
+                # PRIORITY 3. NixOS's doing, harmless, and not an error worth
+                # shipping; the lines stay in the local journal.
+                if (string(._SYSTEMD_USER_UNIT) ?? "") == "dbus-broker.service" &&
+                  starts_with(string(.message) ?? "", "Ignoring duplicate name ") {
+                  abort
+                }
+                p, err = to_int(.PRIORITY)
+                if err != null { p = 6 }
+                .level = if p <= 3 {
+                  "error"
+                } else if p == 4 {
+                  "warning"
+                } else if p == 5 {
+                  "notice"
+                } else if p == 6 {
                   "info"
+                } else {
+                  "debug"
+                }
+                # Python's logging writes to stderr, so journald files every
+                # line at PRIORITY 3 and the mapping above calls each one an
+                # error. Lines in logging's default-ish format
+                # ("2026-10-22 22:18:05.786 INFO (...)", e.g. the ESPHome
+                # builder on ursalia) carry their real level in the text -
+                # take that, and drop the colour codes colorlog wraps them in.
+                # string(...) ?? "" because MESSAGE may arrive as raw bytes.
+                msg = strip_ansi_escape_codes(string(.message) ?? "")
+                m, err = parse_regex(msg, r'^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}[.,]\d+ (?P<lvl>DEBUG|INFO|WARNING|ERROR|CRITICAL) ')
+                if err == null {
+                  .message = msg
+                  lvl = downcase(string(m.lvl) ?? "info")
+                  .level = if lvl == "critical" { "error" } else { lvl }
                 }
               }
-            } else if .source_type == "file" {
-              ._SYSTEMD_UNIT = "nginx-access.log"
-              parsed, err = parse_nginx_log(.message, "combined")
-              if err != null {
-                .level = "other"
-              } else {
-                status = to_int(parsed.status)
-                .level = if status >= 500 {
-                  "error"
-                } else if status >= 400 {
-                  "warning"
-                } else {
-                  "info"
-                }
-              }
-            } else {
-              # root's session bus (user@0, started by every deploy or root
-              # login) finds systemd's D-Bus service files twice - through
-              # system-path and through XDG_DATA_DIRS - and logs each at
-              # PRIORITY 3. NixOS's doing, harmless, and not an error worth
-              # shipping; the lines stay in the local journal.
-              if (string(._SYSTEMD_USER_UNIT) ?? "") == "dbus-broker.service" &&
-                starts_with(string(.message) ?? "", "Ignoring duplicate name ") {
-                abort
-              }
-              p, err = to_int(.PRIORITY)
-              if err != null { p = 6 }
-              .level = if p <= 3 {
-                "error"
-              } else if p == 4 {
-                "warning"
-              } else if p == 5 {
-                "notice"
-              } else if p == 6 {
-                "info"
-              } else {
-                "debug"
-              }
-              # Python's logging writes to stderr, so journald files every
-              # line at PRIORITY 3 and the mapping above calls each one an
-              # error. Lines in logging's default-ish format
-              # ("2026-10-22 22:18:05.786 INFO (...)", e.g. the ESPHome
-              # builder on ursalia) carry their real level in the text -
-              # take that, and drop the colour codes colorlog wraps them in.
-              # string(...) ?? "" because MESSAGE may arrive as raw bytes.
-              msg = strip_ansi_escape_codes(string(.message) ?? "")
-              m, err = parse_regex(msg, r'^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}[.,]\d+ (?P<lvl>DEBUG|INFO|WARNING|ERROR|CRITICAL) ')
-              if err == null {
-                .message = msg
-                lvl = downcase(string(m.lvl) ?? "info")
-                .level = if lvl == "critical" { "error" } else { lvl }
-              }
-            }
-          '';
-        };
+            '';
+          };
 
-        sinks.vlogs = {
-          type = "http";
-          inputs = [ "add_level" ];
-          uri = "${cfg.victoriaLogsUrl}/insert/jsonline"
-            + "?_stream_fields=host,_SYSTEMD_UNIT&_msg_field=message&_time_field=timestamp";
-          encoding.codec = "json";
-          framing.method = "newline_delimited";
-          compression = "gzip";
-          healthcheck.enabled = false;
-          auth = lib.mkIf (cfg.httpAuth != null) cfg.httpAuth;
-          retry_strategy = lib.mkIf (cfg.httpAuth != null) cfg.httpRetryStrategy;
-          # journald and the file sources checkpoint only what this sink has
-          # delivered, so batches still being retried survive a restart of
-          # Vector (a password change restarts it).
-          acknowledgements.enabled = true;
+          sinks.vlogs = {
+            type = "http";
+            inputs = [ "add_level" ];
+            uri =
+              "${cfg.victoriaLogsUrl}/insert/jsonline"
+              + "?_stream_fields=host,_SYSTEMD_UNIT&_msg_field=message&_time_field=timestamp";
+            encoding.codec = "json";
+            framing.method = "newline_delimited";
+            compression = "gzip";
+            healthcheck.enabled = false;
+            auth = lib.mkIf (cfg.httpAuth != null) cfg.httpAuth;
+            retry_strategy = lib.mkIf (cfg.httpAuth != null) cfg.httpRetryStrategy;
+            # journald and the file sources checkpoint only what this sink has
+            # delivered, so batches still being retried survive a restart of
+            # Vector (a password change restarts it).
+            acknowledgements.enabled = true;
+          };
         };
       };
-    };
 
-    # Same obstacle CrowdSec and the nginxlog Prometheus exporter hit (see
-    # modules/crowdsec.nix, modules/metrics.nix): /var/log/nginx is group
-    # "nginx"-readable only, and Vector's DynamicUser needs that group to
-    # read access.log at all - without it the file source just silently
-    # never sees any lines.
-    systemd.services.vector.serviceConfig.SupplementaryGroups =
-      lib.mkIf (logGroups != [ ]) logGroups;
+      # Same obstacle CrowdSec and the nginxlog Prometheus exporter hit (see
+      # modules/crowdsec.nix, modules/metrics.nix): /var/log/nginx is group
+      # "nginx"-readable only, and Vector's DynamicUser needs that group to
+      # read access.log at all - without it the file source just silently
+      # never sees any lines.
+      systemd.services.vector.serviceConfig.SupplementaryGroups = lib.mkIf (logGroups != [ ]) logGroups;
 
-    # grammi.peer.homelab.example only resolves and routes over the NetBird mesh,
-    # so start after its client (ordering only). While the mesh is down the
-    # http sink keeps retrying; once its buffer is full, backpressure stops
-    # the journald and file sources, which pick up again from their
-    # checkpoints - delayed, not lost, as long as the journal still has it.
-    systemd.services.vector.after = [ "netbird-mesh.service" ];
+      # grammi.peer.homelab.example only resolves and routes over the NetBird mesh,
+      # so start after its client (ordering only). While the mesh is down the
+      # http sink keeps retrying; once its buffer is full, backpressure stops
+      # the journald and file sources, which pick up again from their
+      # checkpoints - delayed, not lost, as long as the journal still has it.
+      systemd.services.vector.after = [ "netbird-mesh.service" ];
 
-    # The shared sandbox (modules/hardening.nix, #18). Reads the journal and
-    # the log directories through its groups, ships over the mesh. The
-    # nixpkgs module grants CAP_NET_BIND_SERVICE ambiently; it stays the
-    # only capability in the bounding set so that grant remains valid.
-    systemd.services.vector.hardening = {
-      enable = true;
-      level = "strict";
-      network = "any";
-      capabilities = [ "CAP_NET_BIND_SERVICE" ];
-      ambientCapabilities = false;
-      # journalctl reads the boot ID from /proc/sys/kernel/random/boot_id;
-      # ProcSubset=pid hides it ("Failed to get boot ID", no logs shipped -
-      # first rehearsal on tummi, 2026-11-16).
-      seeProcesses = true;
-    };
+      # The shared sandbox (modules/hardening.nix, #18). Reads the journal and
+      # the log directories through its groups, ships over the mesh. The
+      # nixpkgs module grants CAP_NET_BIND_SERVICE ambiently; it stays the
+      # only capability in the bounding set so that grant remains valid.
+      systemd.services.vector.hardening = {
+        enable = true;
+        level = "strict";
+        network = "any";
+        capabilities = [ "CAP_NET_BIND_SERVICE" ];
+        ambientCapabilities = false;
+        # journalctl reads the boot ID from /proc/sys/kernel/random/boot_id;
+        # ProcSubset=pid hides it ("Failed to get boot ID", no logs shipped -
+        # first rehearsal on tummi, 2026-11-16).
+        seeProcesses = true;
+      };
 
-    systemd.services.vector.serviceConfig.LoadCredential =
-      lib.mkIf (cfg.basicAuth.passwordFile != null) [ "ingest-password:${cfg.basicAuth.passwordFile}" ];
-  })];
+      systemd.services.vector.serviceConfig.LoadCredential = lib.mkIf (
+        cfg.basicAuth.passwordFile != null
+      ) [ "ingest-password:${cfg.basicAuth.passwordFile}" ];
+    })
+  ];
 }

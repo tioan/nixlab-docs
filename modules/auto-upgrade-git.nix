@@ -4,7 +4,12 @@
 # flake.lock changed by `updateInputs` is built and switched, then reset at
 # the next start. Meant to be dropped into any host's `modules` list
 # unchanged (see hosts/zummi for the reference usage).
-{ config, lib, pkgs, ... }:
+{
+  config,
+  lib,
+  pkgs,
+  ...
+}:
 
 let
   textfileDir = config.services.textfileMetrics.directory;
@@ -19,7 +24,7 @@ let
 
   # Runs as ExecStartPost, i.e. only after a successful run. The unit's own
   # failed state is no record of past runs - the next switch clears it - so
-  # the time of the last success is kept for hosts/grammi/alerting.nix
+  # the time of the last success is kept for hosts/grammi/alerting/units-updates.nix
   # (NixosUpgradeStale). The textfile collector's root directory
   # (modules/textfile-metrics.nix): the upgrade is a root job anyway (#320).
   markSuccess = pkgs.writeShellScript "auto-upgrade-git-mark-success" ''
@@ -77,7 +82,9 @@ in
       trustedSigners = lib.mkOption {
         type = lib.types.attrsOf lib.types.str;
         default = { };
-        example = { alice = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI..."; };
+        example = {
+          alice = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI...";
+        };
         description = ''
           Signer name to SSH public key. A commit signed by one of these is
           accepted together with all history below it.
@@ -87,7 +94,9 @@ in
       lockOnlySigners = lib.mkOption {
         type = lib.types.attrsOf lib.types.str;
         default = { };
-        example = { builder = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI..."; };
+        example = {
+          builder = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI...";
+        };
         description = ''
           Signer name to SSH public key, for a machine that commits the
           updated flake.lock. Accepted only for a single-parent commit that
@@ -125,18 +134,20 @@ in
     };
 
     rebootWindow = lib.mkOption {
-      type = lib.types.nullOr (lib.types.submodule {
-        options = {
-          lower = lib.mkOption {
-            type = lib.types.str;
-            description = "Lower bound (HH:MM) of the allowed reboot window.";
+      type = lib.types.nullOr (
+        lib.types.submodule {
+          options = {
+            lower = lib.mkOption {
+              type = lib.types.str;
+              description = "Lower bound (HH:MM) of the allowed reboot window.";
+            };
+            upper = lib.mkOption {
+              type = lib.types.str;
+              description = "Upper bound (HH:MM) of the allowed reboot window.";
+            };
           };
-          upper = lib.mkOption {
-            type = lib.types.str;
-            description = "Upper bound (HH:MM) of the allowed reboot window.";
-          };
-        };
-      });
+        }
+      );
       default = null;
       description = "Restrict automatic reboots to this time window. Null means no restriction beyond `dates`.";
     };
@@ -234,7 +245,10 @@ in
     systemd.services.nixos-upgrade = {
       # git/ssh need to be resolvable as bare commands both in our appended
       # script below and inside GIT_SSH_COMMAND.
-      path = [ pkgs.git pkgs.openssh ];
+      path = [
+        pkgs.git
+        pkgs.openssh
+      ];
 
       # A failed run leaves the tree dirty, and that breaks the *next* deploy.
       # system.autoUpgrade's script runs `nix flake update` and then the
@@ -269,12 +283,15 @@ in
       # the unit as skipped - not failed, and before preStart's input update.
       serviceConfig.ExecCondition = lib.mkIf (cfg.holdFile != null) [
         (pkgs.writeShellScript "auto-upgrade-git-hold" (
-          if cfg.holdCheck != null then cfg.holdCheck
-          else ''
-            [ -e ${cfg.holdFile} ] || exit 0
-            echo "auto-upgrade-git: ${cfg.holdFile} exists, skipping"
-            exit 1
-          ''))
+          if cfg.holdCheck != null then
+            cfg.holdCheck
+          else
+            ''
+              [ -e ${cfg.holdFile} ] || exit 0
+              echo "auto-upgrade-git: ${cfg.holdFile} exists, skipping"
+              exit 1
+            ''
+        ))
       ];
 
       # Update the flake inputs before system.autoUpgrade's own script builds
@@ -308,11 +325,14 @@ in
       preStart = ''
         cd ${toString cfg.flakeDir}
         git checkout -- flake.lock
-      '' + lib.optionalString cfg.pull (
-        if cfg.verifySignatures.enable
-        then "${lib.getExe cfg.verifySignatures.package} .\n"
-        else "git pull --ff-only\n"
-      ) + lib.optionalString (cfg.updateInputs != [ ]) ''
+      ''
+      + lib.optionalString cfg.pull (
+        if cfg.verifySignatures.enable then
+          "${lib.getExe cfg.verifySignatures.package} .\n"
+        else
+          "git pull --ff-only\n"
+      )
+      + lib.optionalString (cfg.updateInputs != [ ]) ''
         ${config.nix.package}/bin/nix flake update ${lib.escapeShellArgs cfg.updateInputs}
       '';
 
@@ -328,7 +348,9 @@ in
         GIT_AUTHOR_EMAIL = cfg.gitAuthorEmail;
         GIT_COMMITTER_NAME = "${cfg.flakeAttr} auto-upgrade";
         GIT_COMMITTER_EMAIL = cfg.gitAuthorEmail;
-        GIT_SSH_COMMAND = "ssh -i ${config.sops.secrets.${cfg.deployKeySecret}.path} -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes";
+        GIT_SSH_COMMAND = "ssh -i ${
+          config.sops.secrets.${cfg.deployKeySecret}.path
+        } -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes";
       };
     };
   };

@@ -44,7 +44,13 @@ in
         # only (seen on ursalia 2026-10-16). smbd listens everywhere instead;
         # the firewall admits 445 only on the trusted nb-mesh and hosts allow
         # limits clients to the mesh.
-        "hosts allow" = "127.0.0.1 ::1 192.0.2.0/24 2001:db8:203:0::/64";
+        "hosts allow" = lib.concatStringsSep " " (
+          [
+            "127.0.0.1"
+            "::1"
+          ]
+          ++ config.lab.mesh.networks
+        );
         "hosts deny" = "ALL";
         "disable netbios" = "yes";
         "smb ports" = "445";

@@ -10,7 +10,7 @@ Why: the nightly auto-upgrade moves `nixpkgs` and `nixpkgs-unstable` on its own.
 
 - `pkg.version` ≥ `fixedVersion` – nixpkgs has updated, or
 - one of `pkg.patches` has `fixPatch` in its file name – stable has backported the fix as a patch without raising the version (the usual case for CVEs on a stable release), or
-- `fixedWhen` is true – for a fix that no version number marks. Pick a test that flips in the same nixpkgs commit as the fix; for gotenberg ([`modules/hotfixes/gotenberg.nix`](https://github.com/tioan/nixlab-docs/blob/main/modules/hotfixes/gotenberg.nix)) it is "the package no longer takes the `unoconv` argument the hotfix replaces".
+- `fixedWhen` is true – for a fix that no version number marks. Pick a test that flips in the same nixpkgs commit as the fix; for paperless 3 ([`hosts/ursalia/paperless-v3.nix`](https://github.com/admin/nixlab/blob/main/hosts/ursalia/paperless-v3.nix)) it is "the package's own `pythonRelaxDeps` lists `torch`, the constraint the hotfix relaxes".
 
 Every hotfix needs `fixedVersion` or `fixedWhen` (or both); `fixPatch` only adds to them.
 

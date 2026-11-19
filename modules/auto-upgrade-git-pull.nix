@@ -28,11 +28,19 @@
 # Two layers: `core` reads its settings from the environment, so the test
 # can run it against keys generated at build time; the package itself is a
 # wrapper that fixes those settings to the signers given here.
-{ lib, writeShellApplication, writeText, git, openssh, coreutils }:
+{
+  lib,
+  writeShellApplication,
+  writeText,
+  git,
+  openssh,
+  coreutils,
+}:
 
-{ trustedSigners
-, lockOnlySigners ? { }
-, lockFile ? "flake.lock"
+{
+  trustedSigners,
+  lockOnlySigners ? { },
+  lockFile ? "flake.lock",
 }:
 
 let
@@ -40,7 +48,11 @@ let
 
   core = writeShellApplication {
     name = "auto-upgrade-git-pull-core";
-    runtimeInputs = [ git openssh coreutils ];
+    runtimeInputs = [
+      git
+      openssh
+      coreutils
+    ];
     text = ''
       allowed=$AUTO_UPGRADE_GIT_ALLOWED_SIGNERS
       trusted=" $AUTO_UPGRADE_GIT_TRUSTED "
@@ -99,14 +111,19 @@ let
   # ssh-keygen's allowed-signers format: one principal and key per line,
   # limited to git's signature namespace.
   line = principal: key: ''${principal} namespaces="git" ${lib.trim key}'';
-  allowedSigners = writeText "auto-upgrade-git-allowed-signers"
-    (lib.concatStrings (lib.mapAttrsToList (p: k: line p k + "\n") (trustedSigners // lockOnlySigners)));
+  allowedSigners = writeText "auto-upgrade-git-allowed-signers" (
+    lib.concatStrings (lib.mapAttrsToList (p: k: line p k + "\n") (trustedSigners // lockOnlySigners))
+  );
 in
-assert lib.assertMsg (trustedSigners != { }) "auto-upgrade-git-pull: trustedSigners must not be empty";
-assert lib.assertMsg (builtins.all (p: builtins.match "[A-Za-z0-9._@-]+" p != null)
-  (names (trustedSigners // lockOnlySigners))) "auto-upgrade-git-pull: signer names may only use letters, digits and ._@-";
-assert lib.assertMsg (lib.intersectLists (names trustedSigners) (names lockOnlySigners) == [ ])
-  "auto-upgrade-git-pull: a signer cannot be both trusted and lock-only";
+assert lib.assertMsg (
+  trustedSigners != { }
+) "auto-upgrade-git-pull: trustedSigners must not be empty";
+assert lib.assertMsg (builtins.all (p: builtins.match "[A-Za-z0-9._@-]+" p != null) (
+  names (trustedSigners // lockOnlySigners)
+)) "auto-upgrade-git-pull: signer names may only use letters, digits and ._@-";
+assert lib.assertMsg (
+  lib.intersectLists (names trustedSigners) (names lockOnlySigners) == [ ]
+) "auto-upgrade-git-pull: a signer cannot be both trusted and lock-only";
 
 (writeShellApplication {
   name = "auto-upgrade-git-pull";
@@ -117,6 +134,9 @@ assert lib.assertMsg (lib.intersectLists (names trustedSigners) (names lockOnlyS
     export AUTO_UPGRADE_GIT_LOCK_FILE=${lib.escapeShellArg lockFile}
     exec ${lib.getExe core} "$@"
   '';
-}).overrideAttrs (old: {
-  passthru = (old.passthru or { }) // { inherit core allowedSigners; };
-})
+}).overrideAttrs
+  (old: {
+    passthru = (old.passthru or { }) // {
+      inherit core allowedSigners;
+    };
+  })

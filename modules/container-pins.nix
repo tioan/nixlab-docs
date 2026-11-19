@@ -62,7 +62,10 @@ let
   containers = config.virtualisation.oci-containers.containers;
   pinned = c: lib.hasInfix "@sha256:" c.image || (c.pull or null) == "never";
   autoUpdate =
-    c: lib.any (lib.hasInfix "io.containers.autoupdate") (c.extraOptions ++ lib.attrNames (c.labels or { }));
+    c:
+    lib.any (lib.hasInfix "io.containers.autoupdate") (
+      c.extraOptions ++ lib.attrNames (c.labels or { })
+    );
 in
 {
   options.services.containerPins = {

@@ -44,7 +44,12 @@
 # through unchecked rather than the services going down with it. Neither the
 # Lua bouncer nor the Traefik plugin can decide this per name, so it is one
 # switch for the host; the metric `<prefix>waf_appsec_up` is what gets
-# noticed.
+# noticed. It comes from `probe.package`, which the host runs on a timer
+# (modules/waf-lab.nix): with the bouncer key it sends one harmless request
+# from `probe.address` and checks for a 200; the scraper drops the AppSec
+# counters that request adds (`probe.metricRelabelConfigs`). Until
+# admin/nixlab#452 the probe asked without key, and CrowdSec logged
+# "missing API key" at error level once a minute.
 #
 # Docs: docs/site/*/explanation/waf.md.
 {
@@ -75,7 +80,12 @@ let
   namesIn = mode: lib.attrNames (lib.filterAttrs (_: h: modeOf h == mode) cfg.hosts);
   # A client may send the port along ("auth.example.org:443"); AppSec sees
   # the Host header as it came.
-  hostVariants = names: lib.concatMap (n: [ n "${n}:443" ]) names;
+  hostVariants =
+    names:
+    lib.concatMap (n: [
+      n
+      "${n}:443"
+    ]) names;
   hostIn = names: "req.Host in ${json (hostVariants names)}";
 
   # Everything not explicitly in the other mode follows the default, so a
@@ -85,12 +95,14 @@ let
   anyDetect = cfg.mode == "detect" || namesIn "detect" != [ ];
 
   # Conditions of one exclusion entry, as an expr fragment.
-  exclusionFilter = name: e:
+  exclusionFilter =
+    name: e:
     lib.concatStringsSep " && " (
       [ (hostIn [ name ]) ]
       ++ lib.optional (e.paths != [ ]) "req.URL.Path in ${json e.paths}"
-      ++ lib.optional (e.pathPrefixes != [ ])
-        "(${lib.concatMapStringsSep " || " (p: "req.URL.Path startsWith ${json p}") e.pathPrefixes})"
+      ++
+        lib.optional (e.pathPrefixes != [ ])
+          "(${lib.concatMapStringsSep " || " (p: "req.URL.Path startsWith ${json p}") e.pathPrefixes})"
       ++ lib.optional (e.methods != [ ]) "req.Method in ${json e.methods}"
     );
 
@@ -111,7 +123,10 @@ let
           or = [
             {
               zones = [ "URI" ];
-              transform = [ "urldecode" "lowercase" ];
+              transform = [
+                "urldecode"
+                "lowercase"
+              ];
               match = {
                 type = "regex";
                 value = "\\.(php[0-9]?|phtml|phar|aspx?|ashx|asmx|jspx?|cgi|cfm)$";
@@ -119,7 +134,10 @@ let
             }
             {
               zones = [ "URI" ];
-              transform = [ "urldecode" "lowercase" ];
+              transform = [
+                "urldecode"
+                "lowercase"
+              ];
               match = {
                 type = "contains";
                 value = "/cgi-bin/";
@@ -135,7 +153,10 @@ let
         spoofable = 0;
         behavior = "http:scan";
         label = "Server-side script probing";
-        classification = [ "attack.T1595" "attack.T1190" ];
+        classification = [
+          "attack.T1595"
+          "attack.T1190"
+        ];
       };
     }
     # Admin panels and frameworks of stacks that are not here: WordPress,
@@ -151,7 +172,11 @@ let
           or = [
             {
               zones = [ "URI" ];
-              transform = [ "urldecode" "lowercase" "normalize_path" ];
+              transform = [
+                "urldecode"
+                "lowercase"
+                "normalize_path"
+              ];
               match = {
                 type = "regex";
                 value = "^/(wp-(admin|content|includes|json|login)|wordpress|phpmyadmin|pma|myadmin|actuator|solr|owa|ecp|autodiscover|boaform|hnap1|vendor/phpunit)(/|$)";
@@ -159,7 +184,11 @@ let
             }
             {
               zones = [ "URI" ];
-              transform = [ "urldecode" "lowercase" "normalize_path" ];
+              transform = [
+                "urldecode"
+                "lowercase"
+                "normalize_path"
+              ];
               match = {
                 type = "regex";
                 value = "/\\.(aws|ssh|svn|hg|docker|kube|htpasswd|htaccess|npmrc|ds_store)(/|$)";
@@ -190,7 +219,12 @@ let
     # next to every real match (both seen 2026-10-25). They detect nothing,
     # so dropping them loses nothing.
     on_load = [
-      { apply = [ "RemoveOutBandRuleByID(980099)" "RemoveOutBandRuleByID(980170)" ]; }
+      {
+        apply = [
+          "RemoveOutBandRuleByID(980099)"
+          "RemoveOutBandRuleByID(980170)"
+        ];
+      }
     ];
     # pre_eval runs before any rule is evaluated; top-level hooks run in
     # both passes, hence IsInBand/IsOutBand.
@@ -225,7 +259,10 @@ let
     on_match = lib.optionals anyDetect [
       {
         filter = "IsInBand && ${detectFilter}";
-        apply = [ "SetRemediation(\"allow\")" "CancelEvent()" ];
+        apply = [
+          "SetRemediation(\"allow\")"
+          "CancelEvent()"
+        ];
       }
       {
         filter = "IsOutBand && ${detectFilter}";
@@ -312,6 +349,68 @@ let
 
   # --- Traefik ---------------------------------------------------------------
   traefikOn = cfg.traefik.enable;
+
+  # See the option probe.package. The headers are those a bouncer sends
+  # (CrowdSec's AppSec protocol); the key goes in through a header file, so
+  # it never shows up in a process's arguments. --disable and --noproxy:
+  # neither a curlrc nor a proxy variable may send the key anywhere else.
+  # A key that cannot be read or is empty sends no HTTP request: CrowdSec
+  # would log "missing API key" again.
+  probe = pkgs.writeShellApplication {
+    name = "waf-appsec-probe";
+    runtimeInputs = [
+      pkgs.bash
+      pkgs.curl
+      pkgs.coreutils
+    ];
+    text = ''
+      key_file=''${1:-}
+      listen=${lib.escapeShellArg cfg.listen}
+      from=${lib.escapeShellArg cfg.probe.address}
+      prefix=${lib.escapeShellArg cfg.metricPrefix}
+
+      tcp_up() {
+        local host port
+        host=''${listen%:*}
+        host=''${host#[}
+        host=''${host%]}
+        port=''${listen##*:}
+        # shellcheck disable=SC2016 # expanded by the inner bash
+        timeout 2 bash -c 'exec 3<>"/dev/tcp/$1/$2"' _ "$host" "$port" 2>/dev/null
+      }
+
+      up=0
+      ok=
+      key=
+      if [ -n "$key_file" ]; then
+        ok=0
+        key=$(tr -d '\n' 2>/dev/null < "$key_file") || key=
+      fi
+      if [ -n "$key" ]; then
+        code=$(curl --disable --noproxy '*' -s -o /dev/null -w '%{http_code}' --max-time 2 --interface "$from" \
+          -H @<(printf 'X-Crowdsec-Appsec-Api-Key: %s\n' "$key") \
+          -H "X-Crowdsec-Appsec-Ip: $from" \
+          -H 'X-Crowdsec-Appsec-Uri: /' \
+          -H 'X-Crowdsec-Appsec-Host: waf-probe.invalid' \
+          -H 'X-Crowdsec-Appsec-Verb: GET' \
+          -H 'X-Crowdsec-Appsec-User-Agent: waf-appsec-probe' \
+          "http://$listen/" || true)
+        case "$code" in [1-5][0-9][0-9]) up=1 ;; esac
+        if [ "$code" = 200 ]; then ok=1; fi
+      elif tcp_up; then
+        up=1
+      fi
+
+      echo "# HELP ''${prefix}waf_appsec_up 1 if CrowdSec's AppSec component answered on its port (HTTP with a key, else a TCP connect)."
+      echo "# TYPE ''${prefix}waf_appsec_up gauge"
+      echo "''${prefix}waf_appsec_up $up"
+      if [ -n "$ok" ]; then
+        echo "# HELP ''${prefix}waf_appsec_probe_ok 1 if AppSec accepted the bouncer key and allowed a harmless request (HTTP 200)."
+        echo "# TYPE ''${prefix}waf_appsec_probe_ok gauge"
+        echo "''${prefix}waf_appsec_probe_ok $ok"
+      fi
+    '';
+  };
 in
 {
   options.services.waf = {
@@ -329,7 +428,10 @@ in
     };
 
     mode = mkOption {
-      type = types.enum [ "detect" "block" ];
+      type = types.enum [
+        "detect"
+        "block"
+      ];
       default = "detect";
       description = ''
         Default for every name not given its own mode in `hosts`.
@@ -342,6 +444,44 @@ in
       type = types.str;
       default = "127.0.0.1:7422";
       description = "Address the AppSec component listens on, for the bouncers.";
+    };
+
+    probe = {
+      address = mkOption {
+        type = types.str;
+        default = "127.0.0.2";
+        description = ''
+          Loopback address the probe sends from. CrowdSec labels its AppSec
+          counters with the connecting address (`source`), which is
+          127.0.0.1 for every request a bouncer forwards; a separate
+          address is what lets `metricRelabelConfigs` drop the probe's
+          series.
+        '';
+      };
+
+      package = mkOption {
+        type = types.package;
+        readOnly = true;
+        description = ''
+          `waf-appsec-probe [key file]`: asks AppSec once and prints
+          `<prefix>waf_appsec_up` (1 if it answered at all) in Prometheus
+          text format. Given the bouncer's key file it sends a complete,
+          harmless request with that key and also prints
+          `<prefix>waf_appsec_probe_ok` (1 on HTTP 200: key accepted,
+          rules evaluated). Without one it only opens a TCP connection:
+          an HTTP request without key makes CrowdSec log an error.
+        '';
+      };
+
+      metricRelabelConfigs = mkOption {
+        type = types.listOf types.attrs;
+        readOnly = true;
+        description = ''
+          `metric_relabel_configs` for whatever scrapes CrowdSec's
+          Prometheus endpoint: drops the AppSec series the probe causes,
+          so request and block counters only show bouncer traffic.
+        '';
+      };
     };
 
     failOpen = mkOption {
@@ -405,7 +545,12 @@ in
         types.submodule {
           options = {
             mode = mkOption {
-              type = types.nullOr (types.enum [ "detect" "block" ]);
+              type = types.nullOr (
+                types.enum [
+                  "detect"
+                  "block"
+                ]
+              );
               default = null;
               description = "Mode for this name; null follows `services.waf.mode`.";
             };
@@ -452,7 +597,15 @@ in
             allowedMethods = mkOption {
               type = types.nullOr (types.listOf types.str);
               default = null;
-              example = [ "GET" "HEAD" "POST" "PUT" "PATCH" "DELETE" "OPTIONS" ];
+              example = [
+                "GET"
+                "HEAD"
+                "POST"
+                "PUT"
+                "PATCH"
+                "DELETE"
+                "OPTIONS"
+              ];
               description = ''
                 HTTP methods this name accepts; any other one (TRACE,
                 PROPFIND, CONNECT, made-up verbs) is treated like a rule
@@ -556,43 +709,68 @@ in
     };
   };
 
-  config = lib.mkIf cfg.enable (lib.mkMerge [
-    {
-      assertions =
-        map (n: {
-          assertion = config.services.nginx.virtualHosts ? ${n};
-          message = "services.waf.nginx.vhosts: virtualHost ${n} does not exist";
-        }) cfg.nginx.vhosts
-        ++ [
-          {
-            assertion = !traefikOn || cfg.traefik.apiKeyFile != null;
-            message = "services.waf.traefik.enable needs services.waf.traefik.apiKeyFile";
-          }
-        ];
+  config = lib.mkIf cfg.enable (
+    lib.mkMerge [
+      {
+        services.waf.probe = {
+          package = probe;
+          metricRelabelConfigs = [
+            {
+              source_labels = [
+                "__name__"
+                "source"
+              ];
+              regex = "cs_appsec_.*;${lib.escapeRegex cfg.probe.address}";
+              action = "drop";
+            }
+          ];
+        };
 
-      warnings = lib.optional (cfg.nginx.apiKeyFile == null && cfg.nginx.vhosts != [ ])
-        "waf: services.waf.nginx.apiKeyFile is not set - nginx does not consult AppSec yet.";
+        assertions =
+          map (n: {
+            assertion = config.services.nginx.virtualHosts ? ${n};
+            message = "services.waf.nginx.vhosts: virtualHost ${n} does not exist";
+          }) cfg.nginx.vhosts
+          ++ [
+            {
+              # The bouncers connect from the loopback default; a probe from
+              # there would make probe.metricRelabelConfigs drop their series.
+              assertion =
+                !(builtins.elem cfg.probe.address [
+                  "127.0.0.1"
+                  "::1"
+                ]);
+              message = "services.waf.probe.address must differ from the bouncers' source (127.0.0.1, ::1), e.g. 127.0.0.2";
+            }
+            {
+              assertion = !traefikOn || cfg.traefik.apiKeyFile != null;
+              message = "services.waf.traefik.enable needs services.waf.traefik.apiKeyFile";
+            }
+          ];
 
-      services.crowdsec = {
-        hub.collections = cfg.hubCollections;
+        warnings = lib.optional (
+          cfg.nginx.apiKeyFile == null && cfg.nginx.vhosts != [ ]
+        ) "waf: services.waf.nginx.apiKeyFile is not set - nginx does not consult AppSec yet.";
 
-        localConfig.acquisitions = [
-          {
-            source = "appsec";
-            name = "appsec";
-            listen_addr = cfg.listen;
-            path = "/";
-            appsec_configs = cfg.hubAppsecConfigs ++ map (c: c.name) [ ownConfig ];
-            labels.type = "appsec";
-          }
-        ];
-      };
+        services.crowdsec = {
+          hub.collections = cfg.hubCollections;
 
-      # Local hub items, linked the way the crowdsec module links its own
-      # localConfig files: crowdsec treats a symlink that does not point into
-      # the hub as a local item. The module creates neither directory.
-      systemd.tmpfiles.settings."11-crowdsec-appsec" =
-        {
+          localConfig.acquisitions = [
+            {
+              source = "appsec";
+              name = "appsec";
+              listen_addr = cfg.listen;
+              path = "/";
+              appsec_configs = cfg.hubAppsecConfigs ++ map (c: c.name) [ ownConfig ];
+              labels.type = "appsec";
+            }
+          ];
+        };
+
+        # Local hub items, linked the way the crowdsec module links its own
+        # localConfig files: crowdsec treats a symlink that does not point into
+        # the hub as a local item. The module creates neither directory.
+        systemd.tmpfiles.settings."11-crowdsec-appsec" = {
           "/etc/crowdsec/appsec-rules".d = {
             user = config.services.crowdsec.user;
             group = config.services.crowdsec.group;
@@ -611,143 +789,146 @@ in
           }) (ruleFiles ++ configFiles)
         );
 
-      # A changed rule or config only takes effect on restart.
-      systemd.services.crowdsec.restartTriggers = map (f: f.file) (ruleFiles ++ configFiles);
-    }
+        # A changed rule or config only takes effect on restart.
+        systemd.services.crowdsec.restartTriggers = map (f: f.file) (ruleFiles ++ configFiles);
+      }
 
-    # With the key, the whole host moves to OpenResty and the bouncer loads.
-    (lib.mkIf (cfg.nginx.apiKeyFile != null) {
-      # Unmodified pkgs.openresty on purpose: the nginx module only lifts
-      # MemoryDenyWriteExecute (which LuaJIT's JIT needs) when the package
-      # *is* pkgs.openresty, an override would fail that comparison.
-      services.nginx.package = pkgs.openresty;
+      # With the key, the whole host moves to OpenResty and the bouncer loads.
+      (lib.mkIf (cfg.nginx.apiKeyFile != null) {
+        # Unmodified pkgs.openresty on purpose: the nginx module only lifts
+        # MemoryDenyWriteExecute (which LuaJIT's JIT needs) when the package
+        # *is* pkgs.openresty, an override would fail that comparison.
+        services.nginx.package = pkgs.openresty;
 
-      # Adapted from CrowdSec's cs-nginx-bouncer, nginx/crowdsec_nginx.conf
-      # (https://github.com/crowdsecurity/cs-nginx-bouncer/blob/067541cdfff4b650182d819e92c04a207aa2fbb5/nginx/crowdsec_nginx.conf,
-      # MIT), with Nix paths and without the unix-socket map. The cache
-      # holds stream-mode decisions, about 79,000 with the community lists
-      # (2026-11-08). 10m was too small: it evicted entries with "cache is
-      # full" tens of thousands of times a day (admin/nixlab#236). 32m
-      # instead of upstream's 50m on small VMs - shared memory that only
-      # grows with the ban list.
-      #
-      # Every start logs "error loading captcha plugin: no recaptcha site key
-      # provided" at error level. Harmless: no captcha is configured.
-      services.nginx.appendHttpConfig = ''
-        lua_package_path '${bouncer}/lib/lua/?.lua;${luaHttp}/share/lua/5.1/?.lua;;';
-        lua_shared_dict crowdsec_cache 32m;
-        lua_shared_dict crowdsec_waf_metrics 1m;
+        # Adapted from CrowdSec's cs-nginx-bouncer, nginx/crowdsec_nginx.conf
+        # (https://github.com/crowdsecurity/cs-nginx-bouncer/blob/067541cdfff4b650182d819e92c04a207aa2fbb5/nginx/crowdsec_nginx.conf,
+        # MIT), with Nix paths and without the unix-socket map. The cache
+        # holds stream-mode decisions, about 79,000 with the community lists
+        # (2026-11-08). 10m was too small: it evicted entries with "cache is
+        # full" tens of thousands of times a day (admin/nixlab#236). 32m
+        # instead of upstream's 50m on small VMs - shared memory that only
+        # grows with the ban list.
+        #
+        # Every start logs "error loading captcha plugin: no recaptcha site key
+        # provided" at error level. Harmless: no captcha is configured.
+        services.nginx.appendHttpConfig = ''
+          lua_package_path '${bouncer}/lib/lua/?.lua;${luaHttp}/share/lua/5.1/?.lua;;';
+          lua_shared_dict crowdsec_cache 32m;
+          lua_shared_dict crowdsec_waf_metrics 1m;
 
-        init_by_lua_block {
-          cs = require "crowdsec"
-          local ok, err = cs.init("${nginxBouncerConf}", "crowdsec-nginx-bouncer/v1.2.3")
-          if ok == nil then
-            ngx.log(ngx.ERR, "[Crowdsec] " .. err)
-            error()
-          end
-        }
-
-        init_worker_by_lua_block {
-          cs = require "crowdsec"
-          if string.lower(cs.get_mode()) == "stream" then
-            cs.SetupStream()
-          end
-          if ngx.worker.id() == 0 then
-            cs.SetupMetrics()
-          end
-        }
-
-        # The bouncer reads this per request (crowdsec.lua is_appsec_enabled).
-        map "$host $request_method $uri" $crowdsec_disable_appsec {
-          default 0;
-          ${lib.concatStringsSep "\n  " skipEntries}
-        }
-
-        server {
-          listen 127.0.0.1:${toString cfg.nginx.metricsPort};
-          access_log off;
-          location = /metrics {
-            content_by_lua_block {
-              ${metricsLua}
-            }
-          }
-          location / {
-            return 404;
-          }
-        }
-      '';
-
-      # The access phase asks the bouncer; the log phase counts what it did.
-      # A request the bouncer refused ends in the access phase with a 403
-      # and never reaches an upstream. Redirects that return earlier (in
-      # rewrite) are not counted at all.
-      services.nginx.virtualHosts = lib.genAttrs cfg.nginx.vhosts (_: {
-        extraConfig = ''
-          access_by_lua_block {
-            ngx.ctx.crowdsec_waf = true
-            require("crowdsec").Allow(ngx.var.remote_addr)
-          }
-          log_by_lua_block {
-            if ngx.ctx.crowdsec_waf then
-              local refused = ngx.status == 403 and (ngx.var.upstream_addr or "") == ""
-              ngx.shared.crowdsec_waf_metrics:incr(ngx.var.server_name .. (refused and "|refused" or "|passed"), 1, 0)
+          init_by_lua_block {
+            cs = require "crowdsec"
+            local ok, err = cs.init("${nginxBouncerConf}", "crowdsec-nginx-bouncer/v1.2.3")
+            if ok == nil then
+              ngx.log(ngx.ERR, "[Crowdsec] " .. err)
+              error()
             end
           }
+
+          init_worker_by_lua_block {
+            cs = require "crowdsec"
+            if string.lower(cs.get_mode()) == "stream" then
+              cs.SetupStream()
+            end
+            if ngx.worker.id() == 0 then
+              cs.SetupMetrics()
+            end
+          }
+
+          # The bouncer reads this per request (crowdsec.lua is_appsec_enabled).
+          map "$host $request_method $uri" $crowdsec_disable_appsec {
+            default 0;
+            ${lib.concatStringsSep "\n  " skipEntries}
+          }
+
+          server {
+            listen 127.0.0.1:${toString cfg.nginx.metricsPort};
+            access_log off;
+            location = /metrics {
+              content_by_lua_block {
+                ${metricsLua}
+              }
+            }
+            location / {
+              return 404;
+            }
+          }
         '';
-      });
 
-      # nginx must not start before the bouncer config exists, and should
-      # find AppSec listening; failOpen covers the rest.
-      systemd.services.nginx = {
-        after = [ "crowdsec.service" ];
-        wants = [ "crowdsec.service" ];
-        serviceConfig.ExecStartPre = lib.mkBefore [ "+${bouncerConfScript}" ];
-      };
-    })
+        # The access phase asks the bouncer; the log phase counts what it did.
+        # A request the bouncer refused ends in the access phase with a 403
+        # and never reaches an upstream. Redirects that return earlier (in
+        # rewrite) are not counted at all.
+        services.nginx.virtualHosts = lib.genAttrs cfg.nginx.vhosts (_: {
+          extraConfig = ''
+            access_by_lua_block {
+              ngx.ctx.crowdsec_waf = true
+              require("crowdsec").Allow(ngx.var.remote_addr)
+            }
+            log_by_lua_block {
+              if ngx.ctx.crowdsec_waf then
+                local refused = ngx.status == 403 and (ngx.var.upstream_addr or "") == ""
+                ngx.shared.crowdsec_waf_metrics:incr(ngx.var.server_name .. (refused and "|refused" or "|passed"), 1, 0)
+              end
+            }
+          '';
+        });
 
-    (lib.mkIf traefikOn {
-      services.traefik.staticConfigOptions.experimental.localPlugins.crowdsec.moduleName =
-        traefikPlugin.moduleName;
+        # nginx must not start before the bouncer config exists, and should
+        # find AppSec listening; failOpen covers the rest.
+        systemd.services.nginx = {
+          after = [ "crowdsec.service" ];
+          wants = [ "crowdsec.service" ];
+          serviceConfig.ExecStartPre = lib.mkBefore [ "+${bouncerConfScript}" ];
+        };
+      })
 
-      # Traefik looks for local plugins under ./plugins-local/src/<module>,
-      # relative to its working directory, and its Go interpreter resolves
-      # imports inside that tree - a symlink into the store leads out of it,
-      # so the source is copied there on every start.
+      (lib.mkIf traefikOn {
+        services.traefik.staticConfigOptions.experimental.localPlugins.crowdsec.moduleName =
+          traefikPlugin.moduleName;
 
-      services.traefik.dynamicConfigOptions.http.middlewares.${cfg.traefik.middleware}.plugin.crowdsec = {
-        enabled = true;
-        logLevel = "WARN";
-        crowdsecMode = "stream";
-        crowdsecLapiScheme = "http";
-        crowdsecLapiHost = config.services.crowdsec.settings.general.api.server.listen_uri;
-        crowdsecLapiKeyFile = cfg.traefik.apiKeyFile;
-        crowdsecAppsecEnabled = true;
-        crowdsecAppsecHost = cfg.listen;
-        # The plugin's defaults refuse everything when AppSec or the LAPI
-        # cannot be reached, and until the first decision pull.
-        crowdsecAppsecFailureBlock = !cfg.failOpen;
-        crowdsecAppsecUnreachableBlock = !cfg.failOpen;
-        crowdsecAppsecUnreadableBodyBlock = !cfg.failOpen;
-        streamStartupBlock = !cfg.failOpen;
-        updateMaxFailure = if cfg.failOpen then -1 else 0;
-        forwardedHeadersTrustedIps = cfg.traefik.trustedProxies;
-      };
+        # Traefik looks for local plugins under ./plugins-local/src/<module>,
+        # relative to its working directory, and its Go interpreter resolves
+        # imports inside that tree - a symlink into the store leads out of it,
+        # so the source is copied there on every start.
 
-      systemd.services.traefik = {
-        after = [ "crowdsec.service" ];
-        wants = [ "crowdsec.service" ];
-        serviceConfig.ExecStartPre = lib.mkBefore [
-          "+${pkgs.writeShellScript "crowdsec-traefik-plugin" ''
-            set -eu
-            export PATH=${lib.makeBinPath [ pkgs.coreutils ]}
-            dir=${config.services.traefik.dataDir}/plugins-local/src/${traefikPlugin.moduleName}
-            rm -rf "$dir"
-            mkdir -p "$(dirname "$dir")"
-            cp -r --no-preserve=mode,ownership ${traefikPlugin} "$dir"
-            chown -R ${config.services.traefik.user or "traefik"}: ${config.services.traefik.dataDir}/plugins-local
-          ''}"
-        ];
-      };
-    })
-  ]);
+        services.traefik.dynamicConfigOptions.http.middlewares.${cfg.traefik.middleware}.plugin.crowdsec = {
+          enabled = true;
+          logLevel = "WARN";
+          crowdsecMode = "stream";
+          crowdsecLapiScheme = "http";
+          crowdsecLapiHost = config.services.crowdsec.settings.general.api.server.listen_uri;
+          crowdsecLapiKeyFile = cfg.traefik.apiKeyFile;
+          crowdsecAppsecEnabled = true;
+          crowdsecAppsecHost = cfg.listen;
+          # The plugin's defaults refuse everything when AppSec or the LAPI
+          # cannot be reached, and until the first decision pull.
+          crowdsecAppsecFailureBlock = !cfg.failOpen;
+          crowdsecAppsecUnreachableBlock = !cfg.failOpen;
+          crowdsecAppsecUnreadableBodyBlock = !cfg.failOpen;
+          streamStartupBlock = !cfg.failOpen;
+          updateMaxFailure = if cfg.failOpen then -1 else 0;
+          forwardedHeadersTrustedIps = cfg.traefik.trustedProxies;
+        };
+
+        systemd.services.traefik = {
+          after = [ "crowdsec.service" ];
+          wants = [ "crowdsec.service" ];
+          serviceConfig.ExecStartPre = lib.mkBefore [
+            "+${pkgs.writeShellScript "crowdsec-traefik-plugin" ''
+              set -eu
+              export PATH=${lib.makeBinPath [ pkgs.coreutils ]}
+              dir=${config.services.traefik.dataDir}/plugins-local/src/${traefikPlugin.moduleName}
+              rm -rf "$dir"
+              mkdir -p "$(dirname "$dir")"
+              cp -r --no-preserve=mode,ownership ${traefikPlugin} "$dir"
+              chown -R ${
+                config.services.traefik.user or "traefik"
+              }: ${config.services.traefik.dataDir}/plugins-local
+            ''}"
+          ];
+        };
+      })
+    ]
+  );
 }

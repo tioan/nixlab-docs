@@ -16,7 +16,12 @@
 # and read access to /run/secrets, where sops-nix has already decrypted
 # everything. guest-exec and guest-file-* ARE that shell; the rest of the list
 # below is incidental.
-{ config, lib, pkgs, ... }:
+{
+  config,
+  lib,
+  pkgs,
+  ...
+}:
 
 let
   # A deny list, not an allow list. With --allow-rpcs everything unlisted is
@@ -95,16 +100,21 @@ in
     serviceConfig = {
       # mkForce because the upstream module assigns ExecStart directly, not
       # through mkDefault.
-      ExecStart = lib.mkForce (lib.concatStringsSep " " [
-        "${config.services.qemuGuest.package}/bin/qemu-ga"
-        "--statedir /run/qemu-ga"
-        "--block-rpcs=${lib.concatStringsSep "," blockedRpcs}"
-      ]);
+      ExecStart = lib.mkForce (
+        lib.concatStringsSep " " [
+          "${config.services.qemuGuest.package}/bin/qemu-ga"
+          "--statedir /run/qemu-ga"
+          "--block-rpcs=${lib.concatStringsSep "," blockedRpcs}"
+        ]
+      );
 
       # CAP_SYS_ADMIN is mandatory: FIFREEZE and FITRIM check for exactly it.
       # CAP_SYS_BOOT covers the fallback path should guest-shutdown ever not
       # go through systemctl.
-      CapabilityBoundingSet = [ "CAP_SYS_ADMIN" "CAP_SYS_BOOT" ];
+      CapabilityBoundingSet = [
+        "CAP_SYS_ADMIN"
+        "CAP_SYS_BOOT"
+      ];
 
       NoNewPrivileges = true;
       RestrictNamespaces = true;
@@ -123,7 +133,12 @@ in
       # through getifaddrs/netlink. AF_UNIX for the systemctl dbus path,
       # AF_NETLINK for getifaddrs itself. What this actually rules out is
       # AF_PACKET and the exotics - a thin win, but a free one.
-      RestrictAddressFamilies = [ "AF_UNIX" "AF_NETLINK" "AF_INET" "AF_INET6" ];
+      RestrictAddressFamilies = [
+        "AF_UNIX"
+        "AF_NETLINK"
+        "AF_INET"
+        "AF_INET6"
+      ];
 
       # Deliberately NOT set: ProtectSystem, ProtectHome, PrivateTmp,
       # PrivateDevices, ProtectKernelTunables, ProtectClock.

@@ -25,7 +25,12 @@
 # Passwords come from environmentFile, one variable per user
 # (envName below); vmauth replaces %{VAR} in its config with them, so
 # the config in the store holds no secret.
-{ config, lib, pkgs, ... }:
+{
+  config,
+  lib,
+  pkgs,
+  ...
+}:
 let
   cfg = config.services.telemetryIngest;
 
@@ -44,11 +49,17 @@ let
     password = "%{${envName name}}";
     url_map =
       lib.optionals u.write [
-        (route [ "/api/v1/write" ] (withArg cfg.metricsUrl
-          (if u.forceHost == null then null else "extra_label=host=${u.forceHost}")))
-        (route [ "/insert/jsonline" ] (withArg cfg.logsUrl
-          (if u.forceHost == null then null
-           else "extra_fields=host=${u.forceHost}&_stream_fields=${lib.concatStringsSep "," cfg.logStreamFields}")))
+        (route [ "/api/v1/write" ] (
+          withArg cfg.metricsUrl (if u.forceHost == null then null else "extra_label=host=${u.forceHost}")
+        ))
+        (route [ "/insert/jsonline" ] (
+          withArg cfg.logsUrl (
+            if u.forceHost == null then
+              null
+            else
+              "extra_fields=host=${u.forceHost}&_stream_fields=${lib.concatStringsSep "," cfg.logStreamFields}"
+          )
+        ))
       ]
       ++ lib.optional u.query (route [ "/api/v1/query" ] cfg.metricsUrl);
   };
@@ -92,7 +103,10 @@ in
 
     logStreamFields = lib.mkOption {
       type = lib.types.listOf lib.types.str;
-      default = [ "host" "_SYSTEMD_UNIT" ];
+      default = [
+        "host"
+        "_SYSTEMD_UNIT"
+      ];
       description = ''
         VictoriaLogs stream fields forced for users with forceHost - the
         ones the senders use themselves (modules/log-shipping.nix).
@@ -119,36 +133,43 @@ in
     users = lib.mkOption {
       default = { };
       description = "One entry per sender; the name is the basic-auth user name.";
-      type = lib.types.attrsOf (lib.types.submodule ({ name, ... }: {
-        options = {
-          write = lib.mkOption {
-            type = lib.types.bool;
-            default = true;
-            description = "May write metrics (/api/v1/write) and logs (/insert/jsonline).";
-          };
-          query = lib.mkOption {
-            type = lib.types.bool;
-            default = false;
-            description = "May run instant queries (/api/v1/query) - reads every series.";
-          };
-          forceHost = lib.mkOption {
-            type = lib.types.nullOr lib.types.str;
-            default = name;
-            description = ''
-              `host` forced onto everything this user writes; null keeps the
-              sender's own (for a sender that writes on behalf of others).
-            '';
-          };
-        };
-      }));
+      type = lib.types.attrsOf (
+        lib.types.submodule (
+          { name, ... }: {
+            options = {
+              write = lib.mkOption {
+                type = lib.types.bool;
+                default = true;
+                description = "May write metrics (/api/v1/write) and logs (/insert/jsonline).";
+              };
+              query = lib.mkOption {
+                type = lib.types.bool;
+                default = false;
+                description = "May run instant queries (/api/v1/query) - reads every series.";
+              };
+              forceHost = lib.mkOption {
+                type = lib.types.nullOr lib.types.str;
+                default = name;
+                description = ''
+                  `host` forced onto everything this user writes; null keeps the
+                  sender's own (for a sender that writes on behalf of others).
+                '';
+              };
+            };
+          }
+        )
+      );
     };
   };
 
   config = lib.mkIf cfg.enable {
-    assertions = [{
-      assertion = cfg.users == { } || cfg.environmentFile != null;
-      message = "services.telemetryIngest: users need an environmentFile with their passwords.";
-    }] ++ lib.mapAttrsToList (name: u: {
+    assertions = [
+      {
+        assertion = cfg.users == { } || cfg.environmentFile != null;
+        message = "services.telemetryIngest: users need an environmentFile with their passwords.";
+      }
+    ]
+    ++ lib.mapAttrsToList (name: u: {
       # vmauth refuses to start with a user that has no url_map at all.
       assertion = u.write || u.query;
       message = "services.telemetryIngest.users.${name}: neither write nor query - remove the user instead.";

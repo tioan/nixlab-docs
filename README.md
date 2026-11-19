@@ -350,7 +350,7 @@ The private version of this documentation (`doku.homelab.example`, on aldrin and
 
 #### Pocket ID: admin pages only from admin devices
 
-Since 2026-10-25 nginx on zummi answers Pocket ID's admin paths with 403 unless the request comes from an address in `admin-peers.json` – the same list as for the private docs. Closed is everything an admin session or an admin API key can do: `/settings/admin`, users, groups, OIDC clients, APIs, API keys, settings, audit log, signup tokens, SCIM (list: `$pocketid_admin_path` in `hosts/zummi/pocket-id.nix`, by the permissions of Pocket ID 2.19.2's routes – re-check on every minor bump). Login, account pages (`/api/users/me…`), the OIDC endpoints and logos stay public. The one other exception: the [group sync](#pocket-id--netbird-group-sync)'s reads from grammi.
+Since 2026-10-25 nginx on zummi answers Pocket ID's admin paths with 403 unless the request comes from an address in `admin-peers.json` – the same list as for the private docs. Closed is everything an admin session or an admin API key can do: `/settings/admin`, users, groups, OIDC clients, APIs, API keys, settings, audit log, signup tokens, SCIM (list: `$pocketid_admin_path` in `hosts/zummi/pocket-id-nginx.nix`, by the permissions of Pocket ID 2.19.2's routes – re-check on every minor bump). Login, account pages (`/api/users/me…`), the OIDC endpoints and logos stay public. The one other exception: the [group sync](#pocket-id--netbird-group-sync)'s reads from grammi. Since #441 the same goes for every request carrying an API key (`X-API-Key`): from anywhere but the admin devices it is 403, the group sync's reads aside – an API key holds every account permission too, and the account paths are public. The rules are matched on the decoded path (`$uri`), the one Pocket ID's router sees, so `%`-encoded variants of a path get the same answer and the same rate limit. Test: `just test-vm pocket-id-nginx` (`tests/pocket-id-nginx.nix`), the same rules in front of a stub.
 
 So that admin devices arrive with their mesh address, a NetBird DNS zone points `auth.homelab.example` at zummi's mesh addresses for `admin-workstations` only (`terraform/netbird/pocket-id-admin.tf`); the vhost listens on the wildcard for it. Every other peer, NetBird's server on grammi included, keeps the public record.
 
@@ -379,7 +379,7 @@ Decided 2026-11-01 (1b) over an unattended `tofu apply` (applies everything, the
 **Credentials**, each in a sops file of its own so either can be renewed alone:
 
 - **NetBird:** token of the service user `group-sync` (`terraform/netbird/group-sync.tf`), role admin – NetBird 0.81 allows nothing narrower for updating users (`network_admin` may only read them). Whoever owns grammi owns NetBird's database anyway. Store: `just netbird-group-sync-token`, renew yearly: `just netbird-group-sync-token renew`.
-- **Pocket ID:** API key of the dedicated admin user `netbird-group-sync` (no passkey, only for this key; shows up separately in the audit log, disabling the user locks the key at once). Pocket ID 2.19.2 cannot scope API keys: the key can do anything an admin can. It is fenced in on zummi: from grammi's mesh addresses nginx lets through only `GET` on the user list, single users and the key's own key list (`$pocketid_sync_allowed`), from the internet every admin path is 403. Fully usable, the key would only be from the admin devices. That is why the sync reaches Pocket ID at zummi's mesh name (TLS still for `auth.homelab.example`). Creating the key: log in as `netbird-group-sync` with a login code from the admin UI, create the API key "netbird-group-sync" valid for a year, delete that user's old keys, then `just netbird-group-sync-pocketid-key`.
+- **Pocket ID:** API key of the dedicated admin user `netbird-group-sync` (no passkey, only for this key; shows up separately in the audit log, disabling the user locks the key at once). Pocket ID 2.19.2 cannot scope API keys: the key can do anything an admin can. It is fenced in on zummi: from grammi's mesh addresses nginx lets through only `GET` on the user list, single users and the key's own key list (`$pocketid_sync_allowed`); any other request with an API key is 403, from grammi and from the internet alike, so the key cannot change its own account either. Fully usable, the key would only be from the admin devices, and zummi refuses to build should grammi's addresses ever appear among them. That is why the sync reaches Pocket ID at zummi's mesh name (TLS still for `auth.homelab.example`). Creating the key: log in as `netbird-group-sync` with a login code from the admin UI, create the API key "netbird-group-sync" valid for a year, delete that user's old keys, then `just netbird-group-sync-pocketid-key`.
 
 Then commit and deploy grammi each time. **Alerts** (`hosts/grammi/alerting/identity.nix`): NetbirdGroupSyncStale (an hour without a clean run), SyncCredentialExpiring (token or key expire in less than 30 days), PersonNotManaged (someone is in `homelab`/`homelab_admins` in Pocket ID but not in `people.tf`); every failed run also trips UnitFailed.
 
@@ -606,13 +606,13 @@ The pull hosts (zummi, aldrin, grammi, ursalia) keep `/etc/nixos` as a checkout 
 | Host | Manual deploy | Automatic |
 | --- | --- | --- |
 | zummi, aldrin, grammi, ursalia | `just ship <host> "<message>"` = commit, push, `git pull` + `nixos-rebuild switch` on the host | nightly auto-upgrade, reboot window 04:00–06:00 |
-| cuckoosegg | `just deploy-push cuckoosegg` (built on ursalia, copied to the target) | ursalia pushes daily at 06:30 |
+| cuckoosegg | `just deploy-push cuckoosegg` (from a committed tree, built on ursalia, copied to the target) | ursalia pushes daily at 06:30 |
 | zorlock | `just mac-switch zorlock` (= `deploy-zorlock`: `git pull` + `darwin-rebuild switch` with sudo, with a summary) | none |
 | gusto | `just mac-switch` on gusto, from the working copy | none – `just mac-upgrade` for the Homebrew pins |
 
 ### Nightly upgrade
 
-Since 2026-10-31 only ursalia updates the inputs: `nix-cache-prebuild` (`modules/nix-cache.nix`) pulls `main` at 02:30, updates `nixpkgs` and `nixpkgs-unstable`, builds every host, uploads everything not on cache.nixos.org, signed, to the nix cache (bucket `nix-cache` in Garage on aldrin) and only then pushes the new `flake.lock` with its deploy key, in a commit signed with its own key. `sops-nix` is bumped by hand with the diff read: its activation code runs as root with every secret. If one host does not build, the lock is held back for all. From 04:00 `modules/auto-upgrade-git.nix` on every host resets `flake.lock` to HEAD, fast-forwards `main` if its tip is signed (see below), builds and switches – with the cache as a second substituter after cache.nixos.org, so even small hosts like zummi no longer build anything themselves. An aborted run no longer leaves a modified `flake.lock` behind (reset at the start and in `ExecStopPost`; `just sync` discards it too). The GitHub host key is pinned because nobody is watching. A configuration error that only shows up on a cold boot therefore takes the host down at 04:00 – for the VMs there is the provider's console for that.
+Since 2026-10-31 only ursalia updates the inputs: `nix-cache-prebuild` (`modules/nix-cache.nix`) pulls `main` at 02:30, updates `nixpkgs` and `nixpkgs-unstable`, builds every host, uploads everything not on cache.nixos.org, signed, to the nix cache (bucket `nix-cache` in Garage on aldrin) and only then pushes the new `flake.lock` with its deploy key, in a commit signed with its own key. `sops-nix` is bumped by hand with the diff read: its activation code runs as root with every secret. If one host does not build, the lock is held back for all. From 04:00 `modules/auto-upgrade-git.nix` on every host resets `flake.lock` to HEAD, fast-forwards `main` if its tip is signed (see below), builds and switches – with the cache as a second substituter after cache.nixos.org, so even small hosts like zummi no longer build anything themselves. Since 2026-11-18 that includes the hundreds of small configuration derivations (units, `etc` files) that nixpkgs marks `allowSubstitutes = false`: `always-allow-substitutes` lets Nix fetch them from the cache too (nixlab#326). An aborted run no longer leaves a modified `flake.lock` behind (reset at the start and in `ExecStopPost`; `just sync` discards it too). The GitHub host key is pinned because nobody is watching. A configuration error that only shows up on a cold boot therefore takes the host down at 04:00 – for the VMs there is the provider's console for that.
 
 While `just try` holds a host on a topic branch, the upgrade skips it until the branch is merged ([Test a branch before merging](#test-a-branch-on-a-host-before-merging)).
 
@@ -740,13 +740,14 @@ The dashboards are JSON in `hosts/grammi/dashboards/`, provisioned from the repo
 
 ### When a backup counts as successful
 
-Not when the unit reports `success`: the nightly switch resets failed units, and restic also exits 0 with a missing path. For the restic jobs on ursalia, tummi, grammi and zummi only what [`modules/restic-verified.nix`](modules/restic-verified.nix) confirms counts:
+Not when the unit reports `success`: the nightly switch resets failed units, and restic also exits 0 with a missing path. For the restic jobs on ursalia, tummi, grammi, zummi and aldrin only what [`modules/restic-verified.nix`](modules/restic-verified.nix) confirms counts:
 
 - **Before:** every path holds data, and the inputs (dumps, the Paperless export) succeeded within 26 h. If not, the backup is stored anyway, but its snapshot gets the tag `unverified`.
-- **After:** the snapshot is read back from the repository: it exists, it is from this run, its size is plausible, the required paths are in it, `restic check` passes (Sundays with 5% of the data, 1% for the `data` jobs).
+- **After:** the snapshot is read back from the repository: it exists, it is from this run, its size is plausible, the required paths are in it, `restic check` passes (Sundays with 5% of the data, 1% for the `data` jobs). If one of these fails, this run's snapshot is tagged `unverified` afterwards, in jobs that prune (not on BorgBase, which is append-only). Until the tag is confirmed, no forget runs.
 - **Only then** does `nixlab_backup_verified_timestamp_seconds` move and `forget --prune` run. Otherwise `nixlab_backup_last_run_failed` stays at 1, across switches too, until a run is verified.
+- **Forget:** the job's keep policy applies per host, across changes of the path list, and to snapshots without a tag only, so `unverified` ones never take a verified snapshot's daily or weekly slot. Instead, the first verified run after they are older than `keepUnverifiedDays` (default 14 days) forgets them; while runs keep failing, nothing is forgotten.
 
-Unverified jobs start again at 05:15 and 07:15. When restoring, use the ID from `nixlab_backup_verified_snapshot_info` rather than `latest`, because the newest snapshot may be `unverified`. `just test-restic-verified` exercises this with forced failures.
+The jobs to Garage are declared with [`modules/restic-garage.nix`](modules/restic-garage.nix) (`services.resticGarage.jobs.<name>`: bucket, paths, snapshots, time, keep policy; the restic exporter for one job per host); BorgBase on ursalia is a plain restic job. Unverified jobs start again at 05:15 and 07:15. When restoring, use the ID from `nixlab_backup_verified_snapshot_info` rather than `latest`, because the newest snapshot may be `unverified`. `just test-restic-verified` exercises this with forced failures. The exporter reads the repository with a key of its own that may only read the bucket (`exporter.ownKey`, keys in `terraform/garage/restic-exporter.tf`, into sops with `just restic-exporter-secrets`): its restic calls all run with `--no-lock`, `restic check` included, so a taken-over exporter can read the backups but not delete them. `just test-restic-exporter-readonly` shows both against a real Garage.
 
 The `data` jobs on tummi and ursalia ([`modules/restic-data.nix`](modules/restic-data.nix)) back up the whole `/data` disk and have no restic exporter, so the Hosts Overview shows them only in the panel of verified backup ages. Their size check is minimal: on a box for sorting files, a large deletion is normal. A first run takes days over the home line; until it ends, `BackupNotVerified` and `BackupBucketNoNewObject` fire for that job.
 
@@ -773,7 +774,7 @@ Two independent ways notice when that chain itself breaks:
 | **gruffi up, Wi-Fi module missing** | GruffiWifiMissing after 5 min; HA push when the strip is out of reach for 5 min | grammi → HA, and HA alone | No Wi-Fi at home; the strip is unreachable, so no remote cold boot | On site: save `dmesg`, 30 s without power, or plug in ap-og (nixlab#93) | incident 2026-11-02 to -06 |
 | **NetBird mesh broken** (management or path grammi → HA) | HA timer after ≤ 20 min; healthchecks.io only if grammi's ping also fails | HA push (from HA's own timer) | Alerts do not reach HA. No dedicated alert for the management server; TargetDown/HostGone see it only indirectly | admin jump to the host's own mesh address (`modules/ssh.nix`), provider console with the root password | rehearsed 2026-11-15 |
 | **zummi down** | healthchecks.io (grammi's ping stops with Pocket ID); HostGone after 10 min | healthchecks.io; HA push | Pocket ID down: no new login anywhere (services, NetBird). Probes of aldrin stop (PublicProbeMissing) | Restore, RTO 48 s once a machine exists; softdog resets a hung kernel | Restore 2026-11-02; softdog reset 2026-11-03 (login down ~9 min) |
-| **aldrin down** | PublicServiceDown from zummi after 5 min; HostGone after 10 min | HA push | Garage S3 (restic target of every host, nix cache), OpenCloud, floccus, shortener, gw-remote and the remote site, an exit node. Backups fail to upload until it is back | Provider console; aldrin has no provider backup, btrbk is local (nixlab#22) | not tested |
+| **aldrin down** | PublicServiceDown from zummi after 5 min; HostGone after 10 min | HA push | Garage S3 (restic target of every host, nix cache), OpenCloud, floccus, shortener, gw-remote and the remote site, an exit node. Backups fail to upload until it is back. The nightly upgrades fall back to building, but each cache lookup times out first: about +13 min per host (nixlab#460) | Provider console; aldrin has no provider backup, btrbk is local (nixlab#22) | not tested |
 | **ursalia down** | HostGone after 10 min (for gruffi's metrics too, scraped from ursalia) | HA push | paperless, Immich, HealthLog, docs, AdGuard (mesh clients fall back to their own DNS, the LAN has none), the nightly prebuild and flake.lock update, the gruffi power watchdog | Hardware watchdog (60 s) for a hung kernel; otherwise on site | AdGuard fallback 2026-11-01; watchdog resets 2026-11-02/03 (incident, not a test) |
 | **tummi down** | HostGone after 10 min | HA push | Samba share "Daten" and its restic job | On site | not tested |
 | **One Remote uplink down** | RemoteUplinkDown after 30 min | HA push | Traffic moves to the other uplink after ~20 s (`keepalive 2 10`); no failover left | Usually by itself; uplink1 drops every night 22:53–03:03 (#145) | failover 2026-11-02 |
@@ -852,6 +853,17 @@ All per name, under `services.waf.hosts."<name>"`:
 | `short.homelab.example`, `fotos.homelab.example`, `dash.homelab.example` | block | public, no login, only scanners in the detect data |
 | ACME, MQTT 8883, Home Assistant app | nothing to do | DNS-01 / tls-alpn, plain TCP, and HA goes through the NetBird proxy, not through these front doors |
 
+### Home line
+
+The home connection has a dynamic address and has been banned before: `http-crawl-non_statics` and `http-probing` caught a workstation running `tofu apply` and the first nightly prebuild. Since #444 (once deployed), CrowdSec drops the ban for those scenarios (and `homelab/http-malformed-request`) when the source is the resolved IPv4 address or in the resolved IPv6 prefix:
+
+- gruffi keeps a dyndns name on the line's addresses (`uplinks.home.dyndnsName` in `inventory.json`; A the IPv4, AAAA gruffi's own address in the delegated prefix). The name sits in a zone of its own, `dyn.homelab.example`, delegated by DNSControl: deSEC's minimum TTL is per zone, 900 s for `homelab.example`, and the dyndns zone gets a lower one. The script `openwrt/gruffi/ddns-home.sh` runs when the line comes up and every 15 minutes; its deSEC token may write only those two records (`terraform/desec-tokens`).
+- On the public hosts a postoverflow whitelist (`modules/crowdsec-dynamic-allow.nix`) resolves the name whenever a scenario overflows and drops the ban if the source is in the A address or the AAAA's prefix (`ipv6PrefixLength` from the inventory). A failed lookup means no exemption.
+- The WAF still refuses bad requests from home with 403; only the ban is dropped. Brute force, CVE and WAF scenarios still ban the home line, so a compromised device at home is still caught. Not a LAPI allowlist: in CrowdSec 1.7.8 AppSec checks those too and would stop blocking the address in-band.
+- Not covered: the community blocklist and bans added by hand.
+
+Metrics: `cs_node_wl_hits_ok_total{name="homelab/home-line"}` (bans dropped), `nixlab_crowdsec_dynamic_allow_addresses{family}` per host, `gruffi_ddns_in_sync` and friends from gruffi. Alerts `CrowdsecHomeExemptionUnresolved`, `CrowdsecHomeExemptionStale`, `GruffiDyndnsOutOfSync`, `GruffiDyndnsNotRunning`. Dashboard: Web & Security, row "Home line exemption".
+
 ### Failure
 
 `services.waf.failOpen = true` (default): if AppSec cannot be reached or does not answer in time, requests pass unchecked – Pocket ID, the NetBird login and the sync clients should not go down with CrowdSec. Neither bouncer can decide this per name. The Traefik plugin would block by default when AppSec or the LAPI is unreachable and until its first decision pull; the module switches all of that off.
@@ -862,10 +874,13 @@ All per name, under `services.waf.hosts."<name>"`:
 | --- | --- |
 | `nixlab_waf_requests_total{vhost, result="refused"\|"passed"}` | nginx, per vhost, counted in the log phase (`127.0.0.1:9932/metrics`, scraped by vmagent) |
 | `traefik_router_requests_total{code="403"}` on `dash`, `mesh-oauth2`, `mesh-dashboard` | Traefik on grammi |
-| `nixlab_waf_appsec_up` | textfile writer `waf-appsec-up`, once a minute |
+| `nixlab_waf_appsec_up` | textfile writer `waf-appsec-up`, once a minute: AppSec answers on its port |
+| `nixlab_waf_appsec_probe_ok` | same writer: a harmless request with the bouncer key got a 200 |
 | `cs_appsec_reqs_total`, `cs_appsec_block_total`, `cs_appsec_rule_hits` | CrowdSec itself |
 
-Alerts (`hosts/grammi/alerting/security.nix`): `WafAppsecDown` (no answer for 5 minutes), `WafBlocksHigh` (more than 100 refused requests an hour on one name). Dashboard: Web & Security, row "AppSec WAF".
+The probe (`services.waf.probe.package`) sends its request from `127.0.0.2` (`services.waf.probe.address`) with the host's bouncer key, which the writer gets as a systemd credential. CrowdSec labels its AppSec counters with the connecting address (`source`), which is `127.0.0.1` for everything a bouncer forwards; vmagent drops the series with the probe's address (`services.waf.probe.metricRelabelConfigs`), so the counters show bouncer traffic only. The parsing-time histograms carry `source` too and are filtered the same way. Without a key (a host before `just waf-key`, or a key file that cannot be read) the probe only opens a TCP connection, so `nixlab_waf_appsec_up` then means "the port accepts connections", not "AppSec answers HTTP"; with an unreadable key `nixlab_waf_appsec_probe_ok` is 0. Until #452 the probe asked without key, and CrowdSec logged "missing API key" at error level once a minute.
+
+Alerts (`hosts/grammi/alerting/security.nix`): `WafAppsecDown` (no answer for 5 minutes), `WafAppsecProbeFailed` (answers, but the request with key fails for 10 minutes: key revoked or rules broken), `WafBlocksHigh` (more than 100 refused requests an hour on one name). Dashboard: Web & Security, row "AppSec WAF".
 
 ### Hosts
 
@@ -1399,6 +1414,10 @@ App passwords, OIDC clients and the like live in `hosts/<host>/secrets.yaml`, en
 
 Everything that needs sops on the MacBook runs with the sign-in in front – see [just recipes](#just-recipes).
 
+### Writing a recipe that handles a secret
+
+A process's command line is visible to everyone on the machine (`ps`), its environment to the same user. So a secret never goes into a child's arguments or into an environment variable set for it: into `jq` through a pipe (`printf '%s' "$v" | jq -Rs …`, or `--rawfile k <(printf '%s' "$v")` – `printf` is a shell builtin, no process of its own), into `curl` as a header file (`-H @<(printf 'Authorization: Token %s' "$t")`) and a body file (`--data-binary @<(…)`), into `sops` with `set --value-stdin` or `scripts/sops-write.sh`, into a remote host on stdin (nixlab#395, nixlab#401).
+
 ## Rotate keys
 
 What can be renewed how, and what to do afterwards. The recipes replace the old key at once – so commit and deploy right after.
@@ -1558,7 +1577,7 @@ Why: the nightly auto-upgrade moves `nixpkgs` and `nixpkgs-unstable` on its own.
 
 - `pkg.version` ≥ `fixedVersion` – nixpkgs has updated, or
 - one of `pkg.patches` has `fixPatch` in its file name – stable has backported the fix as a patch without raising the version (the usual case for CVEs on a stable release), or
-- `fixedWhen` is true – for a fix that no version number marks. Pick a test that flips in the same nixpkgs commit as the fix; for gotenberg ([`modules/hotfixes/gotenberg.nix`](modules/hotfixes/gotenberg.nix)) it is "the package no longer takes the `unoconv` argument the hotfix replaces".
+- `fixedWhen` is true – for a fix that no version number marks. Pick a test that flips in the same nixpkgs commit as the fix; for paperless 3 ([`hosts/ursalia/paperless-v3.nix`](https://github.com/admin/nixlab/blob/main/hosts/ursalia/paperless-v3.nix)) it is "the package's own `pythonRelaxDeps` lists `torch`, the constraint the hotfix relaxes".
 
 Every hotfix needs `fixedVersion` or `fixedWhen` (or both); `fixPatch` only adds to them.
 
@@ -1758,7 +1777,7 @@ The pattern – apply, check from outside, keep only when confirmed within a dea
 | --- | --- |
 | nightly `nixos-upgrade` | skipped (`ExecCondition`, not a failure): no flake update, no switch, no reboot. If the held commit has reached `/etc/nixos` meanwhile, it lifts the hold and runs. |
 | `just rebuild`/`deploy`/`ship`/`deploy-all` | refused, unless the held commit is in the freshly pulled `/etc/nixos` – then the hold goes and the deploy runs |
-| `just deploy-push <host>` | the same rule against the local checkout's `HEAD` |
+| `just deploy-push <host>` | the same rule against the local checkout's `HEAD`; it refuses uncommitted changes, so `HEAD` is what gets deployed, and stops when it cannot ask the host for its hold (only a host without `nixos-hold` at all, a fresh one at its bootstrap, counts as unheld) |
 | ursalia's nightly push to cuckoosegg | skipped, unless the held commit is in ursalia's `/etc/nixos` |
 
 The rule is the same everywhere: a hold blocks as long as what is about to be deployed does not contain the held commit. A **rebase merge** rewrites the commit – then nothing recognises the merge, and the hold has to go with `just release <host>`.
@@ -1833,7 +1852,7 @@ Not measured: renting a replacement machine, installing NixOS on it, pointing DN
 1. **zummi's backup held no pocket-id database** – in none of the 22 snapshots from 2026-08-10 to 2026-11-02. The unanchored `"*.db"` exclude also matched the `.backup` copy. Fixed the same day (anchored to the data directory).
 2. **grist needs pocket-id to start** (OIDC discovery at `auth.homelab.example`): with grammi and zummi both gone, zummi comes back first.
 3. **netbird-server needs `pkgs.netbird.io` to start** – it asks for the current GeoLite file every time, although the files are in the backup.
-4. **Only numeric owners:** restic keeps uids, not names, and `/var/lib/nixos` (the uid map) is in no backup. A reinstalled host hands out uids anew, so a restore chowns each service's files by name (the test does).
+4. **Only numeric owners:** restic keeps uids, not names, and `/var/lib/nixos` (the uid map) was in no backup, so a reinstalled host handed out uids anew and the test chowned each service's files by name. Since 2026-11 (#81) grammi, zummi and ursalia back up `/var/lib/nixos`. Restore it **before the host's first activation**: NixOS reads `uid-map`/`gid-map` only when it creates a user, one already in `/etc/passwd` keeps its number. The test's VM has booted already, so it drops the users numbered differently and lets the activation create them again from the restored maps, then checks every number. The restored files are not chowned any more; only what the VM's first boot created under its own numbers is handed over to the new ones, which a real reinstall never has.
 5. **Where pocket-id's database goes** (`data/` in its working directory) is in no backup; the copy keeps its file name only.
 
 ## Repository layout
@@ -2224,6 +2243,7 @@ gruffi is the home network's router: a GL.iNet Flint 4 (GL-BE14000), running Ope
 | `openwrt/gruffi/inner.sh` | Runs in the build container: fetch the PR head, cherry-pick the fix, set kernel options, install our feeds (blogic, fancontrol) before the others and stop if another feed shadows one of their packages (the packages feed carries the unmodified panel since 2026-11-14, #425), build, write `BUILDINFO` |
 | `openwrt/gruffi/build.sh`, `Containerfile` | Starts the build on ursalia (Debian container, incremental, state in `/var/lib/openwrt-build/gruffi`) |
 | `openwrt/gruffi/node-exporter.init`, `node-exporter-modem.uc`, `node-exporter-dhcp-leases.uc` | The node exporter's own service, the modem collector and the lease collector (see [Metrics](#metrics)) |
+| `openwrt/gruffi/ddns-home.sh`, `ddns-home.hotplug`, `node-exporter-ddns-home.uc` | The home line's dyndns name, its hotplug trigger and its collector (see [Metrics](#metrics)) |
 | `openwrt/gruffi/dryrun.sh`, `dryrun-guest.sh` | Dry run with real clients in a VM on ursalia (see [Changes](#changes)) |
 
 ### Ports and switches
@@ -2273,6 +2293,7 @@ All LAN ports are in one VLAN-filtering bridge `br-lan`; every network is a VLAN
 - **Modem collector:** `modem.uc` reads `/ONT/client/data/Status.json` (no login, needs browser-like headers, 3 s timeout) and takes only fields from a fixed list. The serial number is in the response as well and is never read. `link_status` is not read: firmware .001 showed 0 at 2500 Mbit/s, since .013 it shows 2500. The series carry `host="glasfasermodem-2"`, which is why the job needs `honor_labels`.
 - **Stations:** `wifi_ap.uc` reads access points and stations through nl80211, without `ubus` (the feed's `wifi.uc` asks `network.wireless status`, whose answer holds the WLAN keys). Plus `gruffi_pci_devices`: 4 with the module working. The per-station series carry the clients' MAC and show who is home when, so the dashboard "Homelab / gruffi Wi-Fi" has no sharing link. Template: [`wifi.uc` in openwrt/packages](https://github.com/openwrt/packages/blob/85ba4cff22728b21527e4bf1e29411e7c68a4a3c/utils/prometheus-node-exporter-ucode/files/extra/wifi.uc).
 - **Leases:** `dhcp_leases.uc` reads `/tmp/dhcp.leases`, the only file from `/tmp` in the jail, and needs neither `ubus` nor root. dnsmasq rewrites the file in place, so the mount stays valid. Networks and pools come from the uci section `collector dhcp_leases`, derived from the inventory. Client hostnames are not trusted: only letters, digits, `.`, `_` and `-`, at most 63 characters. The series carry MAC and hostname, so the dashboard "Homelab / gruffi DHCP" is not for public sharing. Alert `DhcpPoolFilling` above 80 % for 30 minutes. nixlab#115.
+- **dyndns:** `/usr/sbin/ddns-home` keeps the home line's dyndns name (`uplinks.home.dyndnsName`) on the PPPoE IPv4 and gruffi's own global address in the `server` network, for CrowdSec's home exemption on the public hosts ([WAF](#home-line), nixlab#444). It runs from `/etc/hotplug.d/iface/95-ddns-home` when `wan` or `wan6` comes up and from cron every 15 minutes, and sends one request with both families only when something changed, compared with its state and the authoritative answer from `ns1.desec.io`. Settings in `/etc/config/ddns_home`, the token (it may write only the name's A and AAAA) in `/etc/ddns-home.token`, 0600. Until the next image `just gruffi-ddns-install` puts it on; meanwhile `uclient-fetch` has the token on its command line for the second a request takes. `ddns_home.uc` exports `gruffi_ddns_in_sync`, `gruffi_ddns_last_error` and timestamps from `/var/run/ddns-home/state`, never the addresses. Alerts `GruffiDyndnsOutOfSync`, `GruffiDyndnsNotRunning`.
 - **Flows:** one `softflowd` per bridge `br-lan.191`-`195` exports IPFIX to ursalia, before NAT. goflow2 runs as a child of Vector there (`hosts/ursalia/flows.nix`), which adds the device from the inventory by MAC and AS and country from DB-IP Lite, then ships to VictoriaLogs on grammi, 30 days. Bytes match conntrack with offloading on (nixlab#59). softflowd sets `br-lan` to promiscuous mode. A flow appears when it ends, long ones every minute. Connections between two VLANs count once. Internal includes gruffi's delegated IPv6 prefix: `ipv6_prefix.uc` reports the one from DHCPv6-PD (its unreachable route in `/proc/net/ipv6_route`), Vector reads it back from VictoriaMetrics every 5 minutes; the inventory's prefix length is the fallback. Alerts `GruffiPrefixLengthMismatch` (live length differs from the inventory) and `GruffiNoDelegatedPrefix`. Connections inside one VLAN are mostly not visible. Multicast and broadcast are dropped. `/etc/hotplug.d/iface/90-softflowd` restarts it when a network comes up. Alert `FlowExportStopped`.
 - **Log:** `logd` sends the system log, DHCP events included, by UDP to Vector on ursalia, which only takes it from gruffi. It appears in VictoriaLogs as `host=gruffi`. The dashboard "gruffi DHCP" shows the DHCP events.
 - **Modem firmware:** .013 since 2026-11-07, installed by hand; the modem was still on .001 with automatic updates on. The weekly version check compares `modem_info` with the newest version in [Telekom's list](https://www.telekom.de/hilfe/downloads/firmware-aenderungen-glasfaser-modem-2). If Telekom changes the PDF's format, it reports "unknown".
@@ -2924,180 +2945,180 @@ Every section with all its fields – **bold** ones are required, nested objects
 <title>inventory</title>
 <g id="node1" class="node">
 <title>contracts</title>
-<polygon fill="#f1efe8" stroke="none" points="1243.75,-757.64 1110.75,-757.64 1110.75,-525.14 1243.75,-525.14 1243.75,-757.64"/>
-<polygon fill="#f1efe8" stroke="none" points="1110.75,-525.14 1110.75,-757.64 1243.75,-757.64 1243.75,-525.14 1110.75,-525.14"/>
+<polygon fill="#f1efe8" stroke="none" points="1243.75,-774.64 1110.75,-774.64 1110.75,-542.14 1243.75,-542.14 1243.75,-774.64"/>
+<polygon fill="#f1efe8" stroke="none" points="1110.75,-542.14 1110.75,-774.64 1243.75,-774.64 1243.75,-542.14 1110.75,-542.14"/>
 <g id="a_node1_0"><a data-target="contracts" tabindex="0" role="link"><title>contracts</title>
-<polygon fill="#d3d1c7" stroke="none" points="1110.75,-738.39 1110.75,-757.64 1243.75,-757.64 1243.75,-738.39 1110.75,-738.39"/>
-<polygon fill="none" stroke="#b4b2a9" points="1110.75,-738.39 1110.75,-757.64 1243.75,-757.64 1243.75,-738.39 1110.75,-738.39"/>
-<text text-anchor="start" x="1155.88" y="-745.14" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">contracts</text>
+<polygon fill="#d3d1c7" stroke="none" points="1110.75,-755.39 1110.75,-774.64 1243.75,-774.64 1243.75,-755.39 1110.75,-755.39"/>
+<polygon fill="none" stroke="#b4b2a9" points="1110.75,-755.39 1110.75,-774.64 1243.75,-774.64 1243.75,-755.39 1110.75,-755.39"/>
+<text text-anchor="start" x="1155.88" y="-762.14" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">contracts</text>
 </a>
 </g>
 <g id="a_node1_1"><a data-target="contracts-cost" tabindex="0" role="link"><title>contracts.cost</title>
-<polygon fill="none" stroke="#b4b2a9" points="1110.75,-719.14 1110.75,-738.39 1183.25,-738.39 1183.25,-719.14 1110.75,-719.14"/>
-<text text-anchor="start" x="1114.75" y="-724.89" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">cost</text>
+<polygon fill="none" stroke="#b4b2a9" points="1110.75,-736.14 1110.75,-755.39 1183.25,-755.39 1183.25,-736.14 1110.75,-736.14"/>
+<text text-anchor="start" x="1114.75" y="-741.89" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">cost</text>
 </a>
 </g>
 <g id="a_node1_2"><a data-target="contracts-cost" tabindex="0" role="link"><title>contracts.cost</title>
-<polygon fill="none" stroke="#b4b2a9" points="1183.25,-719.14 1183.25,-738.39 1243.75,-738.39 1243.75,-719.14 1183.25,-719.14"/>
-<text text-anchor="start" x="1187.25" y="-724.89" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">object</text>
+<polygon fill="none" stroke="#b4b2a9" points="1183.25,-736.14 1183.25,-755.39 1243.75,-755.39 1243.75,-736.14 1183.25,-736.14"/>
+<text text-anchor="start" x="1187.25" y="-741.89" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">object</text>
 </a>
 </g>
 <g id="a_node1_3"><a data-target="contracts-cost-amount" tabindex="0" role="link"><title>contracts.cost.amount</title>
-<polygon fill="none" stroke="#b4b2a9" points="1110.75,-699.89 1110.75,-719.14 1183.25,-719.14 1183.25,-699.89 1110.75,-699.89"/>
-<text text-anchor="start" x="1114.75" y="-706.64" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">cost.amount</text>
+<polygon fill="none" stroke="#b4b2a9" points="1110.75,-716.89 1110.75,-736.14 1183.25,-736.14 1183.25,-716.89 1110.75,-716.89"/>
+<text text-anchor="start" x="1114.75" y="-723.64" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">cost.amount</text>
 </a>
 </g>
 <g id="a_node1_4"><a data-target="contracts-cost-amount" tabindex="0" role="link"><title>contracts.cost.amount</title>
-<polygon fill="none" stroke="#b4b2a9" points="1183.25,-699.89 1183.25,-719.14 1243.75,-719.14 1243.75,-699.89 1183.25,-699.89"/>
-<text text-anchor="start" x="1187.25" y="-705.64" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">integer</text>
+<polygon fill="none" stroke="#b4b2a9" points="1183.25,-716.89 1183.25,-736.14 1243.75,-736.14 1243.75,-716.89 1183.25,-716.89"/>
+<text text-anchor="start" x="1187.25" y="-722.64" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">integer</text>
 </a>
 </g>
 <g id="a_node1_5"><a data-target="contracts-cost-currency" tabindex="0" role="link"><title>contracts.cost.currency</title>
-<polygon fill="none" stroke="#b4b2a9" points="1110.75,-680.64 1110.75,-699.89 1183.25,-699.89 1183.25,-680.64 1110.75,-680.64"/>
-<text text-anchor="start" x="1114.75" y="-687.39" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">cost.currency</text>
+<polygon fill="none" stroke="#b4b2a9" points="1110.75,-697.64 1110.75,-716.89 1183.25,-716.89 1183.25,-697.64 1110.75,-697.64"/>
+<text text-anchor="start" x="1114.75" y="-704.39" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">cost.currency</text>
 </a>
 </g>
 <g id="a_node1_6"><a data-target="contracts-cost-currency" tabindex="0" role="link"><title>contracts.cost.currency</title>
-<polygon fill="none" stroke="#b4b2a9" points="1183.25,-680.64 1183.25,-699.89 1243.75,-699.89 1243.75,-680.64 1183.25,-680.64"/>
-<text text-anchor="start" x="1187.25" y="-686.39" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">enum</text>
+<polygon fill="none" stroke="#b4b2a9" points="1183.25,-697.64 1183.25,-716.89 1243.75,-716.89 1243.75,-697.64 1183.25,-697.64"/>
+<text text-anchor="start" x="1187.25" y="-703.39" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">enum</text>
 </a>
 </g>
 <g id="a_node1_7"><a data-target="contracts-cost-duemonth" tabindex="0" role="link"><title>contracts.cost.dueMonth</title>
-<polygon fill="none" stroke="#b4b2a9" points="1110.75,-661.39 1110.75,-680.64 1183.25,-680.64 1183.25,-661.39 1110.75,-661.39"/>
-<text text-anchor="start" x="1114.75" y="-667.14" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">cost.dueMonth</text>
+<polygon fill="none" stroke="#b4b2a9" points="1110.75,-678.39 1110.75,-697.64 1183.25,-697.64 1183.25,-678.39 1110.75,-678.39"/>
+<text text-anchor="start" x="1114.75" y="-684.14" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">cost.dueMonth</text>
 </a>
 </g>
 <g id="a_node1_8"><a data-target="contracts-cost-duemonth" tabindex="0" role="link"><title>contracts.cost.dueMonth</title>
-<polygon fill="none" stroke="#b4b2a9" points="1183.25,-661.39 1183.25,-680.64 1243.75,-680.64 1243.75,-661.39 1183.25,-661.39"/>
-<text text-anchor="start" x="1187.25" y="-667.14" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">integer</text>
+<polygon fill="none" stroke="#b4b2a9" points="1183.25,-678.39 1183.25,-697.64 1243.75,-697.64 1243.75,-678.39 1183.25,-678.39"/>
+<text text-anchor="start" x="1187.25" y="-684.14" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">integer</text>
 </a>
 </g>
 <g id="a_node1_9"><a data-target="contracts-cost-period" tabindex="0" role="link"><title>contracts.cost.period</title>
-<polygon fill="none" stroke="#b4b2a9" points="1110.75,-642.14 1110.75,-661.39 1183.25,-661.39 1183.25,-642.14 1110.75,-642.14"/>
-<text text-anchor="start" x="1114.75" y="-648.89" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">cost.period</text>
+<polygon fill="none" stroke="#b4b2a9" points="1110.75,-659.14 1110.75,-678.39 1183.25,-678.39 1183.25,-659.14 1110.75,-659.14"/>
+<text text-anchor="start" x="1114.75" y="-665.89" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">cost.period</text>
 </a>
 </g>
 <g id="a_node1_10"><a data-target="contracts-cost-period" tabindex="0" role="link"><title>contracts.cost.period</title>
-<polygon fill="none" stroke="#b4b2a9" points="1183.25,-642.14 1183.25,-661.39 1243.75,-661.39 1243.75,-642.14 1183.25,-642.14"/>
-<text text-anchor="start" x="1187.25" y="-647.89" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">enum</text>
+<polygon fill="none" stroke="#b4b2a9" points="1183.25,-659.14 1183.25,-678.39 1243.75,-678.39 1243.75,-659.14 1183.25,-659.14"/>
+<text text-anchor="start" x="1187.25" y="-664.89" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">enum</text>
 </a>
 </g>
 <g id="a_node1_11"><a data-target="contracts-note" tabindex="0" role="link"><title>contracts.note</title>
-<polygon fill="none" stroke="#b4b2a9" points="1110.75,-622.89 1110.75,-642.14 1183.25,-642.14 1183.25,-622.89 1110.75,-622.89"/>
-<text text-anchor="start" x="1114.75" y="-628.64" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">note</text>
+<polygon fill="none" stroke="#b4b2a9" points="1110.75,-639.89 1110.75,-659.14 1183.25,-659.14 1183.25,-639.89 1110.75,-639.89"/>
+<text text-anchor="start" x="1114.75" y="-645.64" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">note</text>
 </a>
 </g>
 <g id="a_node1_12"><a data-target="contracts-note" tabindex="0" role="link"><title>contracts.note</title>
-<polygon fill="none" stroke="#b4b2a9" points="1183.25,-622.89 1183.25,-642.14 1243.75,-642.14 1243.75,-622.89 1183.25,-622.89"/>
-<text text-anchor="start" x="1187.25" y="-628.64" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
+<polygon fill="none" stroke="#b4b2a9" points="1183.25,-639.89 1183.25,-659.14 1243.75,-659.14 1243.75,-639.89 1183.25,-639.89"/>
+<text text-anchor="start" x="1187.25" y="-645.64" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
 </a>
 </g>
 <g id="a_node1_13"><a data-target="contracts-notice" tabindex="0" role="link"><title>contracts.notice</title>
-<polygon fill="none" stroke="#b4b2a9" points="1110.75,-603.64 1110.75,-622.89 1183.25,-622.89 1183.25,-603.64 1110.75,-603.64"/>
-<text text-anchor="start" x="1114.75" y="-609.39" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">notice</text>
+<polygon fill="none" stroke="#b4b2a9" points="1110.75,-620.64 1110.75,-639.89 1183.25,-639.89 1183.25,-620.64 1110.75,-620.64"/>
+<text text-anchor="start" x="1114.75" y="-626.39" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">notice</text>
 </a>
 </g>
 <g id="a_node1_14"><a data-target="contracts-notice" tabindex="0" role="link"><title>contracts.notice</title>
-<polygon fill="none" stroke="#b4b2a9" points="1183.25,-603.64 1183.25,-622.89 1243.75,-622.89 1243.75,-603.64 1183.25,-603.64"/>
-<text text-anchor="start" x="1187.25" y="-609.39" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
+<polygon fill="none" stroke="#b4b2a9" points="1183.25,-620.64 1183.25,-639.89 1243.75,-639.89 1243.75,-620.64 1183.25,-620.64"/>
+<text text-anchor="start" x="1187.25" y="-626.39" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
 </a>
 </g>
 <g id="a_node1_15"><a data-target="contracts-product" tabindex="0" role="link"><title>contracts.product</title>
-<polygon fill="none" stroke="#b4b2a9" points="1110.75,-584.39 1110.75,-603.64 1183.25,-603.64 1183.25,-584.39 1110.75,-584.39"/>
-<text text-anchor="start" x="1114.75" y="-590.14" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">product</text>
+<polygon fill="none" stroke="#b4b2a9" points="1110.75,-601.39 1110.75,-620.64 1183.25,-620.64 1183.25,-601.39 1110.75,-601.39"/>
+<text text-anchor="start" x="1114.75" y="-607.14" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">product</text>
 </a>
 </g>
 <g id="a_node1_16"><a data-target="contracts-product" tabindex="0" role="link"><title>contracts.product</title>
-<polygon fill="none" stroke="#b4b2a9" points="1183.25,-584.39 1183.25,-603.64 1243.75,-603.64 1243.75,-584.39 1183.25,-584.39"/>
-<text text-anchor="start" x="1187.25" y="-590.14" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
+<polygon fill="none" stroke="#b4b2a9" points="1183.25,-601.39 1183.25,-620.64 1243.75,-620.64 1243.75,-601.39 1183.25,-601.39"/>
+<text text-anchor="start" x="1187.25" y="-607.14" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
 </a>
 </g>
 <g id="a_node1_17"><a data-target="contracts-provider" tabindex="0" role="link"><title>contracts.provider</title>
-<polygon fill="none" stroke="#b4b2a9" points="1110.75,-563.64 1110.75,-584.39 1183.25,-584.39 1183.25,-563.64 1110.75,-563.64"/>
-<text text-anchor="start" x="1114.75" y="-571.14" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">provider</text>
+<polygon fill="none" stroke="#b4b2a9" points="1110.75,-580.64 1110.75,-601.39 1183.25,-601.39 1183.25,-580.64 1110.75,-580.64"/>
+<text text-anchor="start" x="1114.75" y="-588.14" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">provider</text>
 </a>
 </g>
 <g id="a_node1_18"><a data-target="contracts-provider" tabindex="0" role="link"><title>contracts.provider</title>
-<polygon fill="none" stroke="#b4b2a9" points="1183.25,-563.64 1183.25,-584.39 1243.75,-584.39 1243.75,-563.64 1183.25,-563.64"/>
-<text text-anchor="start" x="1187.25" y="-570.89" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">→ providers</text>
+<polygon fill="none" stroke="#b4b2a9" points="1183.25,-580.64 1183.25,-601.39 1243.75,-601.39 1243.75,-580.64 1183.25,-580.64"/>
+<text text-anchor="start" x="1187.25" y="-587.89" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">→ providers</text>
 </a>
 </g>
 <g id="a_node1_19"><a data-target="contracts-renews" tabindex="0" role="link"><title>contracts.renews</title>
-<polygon fill="none" stroke="#b4b2a9" points="1110.75,-544.39 1110.75,-563.64 1183.25,-563.64 1183.25,-544.39 1110.75,-544.39"/>
-<text text-anchor="start" x="1114.75" y="-550.14" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">renews</text>
+<polygon fill="none" stroke="#b4b2a9" points="1110.75,-561.39 1110.75,-580.64 1183.25,-580.64 1183.25,-561.39 1110.75,-561.39"/>
+<text text-anchor="start" x="1114.75" y="-567.14" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">renews</text>
 </a>
 </g>
 <g id="a_node1_20"><a data-target="contracts-renews" tabindex="0" role="link"><title>contracts.renews</title>
-<polygon fill="none" stroke="#b4b2a9" points="1183.25,-544.39 1183.25,-563.64 1243.75,-563.64 1243.75,-544.39 1183.25,-544.39"/>
-<text text-anchor="start" x="1187.25" y="-550.14" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
+<polygon fill="none" stroke="#b4b2a9" points="1183.25,-561.39 1183.25,-580.64 1243.75,-580.64 1243.75,-561.39 1183.25,-561.39"/>
+<text text-anchor="start" x="1187.25" y="-567.14" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
 </a>
 </g>
 <g id="a_node1_21"><a data-target="contracts-since" tabindex="0" role="link"><title>contracts.since</title>
-<polygon fill="none" stroke="#b4b2a9" points="1110.75,-525.14 1110.75,-544.39 1183.25,-544.39 1183.25,-525.14 1110.75,-525.14"/>
-<text text-anchor="start" x="1114.75" y="-530.89" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">since</text>
+<polygon fill="none" stroke="#b4b2a9" points="1110.75,-542.14 1110.75,-561.39 1183.25,-561.39 1183.25,-542.14 1110.75,-542.14"/>
+<text text-anchor="start" x="1114.75" y="-547.89" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">since</text>
 </a>
 </g>
 <g id="a_node1_22"><a data-target="contracts-since" tabindex="0" role="link"><title>contracts.since</title>
-<polygon fill="none" stroke="#b4b2a9" points="1183.25,-525.14 1183.25,-544.39 1243.75,-544.39 1243.75,-525.14 1183.25,-525.14"/>
-<text text-anchor="start" x="1187.25" y="-530.89" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
+<polygon fill="none" stroke="#b4b2a9" points="1183.25,-542.14 1183.25,-561.39 1243.75,-561.39 1243.75,-542.14 1183.25,-542.14"/>
+<text text-anchor="start" x="1187.25" y="-547.89" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
 </a>
 </g>
 </g>
 <g id="node6" class="node">
 <title>providers</title>
-<polygon fill="#f1efe8" stroke="none" points="1381,-309.52 1308.75,-309.52 1308.75,-213.27 1381,-213.27 1381,-309.52"/>
-<polygon fill="#f1efe8" stroke="none" points="1308.75,-213.27 1308.75,-309.52 1381,-309.52 1381,-213.27 1308.75,-213.27"/>
+<polygon fill="#f1efe8" stroke="none" points="1381,-324.52 1308.75,-324.52 1308.75,-228.27 1381,-228.27 1381,-324.52"/>
+<polygon fill="#f1efe8" stroke="none" points="1308.75,-228.27 1308.75,-324.52 1381,-324.52 1381,-228.27 1308.75,-228.27"/>
 <g id="a_node6_23"><a data-target="providers" tabindex="0" role="link"><title>providers</title>
-<polygon fill="#d3d1c7" stroke="none" points="1308.75,-290.27 1308.75,-309.52 1381,-309.52 1381,-290.27 1308.75,-290.27"/>
-<polygon fill="none" stroke="#b4b2a9" points="1308.75,-290.27 1308.75,-309.52 1381,-309.52 1381,-290.27 1308.75,-290.27"/>
-<text text-anchor="start" x="1322.75" y="-297.02" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">providers</text>
+<polygon fill="#d3d1c7" stroke="none" points="1308.75,-305.27 1308.75,-324.52 1381,-324.52 1381,-305.27 1308.75,-305.27"/>
+<polygon fill="none" stroke="#b4b2a9" points="1308.75,-305.27 1308.75,-324.52 1381,-324.52 1381,-305.27 1308.75,-305.27"/>
+<text text-anchor="start" x="1322.75" y="-312.02" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">providers</text>
 </a>
 </g>
 <g id="a_node6_24"><a data-target="providers-contact" tabindex="0" role="link"><title>providers.contact</title>
-<polygon fill="none" stroke="#b4b2a9" points="1308.75,-271.02 1308.75,-290.27 1349,-290.27 1349,-271.02 1308.75,-271.02"/>
-<text text-anchor="start" x="1312.75" y="-276.77" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">contact</text>
+<polygon fill="none" stroke="#b4b2a9" points="1308.75,-286.02 1308.75,-305.27 1349,-305.27 1349,-286.02 1308.75,-286.02"/>
+<text text-anchor="start" x="1312.75" y="-291.77" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">contact</text>
 </a>
 </g>
 <g id="a_node6_25"><a data-target="providers-contact" tabindex="0" role="link"><title>providers.contact</title>
-<polygon fill="none" stroke="#b4b2a9" points="1349,-271.02 1349,-290.27 1381,-290.27 1381,-271.02 1349,-271.02"/>
-<text text-anchor="start" x="1353" y="-276.77" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
+<polygon fill="none" stroke="#b4b2a9" points="1349,-286.02 1349,-305.27 1381,-305.27 1381,-286.02 1349,-286.02"/>
+<text text-anchor="start" x="1353" y="-291.77" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
 </a>
 </g>
 <g id="a_node6_26"><a data-target="providers-name" tabindex="0" role="link"><title>providers.name</title>
-<polygon fill="none" stroke="#b4b2a9" points="1308.75,-251.77 1308.75,-271.02 1349,-271.02 1349,-251.77 1308.75,-251.77"/>
-<text text-anchor="start" x="1312.75" y="-258.52" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">name</text>
+<polygon fill="none" stroke="#b4b2a9" points="1308.75,-266.77 1308.75,-286.02 1349,-286.02 1349,-266.77 1308.75,-266.77"/>
+<text text-anchor="start" x="1312.75" y="-273.52" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">name</text>
 </a>
 </g>
 <g id="a_node6_27"><a data-target="providers-name" tabindex="0" role="link"><title>providers.name</title>
-<polygon fill="none" stroke="#b4b2a9" points="1349,-251.77 1349,-271.02 1381,-271.02 1381,-251.77 1349,-251.77"/>
-<text text-anchor="start" x="1353" y="-257.52" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
+<polygon fill="none" stroke="#b4b2a9" points="1349,-266.77 1349,-286.02 1381,-286.02 1381,-266.77 1349,-266.77"/>
+<text text-anchor="start" x="1353" y="-272.52" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
 </a>
 </g>
 <g id="a_node6_28"><a data-target="providers-note" tabindex="0" role="link"><title>providers.note</title>
-<polygon fill="none" stroke="#b4b2a9" points="1308.75,-232.52 1308.75,-251.77 1349,-251.77 1349,-232.52 1308.75,-232.52"/>
-<text text-anchor="start" x="1312.75" y="-238.27" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">note</text>
+<polygon fill="none" stroke="#b4b2a9" points="1308.75,-247.52 1308.75,-266.77 1349,-266.77 1349,-247.52 1308.75,-247.52"/>
+<text text-anchor="start" x="1312.75" y="-253.27" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">note</text>
 </a>
 </g>
 <g id="a_node6_29"><a data-target="providers-note" tabindex="0" role="link"><title>providers.note</title>
-<polygon fill="none" stroke="#b4b2a9" points="1349,-232.52 1349,-251.77 1381,-251.77 1381,-232.52 1349,-232.52"/>
-<text text-anchor="start" x="1353" y="-238.27" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
+<polygon fill="none" stroke="#b4b2a9" points="1349,-247.52 1349,-266.77 1381,-266.77 1381,-247.52 1349,-247.52"/>
+<text text-anchor="start" x="1353" y="-253.27" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
 </a>
 </g>
 <g id="a_node6_30"><a data-target="providers-url" tabindex="0" role="link"><title>providers.url</title>
-<polygon fill="none" stroke="#b4b2a9" points="1308.75,-213.27 1308.75,-232.52 1349,-232.52 1349,-213.27 1308.75,-213.27"/>
-<text text-anchor="start" x="1312.75" y="-219.02" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">url</text>
+<polygon fill="none" stroke="#b4b2a9" points="1308.75,-228.27 1308.75,-247.52 1349,-247.52 1349,-228.27 1308.75,-228.27"/>
+<text text-anchor="start" x="1312.75" y="-234.02" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">url</text>
 </a>
 </g>
 <g id="a_node6_31"><a data-target="providers-url" tabindex="0" role="link"><title>providers.url</title>
-<polygon fill="none" stroke="#b4b2a9" points="1349,-213.27 1349,-232.52 1381,-232.52 1381,-213.27 1349,-213.27"/>
-<text text-anchor="start" x="1353" y="-219.02" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
+<polygon fill="none" stroke="#b4b2a9" points="1349,-228.27 1349,-247.52 1381,-247.52 1381,-228.27 1349,-228.27"/>
+<text text-anchor="start" x="1353" y="-234.02" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
 </a>
 </g>
 </g>
 <g id="edge1" class="edge">
 <title>contracts:e&#45;&gt;providers:h</title>
-<path fill="none" stroke="#888780" stroke-width="1.1" d="M1243.75,-574.02C1366.27,-574.02 1191.36,-311.54 1301.1,-300.27"/>
-<polygon fill="#888780" stroke="#888780" stroke-width="1.1" points="1301.2,-302.36 1307.09,-299.97 1300.99,-298.17 1301.2,-302.36"/>
+<path fill="none" stroke="#888780" stroke-width="1.1" d="M1243.75,-591.02C1367.24,-591.02 1190.22,-326.1 1301.38,-315.23"/>
+<polygon fill="#888780" stroke="#888780" stroke-width="1.1" points="1301.19,-317.35 1307.09,-314.97 1301,-313.15 1301.19,-317.35"/>
 </g>
 <g id="node2" class="node">
 <title>hosts</title>
@@ -3552,134 +3573,134 @@ Every section with all its fields – **bold** ones are required, nested objects
 </g>
 <g id="edge2" class="edge">
 <title>hosts:e&#45;&gt;contracts:h</title>
-<path fill="none" stroke="#888780" stroke-width="1.1" d="M474.25,-898.39C762.37,-898.39 819.09,-750.65 1103.14,-748.05"/>
-<polygon fill="#888780" stroke="#888780" stroke-width="1.1" points="1103.09,-750.15 1109.09,-748.02 1103.08,-745.95 1103.09,-750.15"/>
+<path fill="none" stroke="#888780" stroke-width="1.1" d="M474.25,-898.39C760.74,-898.39 820.67,-767.35 1103.18,-765.05"/>
+<polygon fill="#888780" stroke="#888780" stroke-width="1.1" points="1103.09,-767.15 1109.09,-765.02 1103.08,-762.95 1103.09,-767.15"/>
 </g>
 <g id="node3" class="node">
 <title>networks</title>
-<polygon fill="#f1efe8" stroke="none" points="660.25,-688.39 539.25,-688.39 539.25,-454.39 660.25,-454.39 660.25,-688.39"/>
-<polygon fill="#f1efe8" stroke="none" points="539.25,-454.39 539.25,-688.39 660.25,-688.39 660.25,-454.39 539.25,-454.39"/>
+<polygon fill="#f1efe8" stroke="none" points="660.25,-709.39 539.25,-709.39 539.25,-475.39 660.25,-475.39 660.25,-709.39"/>
+<polygon fill="#f1efe8" stroke="none" points="539.25,-475.39 539.25,-709.39 660.25,-709.39 660.25,-475.39 539.25,-475.39"/>
 <g id="a_node3_121"><a data-target="networks" tabindex="0" role="link"><title>networks</title>
-<polygon fill="#d3d1c7" stroke="none" points="539.25,-669.14 539.25,-688.39 660.25,-688.39 660.25,-669.14 539.25,-669.14"/>
-<polygon fill="none" stroke="#b4b2a9" points="539.25,-669.14 539.25,-688.39 660.25,-688.39 660.25,-669.14 539.25,-669.14"/>
-<text text-anchor="start" x="578.75" y="-675.89" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">networks</text>
+<polygon fill="#d3d1c7" stroke="none" points="539.25,-690.14 539.25,-709.39 660.25,-709.39 660.25,-690.14 539.25,-690.14"/>
+<polygon fill="none" stroke="#b4b2a9" points="539.25,-690.14 539.25,-709.39 660.25,-709.39 660.25,-690.14 539.25,-690.14"/>
+<text text-anchor="start" x="578.75" y="-696.89" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">networks</text>
 </a>
 </g>
 <g id="a_node3_122"><a data-target="networks-dhcppool" tabindex="0" role="link"><title>networks.dhcpPool</title>
-<polygon fill="none" stroke="#b4b2a9" points="539.25,-649.89 539.25,-669.14 615.5,-669.14 615.5,-649.89 539.25,-649.89"/>
-<text text-anchor="start" x="543.25" y="-655.64" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">dhcpPool</text>
+<polygon fill="none" stroke="#b4b2a9" points="539.25,-670.89 539.25,-690.14 615.5,-690.14 615.5,-670.89 539.25,-670.89"/>
+<text text-anchor="start" x="543.25" y="-676.64" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">dhcpPool</text>
 </a>
 </g>
 <g id="a_node3_123"><a data-target="networks-dhcppool" tabindex="0" role="link"><title>networks.dhcpPool</title>
-<polygon fill="none" stroke="#b4b2a9" points="615.5,-649.89 615.5,-669.14 660.25,-669.14 660.25,-649.89 615.5,-649.89"/>
-<text text-anchor="start" x="619.5" y="-655.64" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">object</text>
+<polygon fill="none" stroke="#b4b2a9" points="615.5,-670.89 615.5,-690.14 660.25,-690.14 660.25,-670.89 615.5,-670.89"/>
+<text text-anchor="start" x="619.5" y="-676.64" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">object</text>
 </a>
 </g>
 <g id="a_node3_124"><a data-target="networks-dhcppool-end" tabindex="0" role="link"><title>networks.dhcpPool.end</title>
-<polygon fill="none" stroke="#b4b2a9" points="539.25,-630.64 539.25,-649.89 615.5,-649.89 615.5,-630.64 539.25,-630.64"/>
-<text text-anchor="start" x="543.25" y="-637.39" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">dhcpPool.end</text>
+<polygon fill="none" stroke="#b4b2a9" points="539.25,-651.64 539.25,-670.89 615.5,-670.89 615.5,-651.64 539.25,-651.64"/>
+<text text-anchor="start" x="543.25" y="-658.39" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">dhcpPool.end</text>
 </a>
 </g>
 <g id="a_node3_125"><a data-target="networks-dhcppool-end" tabindex="0" role="link"><title>networks.dhcpPool.end</title>
-<polygon fill="none" stroke="#b4b2a9" points="615.5,-630.64 615.5,-649.89 660.25,-649.89 660.25,-630.64 615.5,-630.64"/>
-<text text-anchor="start" x="619.5" y="-636.39" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
+<polygon fill="none" stroke="#b4b2a9" points="615.5,-651.64 615.5,-670.89 660.25,-670.89 660.25,-651.64 615.5,-651.64"/>
+<text text-anchor="start" x="619.5" y="-657.39" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
 </a>
 </g>
 <g id="a_node3_126"><a data-target="networks-dhcppool-start" tabindex="0" role="link"><title>networks.dhcpPool.start</title>
-<polygon fill="none" stroke="#b4b2a9" points="539.25,-611.39 539.25,-630.64 615.5,-630.64 615.5,-611.39 539.25,-611.39"/>
-<text text-anchor="start" x="543.25" y="-618.14" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">dhcpPool.start</text>
+<polygon fill="none" stroke="#b4b2a9" points="539.25,-632.39 539.25,-651.64 615.5,-651.64 615.5,-632.39 539.25,-632.39"/>
+<text text-anchor="start" x="543.25" y="-639.14" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">dhcpPool.start</text>
 </a>
 </g>
 <g id="a_node3_127"><a data-target="networks-dhcppool-start" tabindex="0" role="link"><title>networks.dhcpPool.start</title>
-<polygon fill="none" stroke="#b4b2a9" points="615.5,-611.39 615.5,-630.64 660.25,-630.64 660.25,-611.39 615.5,-611.39"/>
-<text text-anchor="start" x="619.5" y="-617.14" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
+<polygon fill="none" stroke="#b4b2a9" points="615.5,-632.39 615.5,-651.64 660.25,-651.64 660.25,-632.39 615.5,-632.39"/>
+<text text-anchor="start" x="619.5" y="-638.14" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
 </a>
 </g>
 <g id="a_node3_128"><a data-target="networks-dhcpserver" tabindex="0" role="link"><title>networks.dhcpServer</title>
-<polygon fill="none" stroke="#b4b2a9" points="539.25,-590.64 539.25,-611.39 615.5,-611.39 615.5,-590.64 539.25,-590.64"/>
-<text text-anchor="start" x="543.25" y="-597.14" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">dhcpServer</text>
+<polygon fill="none" stroke="#b4b2a9" points="539.25,-611.64 539.25,-632.39 615.5,-632.39 615.5,-611.64 539.25,-611.64"/>
+<text text-anchor="start" x="543.25" y="-618.14" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">dhcpServer</text>
 </a>
 </g>
 <g id="a_node3_129"><a data-target="networks-dhcpserver" tabindex="0" role="link"><title>networks.dhcpServer</title>
-<polygon fill="none" stroke="#b4b2a9" points="615.5,-590.64 615.5,-611.39 660.25,-611.39 660.25,-590.64 615.5,-590.64"/>
-<text text-anchor="start" x="619.5" y="-597.89" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">→ hosts</text>
+<polygon fill="none" stroke="#b4b2a9" points="615.5,-611.64 615.5,-632.39 660.25,-632.39 660.25,-611.64 615.5,-611.64"/>
+<text text-anchor="start" x="619.5" y="-618.89" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">→ hosts</text>
 </a>
 </g>
 <g id="a_node3_130"><a data-target="networks-ipv4" tabindex="0" role="link"><title>networks.ipv4</title>
-<polygon fill="none" stroke="#b4b2a9" points="539.25,-571.39 539.25,-590.64 615.5,-590.64 615.5,-571.39 539.25,-571.39"/>
-<text text-anchor="start" x="543.25" y="-577.14" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">ipv4</text>
+<polygon fill="none" stroke="#b4b2a9" points="539.25,-592.39 539.25,-611.64 615.5,-611.64 615.5,-592.39 539.25,-592.39"/>
+<text text-anchor="start" x="543.25" y="-598.14" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">ipv4</text>
 </a>
 </g>
 <g id="a_node3_131"><a data-target="networks-ipv4" tabindex="0" role="link"><title>networks.ipv4</title>
-<polygon fill="none" stroke="#b4b2a9" points="615.5,-571.39 615.5,-590.64 660.25,-590.64 660.25,-571.39 615.5,-571.39"/>
-<text text-anchor="start" x="619.5" y="-577.14" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
+<polygon fill="none" stroke="#b4b2a9" points="615.5,-592.39 615.5,-611.64 660.25,-611.64 660.25,-592.39 615.5,-592.39"/>
+<text text-anchor="start" x="619.5" y="-598.14" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
 </a>
 </g>
 <g id="a_node3_132"><a data-target="networks-ipv6" tabindex="0" role="link"><title>networks.ipv6</title>
-<polygon fill="none" stroke="#b4b2a9" points="539.25,-552.14 539.25,-571.39 615.5,-571.39 615.5,-552.14 539.25,-552.14"/>
-<text text-anchor="start" x="543.25" y="-557.89" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">ipv6</text>
+<polygon fill="none" stroke="#b4b2a9" points="539.25,-573.14 539.25,-592.39 615.5,-592.39 615.5,-573.14 539.25,-573.14"/>
+<text text-anchor="start" x="543.25" y="-578.89" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">ipv6</text>
 </a>
 </g>
 <g id="a_node3_133"><a data-target="networks-ipv6" tabindex="0" role="link"><title>networks.ipv6</title>
-<polygon fill="none" stroke="#b4b2a9" points="615.5,-552.14 615.5,-571.39 660.25,-571.39 660.25,-552.14 615.5,-552.14"/>
-<text text-anchor="start" x="619.5" y="-557.89" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
+<polygon fill="none" stroke="#b4b2a9" points="615.5,-573.14 615.5,-592.39 660.25,-592.39 660.25,-573.14 615.5,-573.14"/>
+<text text-anchor="start" x="619.5" y="-578.89" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
 </a>
 </g>
 <g id="a_node3_134"><a data-target="networks-ipv6subnetid" tabindex="0" role="link"><title>networks.ipv6SubnetId</title>
-<polygon fill="none" stroke="#b4b2a9" points="539.25,-532.89 539.25,-552.14 615.5,-552.14 615.5,-532.89 539.25,-532.89"/>
-<text text-anchor="start" x="543.25" y="-538.64" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">ipv6SubnetId</text>
+<polygon fill="none" stroke="#b4b2a9" points="539.25,-553.89 539.25,-573.14 615.5,-573.14 615.5,-553.89 539.25,-553.89"/>
+<text text-anchor="start" x="543.25" y="-559.64" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">ipv6SubnetId</text>
 </a>
 </g>
 <g id="a_node3_135"><a data-target="networks-ipv6subnetid" tabindex="0" role="link"><title>networks.ipv6SubnetId</title>
-<polygon fill="none" stroke="#b4b2a9" points="615.5,-532.89 615.5,-552.14 660.25,-552.14 660.25,-532.89 615.5,-532.89"/>
-<text text-anchor="start" x="619.5" y="-538.64" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">integer</text>
+<polygon fill="none" stroke="#b4b2a9" points="615.5,-553.89 615.5,-573.14 660.25,-573.14 660.25,-553.89 615.5,-553.89"/>
+<text text-anchor="start" x="619.5" y="-559.64" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">integer</text>
 </a>
 </g>
 <g id="a_node3_136"><a data-target="networks-name" tabindex="0" role="link"><title>networks.name</title>
-<polygon fill="none" stroke="#b4b2a9" points="539.25,-513.64 539.25,-532.89 615.5,-532.89 615.5,-513.64 539.25,-513.64"/>
-<text text-anchor="start" x="543.25" y="-520.39" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">name</text>
+<polygon fill="none" stroke="#b4b2a9" points="539.25,-534.64 539.25,-553.89 615.5,-553.89 615.5,-534.64 539.25,-534.64"/>
+<text text-anchor="start" x="543.25" y="-541.39" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">name</text>
 </a>
 </g>
 <g id="a_node3_137"><a data-target="networks-name" tabindex="0" role="link"><title>networks.name</title>
-<polygon fill="none" stroke="#b4b2a9" points="615.5,-513.64 615.5,-532.89 660.25,-532.89 660.25,-513.64 615.5,-513.64"/>
-<text text-anchor="start" x="619.5" y="-519.39" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
+<polygon fill="none" stroke="#b4b2a9" points="615.5,-534.64 615.5,-553.89 660.25,-553.89 660.25,-534.64 615.5,-534.64"/>
+<text text-anchor="start" x="619.5" y="-540.39" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
 </a>
 </g>
 <g id="a_node3_138"><a data-target="networks-note" tabindex="0" role="link"><title>networks.note</title>
-<polygon fill="none" stroke="#b4b2a9" points="539.25,-494.39 539.25,-513.64 615.5,-513.64 615.5,-494.39 539.25,-494.39"/>
-<text text-anchor="start" x="543.25" y="-500.14" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">note</text>
+<polygon fill="none" stroke="#b4b2a9" points="539.25,-515.39 539.25,-534.64 615.5,-534.64 615.5,-515.39 539.25,-515.39"/>
+<text text-anchor="start" x="543.25" y="-521.14" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">note</text>
 </a>
 </g>
 <g id="a_node3_139"><a data-target="networks-note" tabindex="0" role="link"><title>networks.note</title>
-<polygon fill="none" stroke="#b4b2a9" points="615.5,-494.39 615.5,-513.64 660.25,-513.64 660.25,-494.39 615.5,-494.39"/>
-<text text-anchor="start" x="619.5" y="-500.14" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
+<polygon fill="none" stroke="#b4b2a9" points="615.5,-515.39 615.5,-534.64 660.25,-534.64 660.25,-515.39 615.5,-515.39"/>
+<text text-anchor="start" x="619.5" y="-521.14" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
 </a>
 </g>
 <g id="a_node3_140"><a data-target="networks-site" tabindex="0" role="link"><title>networks.site</title>
-<polygon fill="none" stroke="#b4b2a9" points="539.25,-473.64 539.25,-494.39 615.5,-494.39 615.5,-473.64 539.25,-473.64"/>
-<text text-anchor="start" x="543.25" y="-481.14" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">site</text>
+<polygon fill="none" stroke="#b4b2a9" points="539.25,-494.64 539.25,-515.39 615.5,-515.39 615.5,-494.64 539.25,-494.64"/>
+<text text-anchor="start" x="543.25" y="-502.14" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">site</text>
 </a>
 </g>
 <g id="a_node3_141"><a data-target="networks-site" tabindex="0" role="link"><title>networks.site</title>
-<polygon fill="none" stroke="#b4b2a9" points="615.5,-473.64 615.5,-494.39 660.25,-494.39 660.25,-473.64 615.5,-473.64"/>
-<text text-anchor="start" x="619.5" y="-480.89" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">→ sites</text>
+<polygon fill="none" stroke="#b4b2a9" points="615.5,-494.64 615.5,-515.39 660.25,-515.39 660.25,-494.64 615.5,-494.64"/>
+<text text-anchor="start" x="619.5" y="-501.89" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">→ sites</text>
 </a>
 </g>
 <g id="a_node3_142"><a data-target="networks-vlan" tabindex="0" role="link"><title>networks.vlan</title>
-<polygon fill="none" stroke="#b4b2a9" points="539.25,-454.39 539.25,-473.64 615.5,-473.64 615.5,-454.39 539.25,-454.39"/>
-<text text-anchor="start" x="543.25" y="-460.14" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">vlan</text>
+<polygon fill="none" stroke="#b4b2a9" points="539.25,-475.39 539.25,-494.64 615.5,-494.64 615.5,-475.39 539.25,-475.39"/>
+<text text-anchor="start" x="543.25" y="-481.14" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">vlan</text>
 </a>
 </g>
 <g id="a_node3_143"><a data-target="networks-vlan" tabindex="0" role="link"><title>networks.vlan</title>
-<polygon fill="none" stroke="#b4b2a9" points="615.5,-454.39 615.5,-473.64 660.25,-473.64 660.25,-454.39 615.5,-454.39"/>
-<text text-anchor="start" x="619.5" y="-460.14" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">integer</text>
+<polygon fill="none" stroke="#b4b2a9" points="615.5,-475.39 615.5,-494.64 660.25,-494.64 660.25,-475.39 615.5,-475.39"/>
+<text text-anchor="start" x="619.5" y="-481.14" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">integer</text>
 </a>
 </g>
 </g>
 <g id="edge3" class="edge">
 <title>hosts:e&#45;&gt;networks:h</title>
-<path fill="none" stroke="#888780" stroke-width="1.1" d="M474.25,-548.89C536.02,-548.89 479.97,-667.84 531.62,-678.07"/>
-<polygon fill="#888780" stroke="#888780" stroke-width="1.1" points="531.43,-680.16 537.59,-678.61 531.81,-675.98 531.43,-680.16"/>
+<path fill="none" stroke="#888780" stroke-width="1.1" d="M474.25,-548.89C544.55,-548.89 472.04,-688.78 531.74,-699.16"/>
+<polygon fill="#888780" stroke="#888780" stroke-width="1.1" points="531.44,-701.24 537.59,-699.63 531.78,-697.05 531.44,-701.24"/>
 </g>
 <g id="node5" class="node">
 <title>owners</title>
@@ -3729,89 +3750,89 @@ Every section with all its fields – **bold** ones are required, nested objects
 </g>
 <g id="node8" class="node">
 <title>sites</title>
-<polygon fill="#f1efe8" stroke="none" points="828.25,-494.27 725.25,-494.27 725.25,-356.52 828.25,-356.52 828.25,-494.27"/>
-<polygon fill="#f1efe8" stroke="none" points="725.25,-356.52 725.25,-494.27 828.25,-494.27 828.25,-356.52 725.25,-356.52"/>
+<polygon fill="#f1efe8" stroke="none" points="828.25,-515.27 725.25,-515.27 725.25,-377.52 828.25,-377.52 828.25,-515.27"/>
+<polygon fill="#f1efe8" stroke="none" points="725.25,-377.52 725.25,-515.27 828.25,-515.27 828.25,-377.52 725.25,-377.52"/>
 <g id="a_node8_151"><a data-target="sites" tabindex="0" role="link"><title>sites</title>
-<polygon fill="#d3d1c7" stroke="none" points="725.25,-475.02 725.25,-494.27 828.25,-494.27 828.25,-475.02 725.25,-475.02"/>
-<polygon fill="none" stroke="#b4b2a9" points="725.25,-475.02 725.25,-494.27 828.25,-494.27 828.25,-475.02 725.25,-475.02"/>
-<text text-anchor="start" x="765.88" y="-481.77" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">sites</text>
+<polygon fill="#d3d1c7" stroke="none" points="725.25,-496.02 725.25,-515.27 828.25,-515.27 828.25,-496.02 725.25,-496.02"/>
+<polygon fill="none" stroke="#b4b2a9" points="725.25,-496.02 725.25,-515.27 828.25,-515.27 828.25,-496.02 725.25,-496.02"/>
+<text text-anchor="start" x="765.88" y="-502.77" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">sites</text>
 </a>
 </g>
 <g id="a_node8_152"><a data-target="sites-city" tabindex="0" role="link"><title>sites.city</title>
-<polygon fill="none" stroke="#b4b2a9" points="725.25,-455.77 725.25,-475.02 767.75,-475.02 767.75,-455.77 725.25,-455.77"/>
-<text text-anchor="start" x="729.25" y="-462.52" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">city</text>
+<polygon fill="none" stroke="#b4b2a9" points="725.25,-476.77 725.25,-496.02 767.75,-496.02 767.75,-476.77 725.25,-476.77"/>
+<text text-anchor="start" x="729.25" y="-483.52" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">city</text>
 </a>
 </g>
 <g id="a_node8_153"><a data-target="sites-city" tabindex="0" role="link"><title>sites.city</title>
-<polygon fill="none" stroke="#b4b2a9" points="767.75,-455.77 767.75,-475.02 828.25,-475.02 828.25,-455.77 767.75,-455.77"/>
-<text text-anchor="start" x="771.75" y="-461.52" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
+<polygon fill="none" stroke="#b4b2a9" points="767.75,-476.77 767.75,-496.02 828.25,-496.02 828.25,-476.77 767.75,-476.77"/>
+<text text-anchor="start" x="771.75" y="-482.52" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
 </a>
 </g>
 <g id="a_node8_154"><a data-target="sites-ipv6ula" tabindex="0" role="link"><title>sites.ipv6Ula</title>
-<polygon fill="none" stroke="#b4b2a9" points="725.25,-436.52 725.25,-455.77 767.75,-455.77 767.75,-436.52 725.25,-436.52"/>
-<text text-anchor="start" x="729.25" y="-442.27" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">ipv6Ula</text>
+<polygon fill="none" stroke="#b4b2a9" points="725.25,-457.52 725.25,-476.77 767.75,-476.77 767.75,-457.52 725.25,-457.52"/>
+<text text-anchor="start" x="729.25" y="-463.27" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">ipv6Ula</text>
 </a>
 </g>
 <g id="a_node8_155"><a data-target="sites-ipv6ula" tabindex="0" role="link"><title>sites.ipv6Ula</title>
-<polygon fill="none" stroke="#b4b2a9" points="767.75,-436.52 767.75,-455.77 828.25,-455.77 828.25,-436.52 767.75,-436.52"/>
-<text text-anchor="start" x="771.75" y="-442.27" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
+<polygon fill="none" stroke="#b4b2a9" points="767.75,-457.52 767.75,-476.77 828.25,-476.77 828.25,-457.52 767.75,-457.52"/>
+<text text-anchor="start" x="771.75" y="-463.27" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
 </a>
 </g>
 <g id="a_node8_156"><a data-target="sites-kind" tabindex="0" role="link"><title>sites.kind</title>
-<polygon fill="none" stroke="#b4b2a9" points="725.25,-417.27 725.25,-436.52 767.75,-436.52 767.75,-417.27 725.25,-417.27"/>
-<text text-anchor="start" x="729.25" y="-424.02" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">kind</text>
+<polygon fill="none" stroke="#b4b2a9" points="725.25,-438.27 725.25,-457.52 767.75,-457.52 767.75,-438.27 725.25,-438.27"/>
+<text text-anchor="start" x="729.25" y="-445.02" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">kind</text>
 </a>
 </g>
 <g id="a_node8_157"><a data-target="sites-kind" tabindex="0" role="link"><title>sites.kind</title>
-<polygon fill="none" stroke="#b4b2a9" points="767.75,-417.27 767.75,-436.52 828.25,-436.52 828.25,-417.27 767.75,-417.27"/>
-<text text-anchor="start" x="771.75" y="-423.02" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">enum</text>
+<polygon fill="none" stroke="#b4b2a9" points="767.75,-438.27 767.75,-457.52 828.25,-457.52 828.25,-438.27 767.75,-438.27"/>
+<text text-anchor="start" x="771.75" y="-444.02" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">enum</text>
 </a>
 </g>
 <g id="a_node8_158"><a data-target="sites-note" tabindex="0" role="link"><title>sites.note</title>
-<polygon fill="none" stroke="#b4b2a9" points="725.25,-398.02 725.25,-417.27 767.75,-417.27 767.75,-398.02 725.25,-398.02"/>
-<text text-anchor="start" x="729.25" y="-403.77" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">note</text>
+<polygon fill="none" stroke="#b4b2a9" points="725.25,-419.02 725.25,-438.27 767.75,-438.27 767.75,-419.02 725.25,-419.02"/>
+<text text-anchor="start" x="729.25" y="-424.77" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">note</text>
 </a>
 </g>
 <g id="a_node8_159"><a data-target="sites-note" tabindex="0" role="link"><title>sites.note</title>
-<polygon fill="none" stroke="#b4b2a9" points="767.75,-398.02 767.75,-417.27 828.25,-417.27 828.25,-398.02 767.75,-398.02"/>
-<text text-anchor="start" x="771.75" y="-403.77" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
+<polygon fill="none" stroke="#b4b2a9" points="767.75,-419.02 767.75,-438.27 828.25,-438.27 828.25,-419.02 767.75,-419.02"/>
+<text text-anchor="start" x="771.75" y="-424.77" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
 </a>
 </g>
 <g id="a_node8_160"><a data-target="sites-provider" tabindex="0" role="link"><title>sites.provider</title>
-<polygon fill="none" stroke="#b4b2a9" points="725.25,-377.27 725.25,-398.02 767.75,-398.02 767.75,-377.27 725.25,-377.27"/>
-<text text-anchor="start" x="729.25" y="-383.77" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">provider</text>
+<polygon fill="none" stroke="#b4b2a9" points="725.25,-398.27 725.25,-419.02 767.75,-419.02 767.75,-398.27 725.25,-398.27"/>
+<text text-anchor="start" x="729.25" y="-404.77" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">provider</text>
 </a>
 </g>
 <g id="a_node8_161"><a data-target="sites-provider" tabindex="0" role="link"><title>sites.provider</title>
-<polygon fill="none" stroke="#b4b2a9" points="767.75,-377.27 767.75,-398.02 828.25,-398.02 828.25,-377.27 767.75,-377.27"/>
-<text text-anchor="start" x="771.75" y="-384.52" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">→ providers</text>
+<polygon fill="none" stroke="#b4b2a9" points="767.75,-398.27 767.75,-419.02 828.25,-419.02 828.25,-398.27 767.75,-398.27"/>
+<text text-anchor="start" x="771.75" y="-405.52" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">→ providers</text>
 </a>
 </g>
 <g id="a_node8_162"><a data-target="sites-uplinks" tabindex="0" role="link"><title>sites.uplinks</title>
-<polygon fill="none" stroke="#b4b2a9" points="725.25,-356.52 725.25,-377.27 767.75,-377.27 767.75,-356.52 725.25,-356.52"/>
-<text text-anchor="start" x="729.25" y="-364.02" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">uplinks</text>
+<polygon fill="none" stroke="#b4b2a9" points="725.25,-377.52 725.25,-398.27 767.75,-398.27 767.75,-377.52 725.25,-377.52"/>
+<text text-anchor="start" x="729.25" y="-385.02" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">uplinks</text>
 </a>
 </g>
 <g id="a_node8_163"><a data-target="sites-uplinks" tabindex="0" role="link"><title>sites.uplinks</title>
-<polygon fill="none" stroke="#b4b2a9" points="767.75,-356.52 767.75,-377.27 828.25,-377.27 828.25,-356.52 767.75,-356.52"/>
-<text text-anchor="start" x="771.75" y="-363.77" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">[→ uplinks]</text>
+<polygon fill="none" stroke="#b4b2a9" points="767.75,-377.52 767.75,-398.27 828.25,-398.27 828.25,-377.52 767.75,-377.52"/>
+<text text-anchor="start" x="771.75" y="-384.77" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">[→ uplinks]</text>
 </a>
 </g>
 </g>
 <g id="edge5" class="edge">
 <title>hosts:e&#45;&gt;sites:h</title>
-<path fill="none" stroke="#888780" stroke-width="1.1" d="M474.25,-271.89C557.63,-271.89 595.66,-243.66 660.25,-296.39 726.81,-350.73 641.99,-476.96 717.93,-484.31"/>
-<polygon fill="#888780" stroke="#888780" stroke-width="1.1" points="717.5,-486.39 723.59,-484.56 717.69,-482.19 717.5,-486.39"/>
+<path fill="none" stroke="#888780" stroke-width="1.1" d="M474.25,-271.89C557.63,-271.89 596.49,-242.66 660.25,-296.39 732.68,-357.43 633.57,-497.69 717.71,-505.32"/>
+<polygon fill="#888780" stroke="#888780" stroke-width="1.1" points="717.5,-507.41 723.59,-505.57 717.68,-503.21 717.5,-507.41"/>
 </g>
 <g id="edge6" class="edge">
 <title>networks:e&#45;&gt;hosts:h</title>
-<path fill="none" stroke="#888780" stroke-width="1.1" d="M661.25,-601.02C700.09,-601.02 675.1,-652.51 660.25,-688.39 630.81,-759.54 584.36,-749.99 539.25,-812.39 504.09,-861.03 534.14,-931.29 481.81,-937.24"/>
-<polygon fill="#888780" stroke="#888780" stroke-width="1.1" points="481.79,-935.13 475.91,-937.55 482.02,-939.33 481.79,-935.13"/>
+<path fill="none" stroke="#888780" stroke-width="1.1" d="M661.25,-622.02C700.09,-622.02 675.77,-673.79 660.25,-709.39 630.6,-777.4 585.08,-766.05 539.25,-824.39 505.08,-867.89 529.72,-931.35 481.85,-937.2"/>
+<polygon fill="#888780" stroke="#888780" stroke-width="1.1" points="481.78,-935.11 475.91,-937.55 482.02,-939.3 481.78,-935.11"/>
 </g>
 <g id="edge7" class="edge">
 <title>networks:e&#45;&gt;sites:h</title>
-<path fill="none" stroke="#888780" stroke-width="1.1" d="M660.25,-484.02C686.43,-484.02 694.82,-484.53 717.66,-484.63"/>
-<polygon fill="#888780" stroke="#888780" stroke-width="1.1" points="717.58,-486.73 723.59,-484.64 717.59,-482.53 717.58,-486.73"/>
+<path fill="none" stroke="#888780" stroke-width="1.1" d="M660.25,-505.02C686.43,-505.02 694.82,-505.53 717.66,-505.63"/>
+<polygon fill="#888780" stroke="#888780" stroke-width="1.1" points="717.58,-507.73 723.59,-505.64 717.59,-503.53 717.58,-507.73"/>
 </g>
 <g id="node4" class="node">
 <title>overlays</title>
@@ -4177,8 +4198,8 @@ Every section with all its fields – **bold** ones are required, nested objects
 </g>
 <g id="edge8" class="edge">
 <title>services:e&#45;&gt;contracts:h</title>
-<path fill="none" stroke="#888780" stroke-width="1.1" d="M174.25,-981.52C362.92,-981.52 410.08,-981.39 598.75,-981.39 598.75,-981.39 598.75,-981.39 777.75,-981.39 820.9,-981.39 1044.17,-768.51 1103.5,-749.39"/>
-<polygon fill="#888780" stroke="#888780" stroke-width="1.1" points="1103.61,-751.5 1109.11,-748.33 1102.83,-747.38 1103.61,-751.5"/>
+<path fill="none" stroke="#888780" stroke-width="1.1" d="M174.25,-981.52C362.92,-981.52 410.08,-981.39 598.75,-981.39 598.75,-981.39 598.75,-981.39 777.75,-981.39 819.81,-981.39 1044.12,-784.83 1103.26,-766.4"/>
+<polygon fill="#888780" stroke="#888780" stroke-width="1.1" points="1103.59,-768.47 1109.11,-765.32 1102.83,-764.34 1103.59,-768.47"/>
 </g>
 <g id="edge9" class="edge">
 <title>services:e&#45;&gt;hosts:h</title>
@@ -4187,169 +4208,179 @@ Every section with all its fields – **bold** ones are required, nested objects
 </g>
 <g id="edge10" class="edge">
 <title>services:e&#45;&gt;providers:h</title>
-<path fill="none" stroke="#888780" stroke-width="1.1" d="M174.25,-706.02C319.33,-706.02 134.84,-157.12 239.25,-56.39 354.47,54.77 438.65,-33.39 598.75,-33.39 598.75,-33.39 598.75,-33.39 970.5,-33.39 1099.07,-33.39 1151.58,-38.74 1243.75,-128.39 1300.24,-183.34 1232.07,-292.34 1301.14,-299.52"/>
-<polygon fill="#888780" stroke="#888780" stroke-width="1.1" points="1300.99,-301.61 1307.09,-299.81 1301.2,-297.42 1300.99,-301.61"/>
+<path fill="none" stroke="#888780" stroke-width="1.1" d="M174.25,-706.02C319.33,-706.02 134.84,-157.12 239.25,-56.39 354.47,54.77 438.65,-33.39 598.75,-33.39 598.75,-33.39 598.75,-33.39 970.5,-33.39 1099.67,-33.39 1152.66,-40.81 1243.75,-132.39 1302.57,-191.53 1227.62,-307.36 1301.16,-314.54"/>
+<polygon fill="#888780" stroke="#888780" stroke-width="1.1" points="1301,-316.64 1307.09,-314.81 1301.19,-312.44 1301,-316.64"/>
 </g>
 <g id="edge11" class="edge">
 <title>sites:e&#45;&gt;providers:h</title>
-<path fill="none" stroke="#888780" stroke-width="1.1" d="M828.25,-387.64C924.92,-387.64 950.34,-402.9 1045.75,-387.39 1164.85,-368.03 1184.77,-302.65 1301.3,-299.98"/>
-<polygon fill="#888780" stroke="#888780" stroke-width="1.1" points="1301.11,-302.08 1307.09,-299.91 1301.06,-297.88 1301.11,-302.08"/>
+<path fill="none" stroke="#888780" stroke-width="1.1" d="M828.25,-408.64C924.92,-408.64 950.52,-425.98 1045.75,-409.39 1165.6,-388.51 1183.83,-317.87 1301.24,-314.98"/>
+<polygon fill="#888780" stroke="#888780" stroke-width="1.1" points="1301.11,-317.08 1307.09,-314.91 1301.06,-312.88 1301.11,-317.08"/>
 </g>
 <g id="node9" class="node">
 <title>uplinks</title>
-<polygon fill="#f1efe8" stroke="none" points="1045.75,-376.64 893.25,-376.64 893.25,-104.14 1045.75,-104.14 1045.75,-376.64"/>
-<polygon fill="#f1efe8" stroke="none" points="893.25,-104.14 893.25,-376.64 1045.75,-376.64 1045.75,-104.14 893.25,-104.14"/>
+<polygon fill="#f1efe8" stroke="none" points="1045.75,-398.27 893.25,-398.27 893.25,-106.52 1045.75,-106.52 1045.75,-398.27"/>
+<polygon fill="#f1efe8" stroke="none" points="893.25,-106.52 893.25,-398.27 1045.75,-398.27 1045.75,-106.52 893.25,-106.52"/>
 <g id="a_node9_234"><a data-target="uplinks" tabindex="0" role="link"><title>uplinks</title>
-<polygon fill="#d3d1c7" stroke="none" points="893.25,-357.39 893.25,-376.64 1045.75,-376.64 1045.75,-357.39 893.25,-357.39"/>
-<polygon fill="none" stroke="#b4b2a9" points="893.25,-357.39 893.25,-376.64 1045.75,-376.64 1045.75,-357.39 893.25,-357.39"/>
-<text text-anchor="start" x="952.25" y="-364.14" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">uplinks</text>
+<polygon fill="#d3d1c7" stroke="none" points="893.25,-379.02 893.25,-398.27 1045.75,-398.27 1045.75,-379.02 893.25,-379.02"/>
+<polygon fill="none" stroke="#b4b2a9" points="893.25,-379.02 893.25,-398.27 1045.75,-398.27 1045.75,-379.02 893.25,-379.02"/>
+<text text-anchor="start" x="952.25" y="-385.77" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">uplinks</text>
 </a>
 </g>
 <g id="a_node9_235"><a data-target="uplinks-asn" tabindex="0" role="link"><title>uplinks.asn</title>
-<polygon fill="none" stroke="#b4b2a9" points="893.25,-338.14 893.25,-357.39 978.5,-357.39 978.5,-338.14 893.25,-338.14"/>
-<text text-anchor="start" x="897.25" y="-343.89" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">asn</text>
+<polygon fill="none" stroke="#b4b2a9" points="893.25,-359.77 893.25,-379.02 978.5,-379.02 978.5,-359.77 893.25,-359.77"/>
+<text text-anchor="start" x="897.25" y="-365.52" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">asn</text>
 </a>
 </g>
 <g id="a_node9_236"><a data-target="uplinks-asn" tabindex="0" role="link"><title>uplinks.asn</title>
-<polygon fill="none" stroke="#b4b2a9" points="978.5,-338.14 978.5,-357.39 1045.75,-357.39 1045.75,-338.14 978.5,-338.14"/>
-<text text-anchor="start" x="982.5" y="-343.89" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">integer</text>
+<polygon fill="none" stroke="#b4b2a9" points="978.5,-359.77 978.5,-379.02 1045.75,-379.02 1045.75,-359.77 978.5,-359.77"/>
+<text text-anchor="start" x="982.5" y="-365.52" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">integer</text>
 </a>
 </g>
 <g id="a_node9_237"><a data-target="uplinks-bandwidth" tabindex="0" role="link"><title>uplinks.bandwidth</title>
-<polygon fill="none" stroke="#b4b2a9" points="893.25,-318.89 893.25,-338.14 978.5,-338.14 978.5,-318.89 893.25,-318.89"/>
-<text text-anchor="start" x="897.25" y="-324.64" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">bandwidth</text>
+<polygon fill="none" stroke="#b4b2a9" points="893.25,-340.52 893.25,-359.77 978.5,-359.77 978.5,-340.52 893.25,-340.52"/>
+<text text-anchor="start" x="897.25" y="-346.27" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">bandwidth</text>
 </a>
 </g>
 <g id="a_node9_238"><a data-target="uplinks-bandwidth" tabindex="0" role="link"><title>uplinks.bandwidth</title>
-<polygon fill="none" stroke="#b4b2a9" points="978.5,-318.89 978.5,-338.14 1045.75,-338.14 1045.75,-318.89 978.5,-318.89"/>
-<text text-anchor="start" x="982.5" y="-324.64" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">object</text>
+<polygon fill="none" stroke="#b4b2a9" points="978.5,-340.52 978.5,-359.77 1045.75,-359.77 1045.75,-340.52 978.5,-340.52"/>
+<text text-anchor="start" x="982.5" y="-346.27" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">object</text>
 </a>
 </g>
 <g id="a_node9_239"><a data-target="uplinks-bandwidth-down" tabindex="0" role="link"><title>uplinks.bandwidth.down</title>
-<polygon fill="none" stroke="#b4b2a9" points="893.25,-299.64 893.25,-318.89 978.5,-318.89 978.5,-299.64 893.25,-299.64"/>
-<text text-anchor="start" x="897.25" y="-306.39" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">bandwidth.down</text>
+<polygon fill="none" stroke="#b4b2a9" points="893.25,-321.27 893.25,-340.52 978.5,-340.52 978.5,-321.27 893.25,-321.27"/>
+<text text-anchor="start" x="897.25" y="-328.02" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">bandwidth.down</text>
 </a>
 </g>
 <g id="a_node9_240"><a data-target="uplinks-bandwidth-down" tabindex="0" role="link"><title>uplinks.bandwidth.down</title>
-<polygon fill="none" stroke="#b4b2a9" points="978.5,-299.64 978.5,-318.89 1045.75,-318.89 1045.75,-299.64 978.5,-299.64"/>
-<text text-anchor="start" x="982.5" y="-305.39" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">integer</text>
+<polygon fill="none" stroke="#b4b2a9" points="978.5,-321.27 978.5,-340.52 1045.75,-340.52 1045.75,-321.27 978.5,-321.27"/>
+<text text-anchor="start" x="982.5" y="-327.02" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">integer</text>
 </a>
 </g>
 <g id="a_node9_241"><a data-target="uplinks-bandwidth-up" tabindex="0" role="link"><title>uplinks.bandwidth.up</title>
-<polygon fill="none" stroke="#b4b2a9" points="893.25,-280.39 893.25,-299.64 978.5,-299.64 978.5,-280.39 893.25,-280.39"/>
-<text text-anchor="start" x="897.25" y="-287.14" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">bandwidth.up</text>
+<polygon fill="none" stroke="#b4b2a9" points="893.25,-302.02 893.25,-321.27 978.5,-321.27 978.5,-302.02 893.25,-302.02"/>
+<text text-anchor="start" x="897.25" y="-308.77" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-weight="bold" font-size="10.00" fill="#2c2c2a">bandwidth.up</text>
 </a>
 </g>
 <g id="a_node9_242"><a data-target="uplinks-bandwidth-up" tabindex="0" role="link"><title>uplinks.bandwidth.up</title>
-<polygon fill="none" stroke="#b4b2a9" points="978.5,-280.39 978.5,-299.64 1045.75,-299.64 1045.75,-280.39 978.5,-280.39"/>
-<text text-anchor="start" x="982.5" y="-286.14" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">integer</text>
+<polygon fill="none" stroke="#b4b2a9" points="978.5,-302.02 978.5,-321.27 1045.75,-321.27 1045.75,-302.02 978.5,-302.02"/>
+<text text-anchor="start" x="982.5" y="-307.77" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">integer</text>
 </a>
 </g>
 <g id="a_node9_243"><a data-target="uplinks-contracts" tabindex="0" role="link"><title>uplinks.contracts</title>
-<polygon fill="none" stroke="#b4b2a9" points="893.25,-259.64 893.25,-280.39 978.5,-280.39 978.5,-259.64 893.25,-259.64"/>
-<text text-anchor="start" x="897.25" y="-266.14" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">contracts</text>
+<polygon fill="none" stroke="#b4b2a9" points="893.25,-281.27 893.25,-302.02 978.5,-302.02 978.5,-281.27 893.25,-281.27"/>
+<text text-anchor="start" x="897.25" y="-287.77" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">contracts</text>
 </a>
 </g>
 <g id="a_node9_244"><a data-target="uplinks-contracts" tabindex="0" role="link"><title>uplinks.contracts</title>
-<polygon fill="none" stroke="#b4b2a9" points="978.5,-259.64 978.5,-280.39 1045.75,-280.39 1045.75,-259.64 978.5,-259.64"/>
-<text text-anchor="start" x="982.5" y="-266.89" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">[→ contracts]</text>
+<polygon fill="none" stroke="#b4b2a9" points="978.5,-281.27 978.5,-302.02 1045.75,-302.02 1045.75,-281.27 978.5,-281.27"/>
+<text text-anchor="start" x="982.5" y="-288.52" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">[→ contracts]</text>
 </a>
 </g>
-<g id="a_node9_245"><a data-target="uplinks-ipv4" tabindex="0" role="link"><title>uplinks.ipv4</title>
-<polygon fill="none" stroke="#b4b2a9" points="893.25,-240.39 893.25,-259.64 978.5,-259.64 978.5,-240.39 893.25,-240.39"/>
-<text text-anchor="start" x="897.25" y="-246.14" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">ipv4</text>
+<g id="a_node9_245"><a data-target="uplinks-dyndnsname" tabindex="0" role="link"><title>uplinks.dyndnsName</title>
+<polygon fill="none" stroke="#b4b2a9" points="893.25,-262.02 893.25,-281.27 978.5,-281.27 978.5,-262.02 893.25,-262.02"/>
+<text text-anchor="start" x="897.25" y="-267.77" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">dyndnsName</text>
 </a>
 </g>
-<g id="a_node9_246"><a data-target="uplinks-ipv4" tabindex="0" role="link"><title>uplinks.ipv4</title>
-<polygon fill="none" stroke="#b4b2a9" points="978.5,-240.39 978.5,-259.64 1045.75,-259.64 1045.75,-240.39 978.5,-240.39"/>
-<text text-anchor="start" x="982.5" y="-246.14" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">enum</text>
+<g id="a_node9_246"><a data-target="uplinks-dyndnsname" tabindex="0" role="link"><title>uplinks.dyndnsName</title>
+<polygon fill="none" stroke="#b4b2a9" points="978.5,-262.02 978.5,-281.27 1045.75,-281.27 1045.75,-262.02 978.5,-262.02"/>
+<text text-anchor="start" x="982.5" y="-267.77" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
 </a>
 </g>
-<g id="a_node9_247"><a data-target="uplinks-ipv4static" tabindex="0" role="link"><title>uplinks.ipv4Static</title>
-<polygon fill="none" stroke="#b4b2a9" points="893.25,-221.14 893.25,-240.39 978.5,-240.39 978.5,-221.14 893.25,-221.14"/>
-<text text-anchor="start" x="897.25" y="-226.89" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">ipv4Static</text>
+<g id="a_node9_247"><a data-target="uplinks-ipv4" tabindex="0" role="link"><title>uplinks.ipv4</title>
+<polygon fill="none" stroke="#b4b2a9" points="893.25,-242.77 893.25,-262.02 978.5,-262.02 978.5,-242.77 893.25,-242.77"/>
+<text text-anchor="start" x="897.25" y="-248.52" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">ipv4</text>
 </a>
 </g>
-<g id="a_node9_248"><a data-target="uplinks-ipv4static" tabindex="0" role="link"><title>uplinks.ipv4Static</title>
-<polygon fill="none" stroke="#b4b2a9" points="978.5,-221.14 978.5,-240.39 1045.75,-240.39 1045.75,-221.14 978.5,-221.14"/>
-<text text-anchor="start" x="982.5" y="-226.89" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">boolean</text>
+<g id="a_node9_248"><a data-target="uplinks-ipv4" tabindex="0" role="link"><title>uplinks.ipv4</title>
+<polygon fill="none" stroke="#b4b2a9" points="978.5,-242.77 978.5,-262.02 1045.75,-262.02 1045.75,-242.77 978.5,-242.77"/>
+<text text-anchor="start" x="982.5" y="-248.52" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">enum</text>
 </a>
 </g>
-<g id="a_node9_249"><a data-target="uplinks-ipv6" tabindex="0" role="link"><title>uplinks.ipv6</title>
-<polygon fill="none" stroke="#b4b2a9" points="893.25,-201.89 893.25,-221.14 978.5,-221.14 978.5,-201.89 893.25,-201.89"/>
-<text text-anchor="start" x="897.25" y="-207.64" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">ipv6</text>
+<g id="a_node9_249"><a data-target="uplinks-ipv4static" tabindex="0" role="link"><title>uplinks.ipv4Static</title>
+<polygon fill="none" stroke="#b4b2a9" points="893.25,-223.52 893.25,-242.77 978.5,-242.77 978.5,-223.52 893.25,-223.52"/>
+<text text-anchor="start" x="897.25" y="-229.27" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">ipv4Static</text>
 </a>
 </g>
-<g id="a_node9_250"><a data-target="uplinks-ipv6" tabindex="0" role="link"><title>uplinks.ipv6</title>
-<polygon fill="none" stroke="#b4b2a9" points="978.5,-201.89 978.5,-221.14 1045.75,-221.14 1045.75,-201.89 978.5,-201.89"/>
-<text text-anchor="start" x="982.5" y="-207.64" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">boolean</text>
+<g id="a_node9_250"><a data-target="uplinks-ipv4static" tabindex="0" role="link"><title>uplinks.ipv4Static</title>
+<polygon fill="none" stroke="#b4b2a9" points="978.5,-223.52 978.5,-242.77 1045.75,-242.77 1045.75,-223.52 978.5,-223.52"/>
+<text text-anchor="start" x="982.5" y="-229.27" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">boolean</text>
 </a>
 </g>
-<g id="a_node9_251"><a data-target="uplinks-ipv6prefixlength" tabindex="0" role="link"><title>uplinks.ipv6PrefixLength</title>
-<polygon fill="none" stroke="#b4b2a9" points="893.25,-182.64 893.25,-201.89 978.5,-201.89 978.5,-182.64 893.25,-182.64"/>
-<text text-anchor="start" x="897.25" y="-188.39" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">ipv6PrefixLength</text>
+<g id="a_node9_251"><a data-target="uplinks-ipv6" tabindex="0" role="link"><title>uplinks.ipv6</title>
+<polygon fill="none" stroke="#b4b2a9" points="893.25,-204.27 893.25,-223.52 978.5,-223.52 978.5,-204.27 893.25,-204.27"/>
+<text text-anchor="start" x="897.25" y="-210.02" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">ipv6</text>
 </a>
 </g>
-<g id="a_node9_252"><a data-target="uplinks-ipv6prefixlength" tabindex="0" role="link"><title>uplinks.ipv6PrefixLength</title>
-<polygon fill="none" stroke="#b4b2a9" points="978.5,-182.64 978.5,-201.89 1045.75,-201.89 1045.75,-182.64 978.5,-182.64"/>
-<text text-anchor="start" x="982.5" y="-188.39" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">integer</text>
+<g id="a_node9_252"><a data-target="uplinks-ipv6" tabindex="0" role="link"><title>uplinks.ipv6</title>
+<polygon fill="none" stroke="#b4b2a9" points="978.5,-204.27 978.5,-223.52 1045.75,-223.52 1045.75,-204.27 978.5,-204.27"/>
+<text text-anchor="start" x="982.5" y="-210.02" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">boolean</text>
 </a>
 </g>
-<g id="a_node9_253"><a data-target="uplinks-ipv6static" tabindex="0" role="link"><title>uplinks.ipv6Static</title>
-<polygon fill="none" stroke="#b4b2a9" points="893.25,-163.39 893.25,-182.64 978.5,-182.64 978.5,-163.39 893.25,-163.39"/>
-<text text-anchor="start" x="897.25" y="-169.14" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">ipv6Static</text>
+<g id="a_node9_253"><a data-target="uplinks-ipv6prefixlength" tabindex="0" role="link"><title>uplinks.ipv6PrefixLength</title>
+<polygon fill="none" stroke="#b4b2a9" points="893.25,-185.02 893.25,-204.27 978.5,-204.27 978.5,-185.02 893.25,-185.02"/>
+<text text-anchor="start" x="897.25" y="-190.77" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">ipv6PrefixLength</text>
 </a>
 </g>
-<g id="a_node9_254"><a data-target="uplinks-ipv6static" tabindex="0" role="link"><title>uplinks.ipv6Static</title>
-<polygon fill="none" stroke="#b4b2a9" points="978.5,-163.39 978.5,-182.64 1045.75,-182.64 1045.75,-163.39 978.5,-163.39"/>
-<text text-anchor="start" x="982.5" y="-169.14" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">boolean</text>
+<g id="a_node9_254"><a data-target="uplinks-ipv6prefixlength" tabindex="0" role="link"><title>uplinks.ipv6PrefixLength</title>
+<polygon fill="none" stroke="#b4b2a9" points="978.5,-185.02 978.5,-204.27 1045.75,-204.27 1045.75,-185.02 978.5,-185.02"/>
+<text text-anchor="start" x="982.5" y="-190.77" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">integer</text>
 </a>
 </g>
-<g id="a_node9_255"><a data-target="uplinks-medium" tabindex="0" role="link"><title>uplinks.medium</title>
-<polygon fill="none" stroke="#b4b2a9" points="893.25,-144.14 893.25,-163.39 978.5,-163.39 978.5,-144.14 893.25,-144.14"/>
-<text text-anchor="start" x="897.25" y="-149.89" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">medium</text>
+<g id="a_node9_255"><a data-target="uplinks-ipv6static" tabindex="0" role="link"><title>uplinks.ipv6Static</title>
+<polygon fill="none" stroke="#b4b2a9" points="893.25,-165.77 893.25,-185.02 978.5,-185.02 978.5,-165.77 893.25,-165.77"/>
+<text text-anchor="start" x="897.25" y="-171.52" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">ipv6Static</text>
 </a>
 </g>
-<g id="a_node9_256"><a data-target="uplinks-medium" tabindex="0" role="link"><title>uplinks.medium</title>
-<polygon fill="none" stroke="#b4b2a9" points="978.5,-144.14 978.5,-163.39 1045.75,-163.39 1045.75,-144.14 978.5,-144.14"/>
-<text text-anchor="start" x="982.5" y="-149.89" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">enum</text>
+<g id="a_node9_256"><a data-target="uplinks-ipv6static" tabindex="0" role="link"><title>uplinks.ipv6Static</title>
+<polygon fill="none" stroke="#b4b2a9" points="978.5,-165.77 978.5,-185.02 1045.75,-185.02 1045.75,-165.77 978.5,-165.77"/>
+<text text-anchor="start" x="982.5" y="-171.52" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">boolean</text>
 </a>
 </g>
-<g id="a_node9_257"><a data-target="uplinks-note" tabindex="0" role="link"><title>uplinks.note</title>
-<polygon fill="none" stroke="#b4b2a9" points="893.25,-124.89 893.25,-144.14 978.5,-144.14 978.5,-124.89 893.25,-124.89"/>
-<text text-anchor="start" x="897.25" y="-130.64" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">note</text>
+<g id="a_node9_257"><a data-target="uplinks-medium" tabindex="0" role="link"><title>uplinks.medium</title>
+<polygon fill="none" stroke="#b4b2a9" points="893.25,-146.52 893.25,-165.77 978.5,-165.77 978.5,-146.52 893.25,-146.52"/>
+<text text-anchor="start" x="897.25" y="-152.27" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">medium</text>
 </a>
 </g>
-<g id="a_node9_258"><a data-target="uplinks-note" tabindex="0" role="link"><title>uplinks.note</title>
-<polygon fill="none" stroke="#b4b2a9" points="978.5,-124.89 978.5,-144.14 1045.75,-144.14 1045.75,-124.89 978.5,-124.89"/>
-<text text-anchor="start" x="982.5" y="-130.64" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
+<g id="a_node9_258"><a data-target="uplinks-medium" tabindex="0" role="link"><title>uplinks.medium</title>
+<polygon fill="none" stroke="#b4b2a9" points="978.5,-146.52 978.5,-165.77 1045.75,-165.77 1045.75,-146.52 978.5,-146.52"/>
+<text text-anchor="start" x="982.5" y="-152.27" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">enum</text>
 </a>
 </g>
-<g id="a_node9_259"><a data-target="uplinks-provider" tabindex="0" role="link"><title>uplinks.provider</title>
-<polygon fill="none" stroke="#b4b2a9" points="893.25,-104.14 893.25,-124.89 978.5,-124.89 978.5,-104.14 893.25,-104.14"/>
-<text text-anchor="start" x="897.25" y="-110.64" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">provider</text>
+<g id="a_node9_259"><a data-target="uplinks-note" tabindex="0" role="link"><title>uplinks.note</title>
+<polygon fill="none" stroke="#b4b2a9" points="893.25,-127.27 893.25,-146.52 978.5,-146.52 978.5,-127.27 893.25,-127.27"/>
+<text text-anchor="start" x="897.25" y="-133.02" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">note</text>
 </a>
 </g>
-<g id="a_node9_260"><a data-target="uplinks-provider" tabindex="0" role="link"><title>uplinks.provider</title>
-<polygon fill="none" stroke="#b4b2a9" points="978.5,-104.14 978.5,-124.89 1045.75,-124.89 1045.75,-104.14 978.5,-104.14"/>
-<text text-anchor="start" x="982.5" y="-111.39" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">→ providers</text>
+<g id="a_node9_260"><a data-target="uplinks-note" tabindex="0" role="link"><title>uplinks.note</title>
+<polygon fill="none" stroke="#b4b2a9" points="978.5,-127.27 978.5,-146.52 1045.75,-146.52 1045.75,-127.27 978.5,-127.27"/>
+<text text-anchor="start" x="982.5" y="-133.02" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">string</text>
+</a>
+</g>
+<g id="a_node9_261"><a data-target="uplinks-provider" tabindex="0" role="link"><title>uplinks.provider</title>
+<polygon fill="none" stroke="#b4b2a9" points="893.25,-106.52 893.25,-127.27 978.5,-127.27 978.5,-106.52 893.25,-106.52"/>
+<text text-anchor="start" x="897.25" y="-113.02" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#2c2c2a">provider</text>
+</a>
+</g>
+<g id="a_node9_262"><a data-target="uplinks-provider" tabindex="0" role="link"><title>uplinks.provider</title>
+<polygon fill="none" stroke="#b4b2a9" points="978.5,-106.52 978.5,-127.27 1045.75,-127.27 1045.75,-106.52 978.5,-106.52"/>
+<text text-anchor="start" x="982.5" y="-113.77" font-family="Liberation Sans,Helvetica,Arial,sans-serif" font-size="10.00" fill="#5f5e5a">→ providers</text>
 </a>
 </g>
 </g>
 <g id="edge12" class="edge">
 <title>sites:e&#45;&gt;uplinks:h</title>
-<path fill="none" stroke="#888780" stroke-width="1.1" d="M828.25,-366.89C854.43,-366.89 862.82,-366.99 885.66,-367.01"/>
-<polygon fill="#888780" stroke="#888780" stroke-width="1.1" points="885.58,-369.11 891.59,-367.02 885.59,-364.91 885.58,-369.11"/>
+<path fill="none" stroke="#888780" stroke-width="1.1" d="M828.25,-387.89C854.43,-387.89 862.82,-388.51 885.66,-388.62"/>
+<polygon fill="#888780" stroke="#888780" stroke-width="1.1" points="885.58,-390.72 891.59,-388.64 885.59,-386.52 885.58,-390.72"/>
 </g>
 <g id="edge13" class="edge">
 <title>uplinks:e&#45;&gt;contracts:h</title>
-<path fill="none" stroke="#888780" stroke-width="1.1" d="M1045.75,-270.02C1257.53,-270.02 905.15,-736.42 1103.15,-747.8"/>
-<polygon fill="#888780" stroke="#888780" stroke-width="1.1" points="1103.03,-749.9 1109.09,-747.97 1103.15,-745.7 1103.03,-749.9"/>
+<path fill="none" stroke="#888780" stroke-width="1.1" d="M1045.75,-291.64C1255.52,-291.64 907.08,-753.53 1103.23,-764.81"/>
+<polygon fill="#888780" stroke="#888780" stroke-width="1.1" points="1103.03,-766.9 1109.09,-764.97 1103.15,-762.7 1103.03,-766.9"/>
 </g>
 <g id="edge14" class="edge">
 <title>uplinks:e&#45;&gt;providers:h</title>
-<path fill="none" stroke="#888780" stroke-width="1.1" d="M1045.75,-114.52C1186.24,-114.52 1166.5,-293.43 1301.36,-299.72"/>
-<polygon fill="#888780" stroke="#888780" stroke-width="1.1" points="1301.04,-301.81 1307.09,-299.85 1301.14,-297.62 1301.04,-301.81"/>
+<path fill="none" stroke="#888780" stroke-width="1.1" d="M1045.75,-116.89C1189.49,-116.89 1163.43,-307.99 1301.2,-314.71"/>
+<polygon fill="#888780" stroke="#888780" stroke-width="1.1" points="1301.04,-316.81 1307.09,-314.85 1301.14,-312.61 1301.04,-316.81"/>
 </g>
 </g>
 </svg>
@@ -4527,6 +4558,7 @@ An internet line. All fields are optional, so a line can be entered before its d
 | <span id="uplinks-bandwidth-down"></span>`bandwidth.down` | integer ≥ 1 | required | Downstream in Mbit/s. |
 | <span id="uplinks-bandwidth-up"></span>`bandwidth.up` | integer ≥ 1 | required | Upstream in Mbit/s. |
 | <span id="uplinks-contracts"></span>`contracts` | list of id from [contracts](#contracts-1), no duplicates |  | The contracts this is paid for by (a rented VM, its extra IPv4, a line, a plan). |
+| <span id="uplinks-dyndnsname"></span>`dyndnsName` | string: a lower-case domain name like home-ip.example.org |  | DNS name kept on the line's current public addresses: A the IPv4, AAAA one address from the delegated prefix. Its parent is a zone of its own at deSEC (low minimum TTL), the name its first label. Only for a dynamic line. |
 | <span id="uplinks-ipv4"></span>`ipv4` | one of `public` `cgnat` `none` |  | What the line gives for IPv4. |
 | <span id="uplinks-ipv4static"></span>`ipv4Static` | boolean |  | Whether the public IPv4 address is fixed. Only meaningful with ipv4 = public. |
 | <span id="uplinks-ipv6"></span>`ipv6` | boolean |  | Whether the line has native IPv6. |
@@ -5561,7 +5593,7 @@ Services are named by function, not by product. There are three kinds of reachab
 | `fotos` | [Immich](https://github.com/immich-app/immich) (photos and videos) | ursalia | in the mesh directly, browser and app, login via Pocket ID only (groups `immich_users` / `immich_admins`); from outside only shared links, through the reverse proxy without login to [Immich Public Proxy](https://github.com/alangrainger/immich-public-proxy) (Alan Grainger) on aldrin, with WAF and CrowdSec there; visitor uploads into shares that allow them |
 | `dns` | [AdGuard Home](https://github.com/AdguardTeam/AdGuardHome) | ursalia | DNS for the home LAN (53, DoT/DoQ 853, DoH) and people's devices in the mesh (NetBird nameserver group) ([why](#dns-with-adguard-home)) |
 | `adguard` | AdGuard Home, admin UI | ursalia | through the reverse proxy with SSO (`homelab_admins`), then AdGuard's own login ([why](#dns-with-adguard-home)) |
-| `intercept` | [ph-intercept](https://github.com/m00grin/ph-intercept) (m00grin) | ursalia | through the reverse proxy with SSO (`homelab_admins`: the live stream names the client of each query); view only, nginx passes GET only, so its buttons cannot pause blocking |
+| `intercept` | [ph-intercept](https://github.com/m00grin/ph-intercept) (m00grin) | ursalia | through the reverse proxy with SSO (`homelab`); the app drops each query's client before it reaches the browser (`HIDE_CLIENT`), domains stay visible; view only: the app refuses changes (`READ_ONLY`) and nginx passes GET only, so its buttons cannot pause blocking |
 | `mqtt` | Mosquitto (Home Assistant add-on) | Home Assistant (home LAN, NetBird peer) | port 8883, MQTT over TLS: at home straight to HA (home router (Flint 4) answers the name locally), from outside through the reverse proxy as TLS passthrough to the peer, no SSO ([why](#mqtt-from-outside-tls-passthrough-to-home-assistant)) |
 | `acme` | dns01proxy (DNS-01 for Home Assistant) | grammi | mesh only, port 8446; HA resolves it through the home router (Flint 4) ([why](#mqtt-from-outside-tls-passthrough-to-home-assistant)) |
 | `doku` | This documentation (private version) | aldrin + ursalia | in the mesh admin devices only ([why](#private-docs-admin-devices-home-lan-login)), one A record per host; in the home LAN through a record of the router's own to ursalia, except a deny list; from outside a redirect to the public docs through the reverse proxy, `/login` to `doku-login` |
@@ -5595,6 +5627,7 @@ The 20 modules under `modules/` carry the configuration shared by all hosts; eve
 | [ssh.nix](modules/ssh.nix) | Who may log in from where: root only on the mesh address (admin jump as break-glass) | keys stay per host |
 | [firewall.nix](modules/firewall.nix) | Only 22/80/443 public | the mesh interface is trusted in netbird.nix |
 | [crowdsec.nix](modules/crowdsec.nix) | CrowdSec engine and firewall bouncer, whitelist for the lab hosts and for nix cache lookups | workarounds for bugs in the nixpkgs modules, documented in the header |
+| [crowdsec-dynamic-allow.nix](modules/crowdsec-dynamic-allow.nix) | Postoverflow whitelist (`LookupHost`) for the configured scenarios only: no bans from the A address of a DNS name or from the AAAA's prefix; plus a writer that checks the name resolves | the home line's dyndns name, set in `crowdsec.nix` (#444) |
 | [networking.nix](modules/networking.nix) | ifstate skeleton, systemd-resolved with DNS over TLS, no fallback resolvers | addresses and routes stay in the host config |
 | [metrics.nix](modules/metrics.nix) | Prometheus exporters per host | protected by the firewall instead of bind addresses |
 | [textfile-metrics.nix](modules/textfile-metrics.nix) | node_exporter's textfile collector; every writer runs as its own user and may write only `<dir>/writers/<name>/` (#320) | `services.textfileMetrics`: `directory`, `metricPrefix`, `writers.<name>` (script, timer, exceptions as `hardening`), `directories.<name>` for units defined elsewhere; root jobs (upgrade, backup) keep the root directory |
@@ -5638,7 +5671,7 @@ The 20 modules under `modules/` carry the configuration shared by all hosts; eve
 | `just netbird-plan` / `netbird-apply` | Change the NetBird account; apply also rewrites `expected-peers.json` (commit it, deploy grammi) and `admin-peers.json` (commit it, deploy aldrin and ursalia) |
 | `just netbird-proxy-certs` | Get proxy services without a certificate one and bring the dashboard up to date (NetBird #7118); runs at the end of `netbird-apply` |
 | `just dokumente-share-pin` / `dokumente-share-pin-show` | New random PIN for Paperless share links from outside (then `netbird-apply`), or show the current one |
-| `just netbird-key <host>` | New setup key for a host, 24 h to deploy |
+| `just netbird-key <host>` | New setup key for a host, 24 h to deploy – a targeted `tofu apply` of that one key; tofu shows the plan and asks first, like every `netbird-key*` recipe |
 | `just netbird-key-techo5` | Setup key for a TECHO5 device (Echo Show 8) onto the Mac's clipboard, never printed; valid 24 h, steps in `terraform/netbird/techo5.tf` |
 | `just netbird-import` | Rebuild the Tofu state from the account – only needed when git does not have it either ([Tofu state](#tofu-state)) |
 | `just netbird-renew-token` | Renew the service user token (valid 90 days; alert NetbirdTokenExpiring three weeks before) |
@@ -5652,6 +5685,8 @@ The 20 modules under `modules/` carry the configuration shared by all hosts; eve
 | `just data-backup-secrets <host>` | The same for the bucket `<host>-data-backups` into `hosts/<host>/backup-data.yaml` (`modules/restic-data.nix`) – once per host, after `garage-apply` |
 | `just garage-admin-token` | Copy Garage's admin token from aldrin into `terraform/secrets.yaml` over SSH – once per workstation key, and again after rotating it |
 | `just desec-key <host>` / `desec-verify` | Rotate a deSEC token, or check the scopes from every host |
+| `just desec-ddns-key` | Mint the home line's dyndns token (only its A and AAAA) into `openwrt/gruffi/secrets.yaml` |
+| `just gruffi-ddns-install` | Put the dyndns updater on the running gruffi until the next image (from gusto, LAN or mesh) |
 | `just desec-names` | Rewrite `terraform/desec-tokens/acme-names.json` from the flake (the names each token may write); then `desec-apply` |
 | `just nanokvm-mcp-key` | Store the NanoKVM Go+ MCP API key encrypted for ursalia (then commit, deploy ursalia) |
 | `just nanokvm-cert` | Fetch the NanoKVM Go+'s self-signed certificate as ursalia sees it and pin it after comparing (then commit, deploy ursalia) |
@@ -5661,7 +5696,7 @@ The 20 modules under `modules/` carry the configuration shared by all hosts; eve
 | `just mac-upgrade` | On gusto: update the Homebrew pins, switch, `brew upgrade`, NetBird version next to the mesh pin; commit `flake.lock` |
 | `just container-bump <host> <name> [tag]` | Pin a container image to the newest release tag's digest (or the given tag's) in `hosts/<host>/container-images.json`; then commit and deploy ([Update a container image](#update-a-container-image)) |
 | `just gc <host>` | Run the nightly garbage collection now (keeps the last 10 generations) |
-| `just docs` | Build this documentation: private PDFs (de/en) and the anonymised public version (README, PDFs, site sources, modules) in `public-docs/` (gitignored clone of `nixlab-docs`), committed and pushed there; GitHub builds the site from it |
+| `just docs` | Build this documentation: private PDFs (de/en, local only, gitignored) and the anonymised public version (README, PDFs, site sources, modules) in `public-docs/` (gitignored clone of `nixlab-docs`), committed and pushed there; GitHub builds the site from it |
 | `just docs-serve` | Build the private site with real values locally and serve it at `http://127.0.0.1:8000` |
 
 Recipes that need sops get the workstation's age key from 1Password through `SOPS_AGE_KEY_CMD`. On gusto home-manager sets it and `op` unlocks through the 1Password app (Touch ID); sops, tofu and age come from the devShell (direnv in the checkout). Without that setup:

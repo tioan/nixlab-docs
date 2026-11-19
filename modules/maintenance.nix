@@ -30,7 +30,12 @@
 # `return`, which runs before allow/deny (modules/docs-site.nix has the
 # details), so the page would also reach clients the vhost otherwise
 # refuses. Only list vhosts whose port only allowed clients reach anyway.
-{ config, lib, pkgs, ... }:
+{
+  config,
+  lib,
+  pkgs,
+  ...
+}:
 
 let
   cfg = config.services.maintenance;
@@ -48,7 +53,13 @@ let
   python = pkgs.python3;
 
   nginxCfg = config.services.nginx;
-  nginxNames = map (n: let v = nginxCfg.virtualHosts.${n}; in if v.serverName != null then v.serverName else n) cfg.nginx.vhosts;
+  nginxNames = map (
+    n:
+    let
+      v = nginxCfg.virtualHosts.${n};
+    in
+    if v.serverName != null then v.serverName else n
+  ) cfg.nginx.vhosts;
   knownNames = lib.unique (nginxNames ++ cfg.traefik.names);
 
   # --- Traefik: own static config pointing at a directory ------------------
@@ -71,7 +82,10 @@ let
 
   maintenanceCli = pkgs.writeShellApplication {
     name = "maintenance";
-    runtimeInputs = [ pkgs.coreutils pkgs.systemd ];
+    runtimeInputs = [
+      pkgs.coreutils
+      pkgs.systemd
+    ];
     text = ''
       dir=${flagDir}
       known=(${lib.escapeShellArgs knownNames})
@@ -205,213 +219,235 @@ in
     };
   };
 
-  config = lib.mkIf cfg.enable (lib.mkMerge [
-    {
-      assertions = map (n: {
-        # A typo would silently create a new vhost with only this module's
-        # locations in it.
-        assertion = nginxCfg.virtualHosts ? ${n} && nginxCfg.virtualHosts.${n}.locations ? "/";
-        message = "services.maintenance.nginx: virtualHost ${n} does not exist (or has no location /)";
-      }) (cfg.nginx.vhosts ++ cfg.nginx.errorPagesOnly);
+  config = lib.mkIf cfg.enable (
+    lib.mkMerge [
+      {
+        assertions = map (n: {
+          # A typo would silently create a new vhost with only this module's
+          # locations in it.
+          assertion = nginxCfg.virtualHosts ? ${n} && nginxCfg.virtualHosts.${n}.locations ? "/";
+          message = "services.maintenance.nginx: virtualHost ${n} does not exist (or has no location /)";
+        }) (cfg.nginx.vhosts ++ cfg.nginx.errorPagesOnly);
 
-      warnings = lib.optional (!hasToken)
-        "maintenance: no hosts/${host}/maintenance.yaml - the bypass cookie is disabled; run `just maintenance-token`.";
+        warnings =
+          lib.optional (!hasToken)
+            "maintenance: no hosts/${host}/maintenance.yaml - the bypass cookie is disabled; run `just maintenance-token`.";
 
-      systemd.tmpfiles.rules = [ "d ${flagDir} 0755 root root -" ];
+        systemd.tmpfiles.rules = [ "d ${flagDir} 0755 root root -" ];
 
-      environment.systemPackages = [ maintenanceCli ];
+        environment.systemPackages = [ maintenanceCli ];
 
-      sops.secrets."maintenance_bypass_token" = lib.mkIf hasToken {
-        sopsFile = tokenFile;
-        restartUnits = [ "maintenance-responder.service" ]
+        sops.secrets."maintenance_bypass_token" = lib.mkIf hasToken {
+          sopsFile = tokenFile;
+          restartUnits = [
+            "maintenance-responder.service"
+          ]
           ++ lib.optional cfg.traefik.enable "maintenance-traefik-sync.service";
-      };
-
-      systemd.sockets.maintenance-responder = {
-        description = "Maintenance and error page responder";
-        wantedBy = [ "sockets.target" ];
-        listenStreams = [ "127.0.0.1:${toString cfg.port}" ];
-      };
-
-      systemd.services.maintenance-responder = {
-        description = "Maintenance and error page responder";
-        requires = [ "maintenance-responder.socket" ];
-        environment = {
-          NIXLAB_MAINT_DIR = flagDir;
-          NIXLAB_MAINT_PAGE = "${./maintenance/page.html}";
-          NIXLAB_MAINT_COOKIE = cookieName;
-          NIXLAB_MAINT_COOKIE_DOMAIN = cfg.cookieDomain;
-          NIXLAB_MAINT_COOKIE_MAX_AGE = toString cfg.cookieMaxAge;
-          NIXLAB_MAINT_RETRY_AFTER = toString cfg.retryAfter;
-          PYTHONUNBUFFERED = "1";
         };
-        serviceConfig = {
-          ExecStart = "${python.interpreter} -I ${./maintenance/responder.py}";
-          LoadCredential = lib.mkIf hasToken [ "bypass-token:${tokenPath}" ];
-          DynamicUser = true;
-          Restart = "on-failure";
-        };
-        # The shared sandbox (modules/hardening.nix): its socket listens on
-        # loopback, so nothing else may reach it either.
-        hardening = {
-          enable = true;
-          level = "strict";
-          network = "loopback";
-        };
-      };
-    }
 
-    # --- nginx ---------------------------------------------------------------
-    (lib.mkIf (cfg.nginx.vhosts != [ ] || cfg.nginx.errorPagesOnly != [ ]) {
-      # Who skips the check: the bypass endpoints themselves, and the
-      # holder of the cookie. nginx's `if` has no "and"/"or", so the parts
-      # are combined in maps; an empty value is false.
-      services.nginx.appendHttpConfig = ''
-        map $uri $nixlab_maint_path {
-          ~^/_maintenance/ 1;
-          default "";
-        }
-        ${if hasToken then "include ${config.sops.templates."nginx-maintenance-bypass.conf".path};" else ''
-          map $cookie_${cookieName} $nixlab_maint_cookie {
+        systemd.sockets.maintenance-responder = {
+          description = "Maintenance and error page responder";
+          wantedBy = [ "sockets.target" ];
+          listenStreams = [ "127.0.0.1:${toString cfg.port}" ];
+        };
+
+        systemd.services.maintenance-responder = {
+          description = "Maintenance and error page responder";
+          requires = [ "maintenance-responder.socket" ];
+          environment = {
+            NIXLAB_MAINT_DIR = flagDir;
+            NIXLAB_MAINT_PAGE = "${./maintenance/page.html}";
+            NIXLAB_MAINT_COOKIE = cookieName;
+            NIXLAB_MAINT_COOKIE_DOMAIN = cfg.cookieDomain;
+            NIXLAB_MAINT_COOKIE_MAX_AGE = toString cfg.cookieMaxAge;
+            NIXLAB_MAINT_RETRY_AFTER = toString cfg.retryAfter;
+            PYTHONUNBUFFERED = "1";
+          };
+          serviceConfig = {
+            ExecStart = "${python.interpreter} -I ${./maintenance/responder.py}";
+            LoadCredential = lib.mkIf hasToken [ "bypass-token:${tokenPath}" ];
+            DynamicUser = true;
+            Restart = "on-failure";
+          };
+          # The shared sandbox (modules/hardening.nix): its socket listens on
+          # loopback, so nothing else may reach it either.
+          hardening = {
+            enable = true;
+            level = "strict";
+            network = "loopback";
+          };
+        };
+      }
+
+      # --- nginx ---------------------------------------------------------------
+      (lib.mkIf (cfg.nginx.vhosts != [ ] || cfg.nginx.errorPagesOnly != [ ]) {
+        # Who skips the check: the bypass endpoints themselves, and the
+        # holder of the cookie. nginx's `if` has no "and"/"or", so the parts
+        # are combined in maps; an empty value is false.
+        services.nginx.appendHttpConfig = ''
+          map $uri $nixlab_maint_path {
+            ~^/_maintenance/ 1;
             default "";
-          }''}
-        map "$nixlab_maint_path$nixlab_maint_cookie" $nixlab_maint_exempt {
-          "" "";
-          default 1;
-        }
-      '';
-
-      # The token stays out of the world-readable store: a map rendered by
-      # sops-nix at activation, included at runtime (nginx -t runs on the
-      # host, where it exists).
-      sops.templates."nginx-maintenance-bypass.conf" = lib.mkIf hasToken {
-        owner = "nginx";
-        content = ''
-          map $cookie_${cookieName} $nixlab_maint_cookie {
-            default "";
-            "${config.sops.placeholder."maintenance_bypass_token"}" 1;
+          }
+          ${
+            if hasToken then
+              "include ${config.sops.templates."nginx-maintenance-bypass.conf".path};"
+            else
+              ''
+                map $cookie_${cookieName} $nixlab_maint_cookie {
+                  default "";
+                }''
+          }
+          map "$nixlab_maint_path$nixlab_maint_cookie" $nixlab_maint_exempt {
+            "" "";
+            default 1;
           }
         '';
-        reloadUnits = [ "nginx.service" ];
-      };
 
-      services.nginx.virtualHosts = lib.mkMerge (
-        map (n: {
-          ${n} = {
-            # $server_name rather than the name at build time: same flag for
-            # every vhost of one name (dokumente: 443 and the proxy's 8092).
-            extraConfig = lib.mkAfter ''
-              set $nixlab_maint "";
-              if (-f ${flagDir}/all) { set $nixlab_maint 1; }
-              if (-f ${flagDir}/$server_name) { set $nixlab_maint 1; }
-              if ($nixlab_maint_exempt) { set $nixlab_maint ""; }
-              if ($nixlab_maint) { return 503; }
-              error_page 502 503 504 @nixlab_maintenance;
+        # The token stays out of the world-readable store: a map rendered by
+        # sops-nix at activation, included at runtime (nginx -t runs on the
+        # host, where it exists).
+        sops.templates."nginx-maintenance-bypass.conf" = lib.mkIf hasToken {
+          owner = "nginx";
+          content = ''
+            map $cookie_${cookieName} $nixlab_maint_cookie {
+              default "";
+              "${config.sops.placeholder."maintenance_bypass_token"}" 1;
+            }
+          '';
+          reloadUnits = [ "nginx.service" ];
+        };
+
+        services.nginx.virtualHosts = lib.mkMerge (
+          map (n: {
+            ${n} = {
+              # $server_name rather than the name at build time: same flag for
+              # every vhost of one name (dokumente: 443 and the proxy's 8092).
+              extraConfig = lib.mkAfter ''
+                set $nixlab_maint "";
+                if (-f ${flagDir}/all) { set $nixlab_maint 1; }
+                if (-f ${flagDir}/$server_name) { set $nixlab_maint 1; }
+                if ($nixlab_maint_exempt) { set $nixlab_maint ""; }
+                if ($nixlab_maint) { return 503; }
+                error_page 502 503 504 @nixlab_maintenance;
+              '';
+              locations."^~ /_maintenance/" = {
+                proxyPass = responderUrl;
+                recommendedProxySettings = false;
+                extraConfig = ''
+                  proxy_set_header Host $host;
+                '';
+              };
+            };
+          }) cfg.nginx.vhosts
+          ++ map (n: {
+            ${n}.extraConfig = lib.mkAfter ''
+              error_page 502 504 @nixlab_maintenance;
             '';
-            locations."^~ /_maintenance/" = {
+          }) cfg.nginx.errorPagesOnly
+          ++ map (n: {
+            # The status goes along as a header: a named location's
+            # proxy_pass cannot carry a path. GET without the body - an S3 PUT
+            # that ran into a 502 has nothing to send to the page.
+            ${n}.locations."@nixlab_maintenance" = {
               proxyPass = responderUrl;
               recommendedProxySettings = false;
               extraConfig = ''
+                proxy_method GET;
+                proxy_pass_request_body off;
+                proxy_set_header Content-Length "";
                 proxy_set_header Host $host;
+                proxy_set_header X-Nixlab-Status $status;
               '';
             };
-          };
-        }) cfg.nginx.vhosts
-        ++ map (n: {
-          ${n}.extraConfig = lib.mkAfter ''
-            error_page 502 504 @nixlab_maintenance;
-          '';
-        }) cfg.nginx.errorPagesOnly
-        ++ map (n: {
-          # The status goes along as a header: a named location's
-          # proxy_pass cannot carry a path. GET without the body - an S3 PUT
-          # that ran into a 502 has nothing to send to the page.
-          ${n}.locations."@nixlab_maintenance" = {
-            proxyPass = responderUrl;
-            recommendedProxySettings = false;
-            extraConfig = ''
-              proxy_method GET;
-              proxy_pass_request_body off;
-              proxy_set_header Content-Length "";
-              proxy_set_header Host $host;
-              proxy_set_header X-Nixlab-Status $status;
-            '';
-          };
-        }) (cfg.nginx.vhosts ++ cfg.nginx.errorPagesOnly)
-      );
-    })
+          }) (cfg.nginx.vhosts ++ cfg.nginx.errorPagesOnly)
+        );
+      })
 
-    # --- Traefik -------------------------------------------------------------
-    (lib.mkIf cfg.traefik.enable {
-      services.traefik.staticConfigFile = traefikStaticFile;
+      # --- Traefik -------------------------------------------------------------
+      (lib.mkIf cfg.traefik.enable {
+        services.traefik.staticConfigFile = traefikStaticFile;
 
-      services.traefik.dynamicConfigOptions.http = {
-        services.nixlab-maintenance.loadBalancer.servers = [ { url = responderUrl; } ];
+        services.traefik.dynamicConfigOptions.http = {
+          services.nixlab-maintenance.loadBalancer.servers = [ { url = responderUrl; } ];
 
-        # Only 502/504: unlike nginx's error_page, this middleware also
-        # replaces the service's own responses, and a 503 with JSON from
-        # Grafana should stay JSON.
-        middlewares.nixlab-errors.errors = {
-          status = [ "502" "504" ];
-          service = "nixlab-maintenance";
-          query = "/_nixlab_status/{status}";
-        };
-
-        routers = {
-          # The bypass form, always reachable, whatever else matches.
-          nixlab-maintenance-path = {
-            entryPoints = [ cfg.traefik.entryPoint ];
-            rule = "PathPrefix(`/_maintenance/`)";
-            priority = 20000;
+          # Only 502/504: unlike nginx's error_page, this middleware also
+          # replaces the service's own responses, and a 503 with JSON from
+          # Grafana should stay JSON.
+          middlewares.nixlab-errors.errors = {
+            status = [
+              "502"
+              "504"
+            ];
             service = "nixlab-maintenance";
+            query = "/_nixlab_status/{status}";
           };
-          # Names nothing else serves get the maintenance page instead of a
-          # bare 404 - which is also what the NetBird proxy reaches when a
-          # service elsewhere is switched over here (terraform/netbird,
-          # proxy-maintenance.json).
-          nixlab-maintenance-fallback = {
-            entryPoints = [ cfg.traefik.entryPoint ];
-            rule = "PathPrefix(`/`)";
-            priority = 1;
-            service = "nixlab-maintenance";
+
+          routers = {
+            # The bypass form, always reachable, whatever else matches.
+            nixlab-maintenance-path = {
+              entryPoints = [ cfg.traefik.entryPoint ];
+              rule = "PathPrefix(`/_maintenance/`)";
+              priority = 20000;
+              service = "nixlab-maintenance";
+            };
+            # Names nothing else serves get the maintenance page instead of a
+            # bare 404 - which is also what the NetBird proxy reaches when a
+            # service elsewhere is switched over here (terraform/netbird,
+            # proxy-maintenance.json).
+            nixlab-maintenance-fallback = {
+              entryPoints = [ cfg.traefik.entryPoint ];
+              rule = "PathPrefix(`/`)";
+              priority = 1;
+              service = "nixlab-maintenance";
+            };
           };
         };
-      };
 
-      systemd.tmpfiles.rules = [
-        "d ${cfg.traefik.dynamicDir} 0750 traefik traefik -"
-        "L+ ${cfg.traefik.dynamicDir}/nixos.toml - - - - ${traefikDynamicFile}"
-      ];
+        systemd.tmpfiles.rules = [
+          "d ${cfg.traefik.dynamicDir} 0750 traefik traefik -"
+          "L+ ${cfg.traefik.dynamicDir}/nixos.toml - - - - ${traefikDynamicFile}"
+        ];
 
-      systemd.services.maintenance-traefik-sync = {
-        description = "Write Traefik's maintenance routers from the flag files";
-        wantedBy = [ "traefik.service" ];
-        before = [ "traefik.service" ];
-        after = [ "systemd-tmpfiles-setup.service" ];
-        serviceConfig = {
-          Type = "oneshot";
-          ExecStart = lib.escapeShellArgs [
-            python.interpreter "-I" "${./maintenance/traefik-sync.py}"
-            flagDir "${cfg.traefik.dynamicDir}/maintenance.yml" "traefik"
-            cfg.traefik.entryPoint "nixlab-maintenance" cookieName
-            (if hasToken then tokenPath else "")
-          ];
+        systemd.services.maintenance-traefik-sync = {
+          description = "Write Traefik's maintenance routers from the flag files";
+          wantedBy = [ "traefik.service" ];
+          before = [ "traefik.service" ];
+          after = [ "systemd-tmpfiles-setup.service" ];
+          serviceConfig = {
+            Type = "oneshot";
+            ExecStart = lib.escapeShellArgs [
+              python.interpreter
+              "-I"
+              "${./maintenance/traefik-sync.py}"
+              flagDir
+              "${cfg.traefik.dynamicDir}/maintenance.yml"
+              "traefik"
+              cfg.traefik.entryPoint
+              "nixlab-maintenance"
+              cookieName
+              (if hasToken then tokenPath else "")
+            ];
+          };
+          # Root, but it may only write Traefik's dynamic directory (0750
+          # traefik, hence CAP_DAC_OVERRIDE) and hand its file to traefik
+          # (CAP_CHOWN); the shared sandbox otherwise (modules/hardening.nix).
+          hardening = {
+            enable = true;
+            level = "strict";
+            capabilities = [
+              "CAP_CHOWN"
+              "CAP_DAC_OVERRIDE"
+            ];
+            systemCalls = [ "@chown" ];
+            writablePaths = [ cfg.traefik.dynamicDir ];
+          };
         };
-        # Root, but it may only write Traefik's dynamic directory (0750
-        # traefik, hence CAP_DAC_OVERRIDE) and hand its file to traefik
-        # (CAP_CHOWN); the shared sandbox otherwise (modules/hardening.nix).
-        hardening = {
-          enable = true;
-          level = "strict";
-          capabilities = [ "CAP_CHOWN" "CAP_DAC_OVERRIDE" ];
-          systemCalls = [ "@chown" ];
-          writablePaths = [ cfg.traefik.dynamicDir ];
-        };
-      };
 
-      # The directory is watched, but a changed dynamic config should not
-      # depend on that: restart like the module does when its file changes.
-      systemd.services.traefik.restartTriggers = [ traefikDynamicFile ];
-    })
-  ]);
+        # The directory is watched, but a changed dynamic config should not
+        # depend on that: restart like the module does when its file changes.
+        systemd.services.traefik.restartTriggers = [ traefikDynamicFile ];
+      })
+    ]
+  );
 }

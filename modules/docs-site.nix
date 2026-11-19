@@ -40,7 +40,12 @@
 # of all on grammi, which runs the NetBird server and the reverse proxy.
 # Every host builds the site itself from its /etc/nixos checkout, so all of
 # them serve the same commit after a deploy or the nightly upgrade.
-{ config, lib, pkgs, ... }:
+{
+  config,
+  lib,
+  pkgs,
+  ...
+}:
 
 let
   cfg = config.services.docsSite;
@@ -255,8 +260,9 @@ in
     services.nginx = {
       enable = true;
       recommendedTlsSettings = true;
-      appendHttpConfig = lib.mkIf (cfg.login.port != null)
-        "include ${config.sops.templates."nginx-docs-login.conf".path};";
+      appendHttpConfig =
+        lib.mkIf (cfg.login.port != null)
+          "include ${config.sops.templates."nginx-docs-login.conf".path};";
       # Wildcard instead of the host's defaults: the mesh address is
       # NetBird's to assign and nb-mesh may come up after nginx, and a host
       # may bind its public vhosts to its public addresses only (aldrin).
@@ -265,7 +271,10 @@ in
       # (terraform/netbird/main.tf); admin-peers.json carries the admins'
       # v6 addresses next to their v4 ones.
       virtualHosts.${cfg.fqdn} = {
-        listenAddresses = [ "0.0.0.0" "[::]" ];
+        listenAddresses = [
+          "0.0.0.0"
+          "[::]"
+        ];
         enableACME = true;
         acmeRoot = null;
         forceSSL = true;
@@ -304,8 +313,14 @@ in
       virtualHosts."${cfg.fqdn}-redirect" = lib.mkIf (cfg.redirectPort != null) {
         serverName = cfg.fqdn;
         listen = [
-          { addr = "0.0.0.0"; port = cfg.redirectPort; }
-          { addr = "[::]"; port = cfg.redirectPort; }
+          {
+            addr = "0.0.0.0";
+            port = cfg.redirectPort;
+          }
+          {
+            addr = "[::]";
+            port = cfg.redirectPort;
+          }
         ];
         # The redirect sits behind try_files on purpose: a plain "return"
         # runs in nginx's rewrite phase, before allow/deny are checked, so
@@ -317,7 +332,8 @@ in
             try_files /.redirect-only @redirect;
           '';
           "@redirect".return = "301 ${cfg.redirectTo}$request_uri";
-        } // lib.optionalAttrs (cfg.login.fqdn != "") {
+        }
+        // lib.optionalAttrs (cfg.login.fqdn != "") {
           # /login: to the login service instead of the public docs.
           "~ ^/login/?$".extraConfig = ''
             ${meshOnly}
@@ -334,8 +350,14 @@ in
       virtualHosts."${cfg.fqdn}-login" = lib.mkIf (cfg.login.port != null) {
         serverName = cfg.login.fqdn;
         listen = [
-          { addr = "0.0.0.0"; port = cfg.login.port; }
-          { addr = "[::]"; port = cfg.login.port; }
+          {
+            addr = "0.0.0.0";
+            port = cfg.login.port;
+          }
+          {
+            addr = "[::]";
+            port = cfg.login.port;
+          }
         ];
         root = cfg.package;
         extraConfig = ''

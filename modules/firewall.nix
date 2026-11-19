@@ -25,7 +25,11 @@
 
   # 22 = SSH (root is restricted to the mesh address, see modules/ssh.nix),
   # 80/443 = the web front (nginx; Traefik on grammi), incl. ACME challenges.
-  networking.firewall.allowedTCPPorts = [ 22 80 443 ];
+  networking.firewall.allowedTCPPorts = [
+    22
+    80
+    443
+  ];
 
   # NOTE on reverse-path filtering (networking.firewall.checkReversePath):
   # deliberately NOT set here, so NixOS' own default of "strict" applies.

@@ -17,7 +17,12 @@
 # packets arrive on nb-mesh from the overlay ranges (connected routes on
 # nb-mesh), the internet's replies on the public interface, whose default
 # routes cover them.
-{ config, lib, pkgs, ... }:
+{
+  config,
+  lib,
+  pkgs,
+  ...
+}:
 let
   cfg = config.services.netbirdExitNode;
   mesh = config.services.netbird.clients.mesh.interface;
@@ -37,9 +42,19 @@ let
   # condition: locally generated packets have no input interface on the
   # way out through nb-mesh, and inbound WireGuard packets never reach
   # postrouting.
-  counters = lib.cartesianProduct { family = [ "ipv4" "ipv6" ]; direction = [ "out" "in" ]; };
+  counters = lib.cartesianProduct {
+    family = [
+      "ipv4"
+      "ipv6"
+    ];
+    direction = [
+      "out"
+      "in"
+    ];
+  };
   counterName = c: "${c.family}_${c.direction}";
-  counterRule = c:
+  counterRule =
+    c:
     let
       iif = if c.direction == "out" then mesh else cfg.wanInterface;
       oif = if c.direction == "out" then cfg.wanInterface else mesh;
@@ -57,12 +72,20 @@ in
     };
   };
 
-  imports = [ ./forwarding.nix ./textfile-metrics.nix ];
+  imports = [
+    ./forwarding.nix
+    ./textfile-metrics.nix
+  ];
 
   config = lib.mkIf cfg.enable {
     networking.forwardFilter = {
       enable = true;
-      allow = [{ from = mesh; to = cfg.wanInterface; }];
+      allow = [
+        {
+          from = mesh;
+          to = cfg.wanInterface;
+        }
+      ];
     };
 
     # Both hosts set their v6 address and default route statically through
@@ -129,7 +152,10 @@ in
     services.textfileMetrics.writers.netbird-exit-node-metrics = {
       description = "NetBird exit node traffic counters for node_exporter's textfile collector";
       file = "netbird-exit-node.prom";
-      path = [ pkgs.nftables pkgs.jq ];
+      path = [
+        pkgs.nftables
+        pkgs.jq
+      ];
       unit.after = [ "nftables.service" ];
       hardening = {
         network = "netlink";

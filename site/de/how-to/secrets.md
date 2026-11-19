@@ -19,3 +19,7 @@ App-Passwörter, OIDC-Clients und Ähnliches liegen in `hosts/<host>/secrets.yam
 | `terraform/*/secrets.yaml` | sops auf dem MacBook mit dem Workstation-Key aus 1Password |
 
 Alles, was auf dem MacBook sops braucht, läuft mit vorangestellter Anmeldung – siehe [just-Rezepte](../reference/recipes.md).
+
+## Ein Rezept schreiben, das ein Secret anfasst
+
+Die Befehlszeile eines Prozesses sieht jeder auf dem Rechner (`ps`), seine Umgebung derselbe Benutzer. Ein Secret steht deshalb nie in den Argumenten eines Kindprozesses und nie in einer Umgebungsvariable, die für ihn gesetzt wird: an `jq` über eine Pipe (`printf '%s' "$v" | jq -Rs …` oder `--rawfile k <(printf '%s' "$v")` – `printf` ist ein Shell-Builtin, kein eigener Prozess), an `curl` als Header-Datei (`-H @<(printf 'Authorization: Token %s' "$t")`) und Body-Datei (`--data-binary @<(…)`), an `sops` mit `set --value-stdin` oder `scripts/sops-write.sh`, an einen entfernten Host über stdin (nixlab#395, nixlab#401).

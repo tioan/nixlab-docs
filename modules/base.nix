@@ -35,7 +35,7 @@
 
   # sudo executable for wheel only, so a service user cannot even reach a
   # bug in it (CVE-2021-3156, CVE-2025-32463). root runs it as the owner.
-  # aldrin widens this to its btrbk user (hosts/aldrin/configuration.nix).
+  # aldrin widens this to its btrbk user (hosts/aldrin/btrbk.nix).
   security.sudo.execWheelOnly = true;
 
   # --- Kernel (admin/nixlab#310) ---

@@ -43,18 +43,25 @@ in
       sops.secrets."telemetry-ingest" = {
         sopsFile = secretsFile;
         key = name;
-        restartUnits = lib.optional config.services.metricsShipping.enable "vmagent.service"
+        restartUnits =
+          lib.optional config.services.metricsShipping.enable "vmagent.service"
           ++ lib.optional config.services.logShipping.enable "vector.service";
       };
     })
     (lib.mkIf (ships && cfg.passwordFile != null) {
       services.metricsShipping = {
         remoteWriteUrl = "${cfg.url}/api/v1/write";
-        basicAuth = { username = name; inherit (cfg) passwordFile; };
+        basicAuth = {
+          username = name;
+          inherit (cfg) passwordFile;
+        };
       };
       services.logShipping = {
         victoriaLogsUrl = cfg.url;
-        basicAuth = { username = name; inherit (cfg) passwordFile; };
+        basicAuth = {
+          username = name;
+          inherit (cfg) passwordFile;
+        };
       };
     })
   ];

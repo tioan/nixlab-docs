@@ -1,5 +1,6 @@
-# Backs up a home host's whole data disk to Garage on aldrin, via restic. The
-# same job on tummi and ursalia, next to whatever else the host backs up.
+# Backs up a home host's whole data disk to Garage on aldrin, via restic
+# (modules/restic-garage.nix). The same job on tummi and ursalia, next to
+# whatever else the host backs up.
 #
 # Its own bucket and key instead of a path in the host's existing repository:
 # data disks are measured in terabytes, and a nightly job for Paperless should
@@ -24,7 +25,7 @@
 # No restic exporter: the NixOS module runs one per host, and ursalia's watches
 # its Paperless repository. The verified metrics and the receiving side
 # (hosts/aldrin/s3-upload-metrics.nix) cover these jobs, see the alerts in
-# hosts/grammi/alerting.nix.
+# hosts/grammi/alerting/backups.nix.
 #
 # Setting up a host:
 #   add the bucket to terraform/garage/buckets.tf, services.crowdsecBuckets in
@@ -38,12 +39,12 @@
 # nixlab_backup_verified_snapshot_info rather than `latest`, and --sparse so that
 # the holes of a sparse disk image stay holes:
 #   restic-data restore <id> --sparse --target /root/restore --include /data/.restic-snapshot/<path>
-{ config, lib, pkgs, ... }:
+{ config, lib, ... }:
 let
   cfg = config.services.resticData;
-  btrfs = "${pkgs.btrfs-progs}/bin/btrfs";
   host = config.networking.hostName;
-  dataDir = config.disko.devices.disk.data.content.partitions.luks.content.content.subvolumes."/data".mountpoint;
+  dataDir =
+    config.disko.devices.disk.data.content.partitions.luks.content.content.subvolumes."/data".mountpoint;
   snapshot = "${dataDir}/${cfg.snapshotName}";
 in
 {
@@ -62,46 +63,24 @@ in
   };
 
   config = lib.mkIf cfg.enable {
-    sops.secrets."restic_data_password".sopsFile = cfg.secretsFile;
-    sops.secrets."restic_data_key_id".sopsFile = cfg.secretsFile;
-    sops.secrets."restic_data_secret_key".sopsFile = cfg.secretsFile;
-    sops.templates."restic-data-s3-env".content = ''
-      AWS_ACCESS_KEY_ID=${config.sops.placeholder."restic_data_key_id"}
-      AWS_SECRET_ACCESS_KEY=${config.sops.placeholder."restic_data_secret_key"}
-      AWS_DEFAULT_REGION=garage
-    '';
+    # Secrets restic_data_password, restic_data_key_id, restic_data_secret_key
+    # and the template restic-data-s3-env: named after the job.
+    services.resticGarage.jobs.data = {
+      bucket = "${host}-data-backups";
+      sopsFile = cfg.secretsFile;
 
-    services.restic.backups.data = {
-      # A leftover from an aborted run would make `snapshot` fail, so it goes
-      # first. Cleanup runs as ExecStopPost, i.e. after failures too.
-      backupPrepareCommand = ''
-        if [ -e ${snapshot} ]; then ${btrfs} subvolume delete ${snapshot}; fi
-        ${btrfs} subvolume snapshot -r ${dataDir} ${snapshot}
-      '';
-      backupCleanupCommand = ''
-        if [ -e ${snapshot} ]; then ${btrfs} subvolume delete ${snapshot}; fi
-      '';
+      snapshots = [
+        {
+          from = dataDir;
+          to = snapshot;
+        }
+      ];
 
       paths = [ snapshot ];
 
-      repository = "s3:https://s3.aldrin.homelab.example/${host}-data-backups";
-      passwordFile = config.sops.secrets."restic_data_password".path;
-      environmentFile = config.sops.templates."restic-data-s3-env".path;
-      initialize = false; # see modules/restic-verified.nix
-
       # Ahead of the other jobs at 02:30 and the upgrade window at 04:00. A run
       # still active when the timer fires is simply left alone by systemd.
-      timerConfig = {
-        OnCalendar = "00:30";
-        RandomizedDelaySec = "20min";
-        Persistent = true;
-      };
-
-      pruneOpts = [
-        "--keep-daily 7"
-        "--keep-weekly 4"
-        "--keep-monthly 6"
-      ];
+      time = "00:30";
     };
 
     services.resticVerified.jobs.data = {

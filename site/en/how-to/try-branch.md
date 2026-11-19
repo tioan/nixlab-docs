@@ -66,7 +66,7 @@ The pattern – apply, check from outside, keep only when confirmed within a dea
 | --- | --- |
 | nightly `nixos-upgrade` | skipped (`ExecCondition`, not a failure): no flake update, no switch, no reboot. If the held commit has reached `/etc/nixos` meanwhile, it lifts the hold and runs. |
 | `just rebuild`/`deploy`/`ship`/`deploy-all` | refused, unless the held commit is in the freshly pulled `/etc/nixos` – then the hold goes and the deploy runs |
-| `just deploy-push <host>` | the same rule against the local checkout's `HEAD` |
+| `just deploy-push <host>` | the same rule against the local checkout's `HEAD`; it refuses uncommitted changes, so `HEAD` is what gets deployed, and stops when it cannot ask the host for its hold (only a host without `nixos-hold` at all, a fresh one at its bootstrap, counts as unheld) |
 | ursalia's nightly push to cuckoosegg | skipped, unless the held commit is in ursalia's `/etc/nixos` |
 
 The rule is the same everywhere: a hold blocks as long as what is about to be deployed does not contain the held commit. A **rebase merge** rewrites the commit – then nothing recognises the merge, and the hold has to go with `just release <host>`.

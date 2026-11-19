@@ -54,6 +54,17 @@ Alle pro Name, unter `services.waf.hosts."<name>"`:
 | `short.homelab.example`, `fotos.homelab.example`, `dash.homelab.example` | Block | öffentlich, ohne Login, in den Detect-Daten nur Scanner |
 | ACME, MQTT 8883, Home-Assistant-App | nichts zu tun | DNS-01 / tls-alpn, reines TCP, und HA läuft über den NetBird-Proxy, nicht über diese Front Doors |
 
+## Heimanschluss
+
+Der Heimanschluss hat eine dynamische Adresse und wurde schon gesperrt: `http-crawl-non_statics` und `http-probing` erwischten eine Workstation bei `tofu apply` und den ersten nächtlichen Prebuild. Seit #444 (sobald ausgerollt) verwirft CrowdSec die Sperre für diese Szenarien (und `homelab/http-malformed-request`), wenn die Quelle die aufgelöste IPv4-Adresse ist oder im aufgelösten IPv6-Präfix liegt:
+
+- gruffi hält einen dyndns-Namen auf den Adressen des Anschlusses (`uplinks.home.dyndnsName` in `inventory.json`; A die IPv4, AAAA gruffis eigene Adresse im delegierten Präfix). Der Name liegt in einer eigenen Zone `dyn.homelab.example`, delegiert per DNSControl: deSECs Mindest-TTL gilt pro Zone, 900 s für `homelab.example`, die dyndns-Zone bekommt eine niedrigere. Das Skript `openwrt/gruffi/ddns-home.sh` läuft, wenn die Leitung hochkommt, und alle 15 Minuten; sein deSEC-Token darf nur diese beiden Records schreiben (`terraform/desec-tokens`).
+- Auf den öffentlichen Hosts löst eine Postoverflow-Whitelist (`modules/crowdsec-dynamic-allow.nix`) den Namen auf, wenn ein Szenario auslöst, und verwirft die Sperre, wenn die Quelle die A-Adresse ist oder im Präfix des AAAA liegt (`ipv6PrefixLength` aus dem Inventar). Scheitert der Lookup, gibt es keine Ausnahme.
+- Die WAF weist schädliche Requests von zu Hause weiter mit 403 ab; nur die Sperre entfällt. Brute-Force-, CVE- und WAF-Szenarien sperren den Heimanschluss weiterhin, ein kompromittiertes Gerät zu Hause fällt also trotzdem auf. Keine LAPI-Allowlist: Die prüft in CrowdSec 1.7.8 auch AppSec und würde die Adresse dann gar nicht mehr in-band blocken.
+- Nicht abgedeckt: die Community-Blocklist und von Hand gesetzte Sperren.
+
+Metriken: `cs_node_wl_hits_ok_total{name="homelab/home-line"}` (verworfene Sperren), `nixlab_crowdsec_dynamic_allow_addresses{family}` pro Host, `gruffi_ddns_in_sync` und Verwandte von gruffi. Alarme `CrowdsecHomeExemptionUnresolved`, `CrowdsecHomeExemptionStale`, `GruffiDyndnsOutOfSync`, `GruffiDyndnsNotRunning`. Dashboard: Web & Security, Zeile „Home line exemption“.
+
 ## Ausfall
 
 `services.waf.failOpen = true` (Standard): Ist AppSec nicht erreichbar oder antwortet nicht rechtzeitig, gehen Requests ungeprüft durch – Pocket ID, der NetBird-Login und die Sync-Clients sollen nicht mit CrowdSec ausfallen. Keiner der beiden Bouncer kann das pro Name entscheiden. Das Traefik-Plugin würde von sich aus blockieren, wenn AppSec oder die LAPI nicht erreichbar sind, und bis zum ersten Abruf der Sperren; das Modul schaltet all das ab.
@@ -64,10 +75,13 @@ Alle pro Name, unter `services.waf.hosts."<name>"`:
 | --- | --- |
 | `nixlab_waf_requests_total{vhost, result="refused"\|"passed"}` | nginx, pro vhost, in der Log-Phase gezählt (`127.0.0.1:9932/metrics`, von vmagent abgeholt) |
 | `traefik_router_requests_total{code="403"}` auf `dash`, `mesh-oauth2`, `mesh-dashboard` | Traefik auf grammi |
-| `nixlab_waf_appsec_up` | Textfile-Writer `waf-appsec-up`, einmal pro Minute |
+| `nixlab_waf_appsec_up` | Textfile-Writer `waf-appsec-up`, einmal pro Minute: AppSec antwortet auf seinem Port |
+| `nixlab_waf_appsec_probe_ok` | derselbe Writer: eine harmlose Anfrage mit dem Bouncer-Key bekam eine 200 |
 | `cs_appsec_reqs_total`, `cs_appsec_block_total`, `cs_appsec_rule_hits` | CrowdSec selbst |
 
-Alarme (`hosts/grammi/alerting/security.nix`): `WafAppsecDown` (5 Minuten keine Antwort), `WafBlocksHigh` (mehr als 100 abgewiesene Requests pro Stunde auf einem Namen). Dashboard: Web & Security, Zeile „AppSec WAF“.
+Die Probe (`services.waf.probe.package`) schickt ihre Anfrage von `127.0.0.2` (`services.waf.probe.address`) mit dem Bouncer-Key des Hosts, den der Writer als systemd-Credential bekommt. CrowdSec versieht seine AppSec-Zähler mit der Absenderadresse der Verbindung (`source`), bei allem, was ein Bouncer weiterreicht, also `127.0.0.1`; vmagent verwirft die Serien mit der Adresse der Probe (`services.waf.probe.metricRelabelConfigs`), die Zähler zeigen also nur Bouncer-Traffic. Die Laufzeit-Histogramme tragen `source` ebenfalls und werden genauso gefiltert. Ohne Key (ein Host vor `just waf-key` oder eine nicht lesbare Key-Datei) öffnet die Probe nur eine TCP-Verbindung; `nixlab_waf_appsec_up` heißt dann „der Port nimmt Verbindungen an“, nicht „AppSec antwortet per HTTP“. Bei nicht lesbarem Key ist `nixlab_waf_appsec_probe_ok` 0. Bis #452 fragte die Probe ohne Key, und CrowdSec loggte einmal pro Minute „missing API key“ als Fehler.
+
+Alarme (`hosts/grammi/alerting/security.nix`): `WafAppsecDown` (5 Minuten keine Antwort), `WafAppsecProbeFailed` (antwortet, aber die Anfrage mit Key scheitert 10 Minuten lang: Key gesperrt oder Regeln kaputt), `WafBlocksHigh` (mehr als 100 abgewiesene Requests pro Stunde auf einem Namen). Dashboard: Web & Security, Zeile „AppSec WAF“.
 
 ## Hosts
 

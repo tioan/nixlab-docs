@@ -25,7 +25,12 @@
 # Process names, not pids: a pid label would start new series on every
 # restart. NixOS wrapper names (".gunicorn-wrapped", cut to 15 characters)
 # are reduced to the program name.
-{ config, lib, pkgs, ... }:
+{
+  config,
+  lib,
+  pkgs,
+  ...
+}:
 let
   cfg = config.services.intelGpuMetrics;
   # Its own writer directory (modules/textfile-metrics.nix), root-owned
@@ -80,7 +85,11 @@ in
       hardening = {
         enable = true;
         level = "strict";
-        capabilities = [ "CAP_PERFMON" "CAP_SYS_PTRACE" "CAP_DAC_READ_SEARCH" ];
+        capabilities = [
+          "CAP_PERFMON"
+          "CAP_SYS_PTRACE"
+          "CAP_DAC_READ_SEARCH"
+        ];
         systemCalls = [ "perf_event_open" ];
         devices = [ "char-drm rw" ];
         seeProcesses = true;

@@ -117,6 +117,55 @@ image behind the configuration's back.
 
 [Quelltext](https://github.com/tioan/nixlab-docs/blob/main/modules/container-pins.nix)
 
+## crowdsec-dynamic-allow.nix
+
+Reusable module: never let CrowdSec ban a client whose address is dynamic
+but tracked by a DNS name (a dyndns name for a home line). admin/nixlab#444.
+
+A postoverflow whitelist, not a parser whitelist and not a LAPI allowlist:
+
+- Static whitelists cannot resolve names. CrowdSec's expr helper
+  LookupHost() can, and in the postoverflow stage it only runs when a
+  scenario has already overflowed - rarely, so one lookup each time costs
+  nothing and is never stale beyond the record's TTL. No timer, no list
+  to keep in sync, no token on the host.
+- A failed lookup returns an empty list (LookupHost logs and swallows the
+  error), so the exemption fails closed: the ban happens as before.
+- The lookup runs inline in CrowdSec's output loop. With DNS down, an
+  overflow of a listed scenario waits for the resolver's timeout (a few
+  seconds through resolved), and overflows behind it - an attack
+  included - wait with it. The scenario filter comes first, so only the
+  listed scenarios ever look up, and only while DNS is down. Accepted:
+  a ban seconds late, not a ban lost.
+- LAPI allowlists (`cscli allowlists`) are also checked by the AppSec
+  runner, which then skips the in-band block for that address entirely
+  (pkg/acquisition/modules/appsec/appsec_runner.go in 1.7.8). Here the
+  WAF still answers 403; only the ban that would follow is dropped.
+- What this does not cover: the community blocklist and decisions added
+  by hand, which only a LAPI allowlist filters.
+
+IPv6: the name's AAAA is one address of the line; every device behind it
+has its own from the delegated prefix, so the AAAA is widened to
+ipv6PrefixLength. Likewise ipv4PrefixLength (32: just the address).
+
+A whitelisted overflow is counted by CrowdSec itself, as
+cs_node_wl_hits_ok_total{name="<whitelistName>"}. Whether the name
+resolves at all is exported by a textfile writer, so a name that stopped
+resolving - and with it the exemption - shows up before the next ban does.
+
+**Optionen** (`services.crowdsecDynamicAllow`):
+
+| Option | Beschreibung |
+| --- | --- |
+| `name` | DNS name whose A/AAAA records are never banned. null: no exemption. Resolved through the host's resolver whenever a scenario overflows. |
+| `whitelistName` | Name of the postoverflow whitelist, also the `name` label of cs_node_wl_hits_ok_total. |
+| `scenarios` | Scenarios whose overflows are dropped for the name's addresses. Empty: all of them. A list keeps the attack scenarios (brute force, CVEs, AppSec) banning, so a compromised device behind the line is still caught. |
+| `ipv4PrefixLength` | Prefix length the A record is widened to. |
+| `ipv6PrefixLength` | Prefix length the AAAA record is widened to: the delegated prefix of the line. |
+| `expression` | The whitelist expression, for tests and documentation; null without a name. |
+
+[Quelltext](https://github.com/tioan/nixlab-docs/blob/main/modules/crowdsec-dynamic-allow.nix)
+
 ## crowdsec.nix
 
 Known issues with the nixpkgs modules, all found the hard way:
@@ -534,7 +583,7 @@ hash) is then not evaluated at all.
 A fix that no version number marks takes `fixedWhen` instead of (or next
 to) fixedVersion: a boolean that turns true once nixpkgs has it, e.g. "the
 package no longer takes the argument the override replaces"
-(modules/hotfixes/gotenberg.nix). Pick a test that flips in the same
+(hosts/ursalia/paperless-v3.nix). Pick a test that flips in the same
 nixpkgs commit as the fix, so it cannot switch the hotfix off early.
 
 Credits: the pattern is snowball's (BBBSnowball), offered for reuse on
@@ -596,13 +645,13 @@ are reduced to the program name.
 ## lab.nix
 
 Lab-wide constants that several modules and hosts need, declared once.
-The values are set from inventory.json by profiles/services.nix;
+The values are set from inventory.json by profiles/common.nix and
+profiles/pulled.nix;
 this file only declares them, so the modules that read them stay free of
 lab values.
 
-Only the mesh ranges for now (admin/nixlab#319). Their other literal uses
-(sshd's Match, CrowdSec's whitelist, Samba, Traefik's trustedIPs, ...)
-move over one by one - the list is in that issue.
+The mesh ranges and the OIDC issuer (admin/nixlab#319) and the S3 endpoint
+of the restic jobs (modules/restic-garage.nix, #318).
 
 **Optionen** (`lab.mesh`):
 
@@ -753,7 +802,7 @@ modules/auto-upgrade-git.nix.
 | Option | Beschreibung |
 | --- | --- |
 | `enable` | Enable: ship this host's Prometheus exporters to grammi's VictoriaMetrics via vmagent |
-| `remoteWriteUrl` | VictoriaMetrics remote_write endpoint, over the NetBird mesh. Mesh-only by design - see hosts/grammi/configuration.nix, the ingest port is not in networking.firewall.allowedTCPPorts, only reachable over the trusted mesh interface. |
+| `remoteWriteUrl` | VictoriaMetrics remote_write endpoint, over the NetBird mesh. Mesh-only by design - see hosts/grammi/telemetry-ingest.nix, the ingest port is not in networking.firewall.allowedTCPPorts, only reachable over the trusted mesh interface. |
 | `exporterPorts` | Local ports to scrape, named - this host's own services.prometheus.exporters.<name>.port values. The name becomes this target's `instance` label in VictoriaMetrics, so vmui shows e.g. "node"/"nginx" instead of an undifferentiated "127.0.0.1:9113". |
 | `defaultExporters` | services.prometheus.exporters.<name> registered in exporterPorts automatically wherever they are enabled, so hosts list only their own extra exporters. |
 | `exporterAddresses` | Loopback address to scrape per exporterPorts name, "127.0.0.1" where absent. For exporters that also answer on [::1] through modules/loopback-v6-proxy.nix: the lab prefers IPv6, so those are scraped there. IPv6 literals need their brackets. |
@@ -906,7 +955,7 @@ them.
 
 What every public endpoint must answer, and from where it is probed - the
 data behind modules/public-probes.nix (the probes on zummi and grammi) and
-the PublicProbeMissing series in hosts/grammi/alerting.nix. admin/nixlab#169.
+the PublicProbeMissing series in hosts/grammi/alerting/hosts-services.nix. admin/nixlab#169.
 
 The endpoints come from inventory.json: every endpoint with exposure
 "public" of a service that runs on a lab host. A new public endpoint
@@ -949,7 +998,7 @@ service    the service id in inventory.json
 
 on probe_success, probe_duration_seconds, probe_http_status_code and
 probe_ssl_earliest_cert_expiry. Alerts PublicServiceDown,
-PublicProbeMissing and ServedCertExpiring in hosts/grammi/alerting.nix,
+PublicProbeMissing and ServedCertExpiring in hosts/grammi/alerting/hosts-services.nix,
 dashboard Homelab / Public endpoints.
 
 Heartbeat (optional, `heartbeat.sopsFile`): every 5 minutes, if all of this
@@ -990,10 +1039,44 @@ below is incidental.
 
 [Quelltext](https://github.com/tioan/nixlab-docs/blob/main/modules/qemu-guest.nix)
 
+## restic-btrfs-snapshots.nix
+
+Read-only btrfs snapshots for a restic job to read from, so that what it
+stores from each subvolume is one consistent instant (to SQLite a snapshot
+looks like a power cut, which it is built to survive). Several snapshots are
+taken one after another, not at the same instant. Used by
+modules/restic-garage.nix and by restic jobs with other targets (BorgBase on
+ursalia):
+
+
+```
+snap = import ./restic-btrfs-snapshots.nix { inherit pkgs; } [
+{ from = "/"; to = "/snapshots/restic-myjob"; }
+];
+services.restic.backups.myjob.backupPrepareCommand = snap.prepare;
+services.restic.backups.myjob.backupCleanupCommand = snap.cleanup;
+```
+
+
+A snapshot lives on the filesystem of its source and leaves nested
+subvolumes out, so restic does not descend from it into itself. A leftover
+from an aborted run would make `snapshot` fail, so it is removed first;
+cleanup runs as ExecStopPost, i.e. after failed runs too. If the source is
+not a subvolume (a data disk that is not mounted leaves a plain directory),
+`snapshot` refuses and the run fails instead of storing an empty disk.
+
+Paths go into the scripts unquoted, so they are limited to characters that
+need no quoting, and must be absolute and canonical (no trailing or doubled
+slash, no . or ..) so that they can be compared as strings: `to` is
+deleted before each run, so it must not be `from` or lie above it.
+
+[Quelltext](https://github.com/tioan/nixlab-docs/blob/main/modules/restic-btrfs-snapshots.nix)
+
 ## restic-data.nix
 
-Backs up a home host's whole data disk to Garage on aldrin, via restic. The
-same job on tummi and ursalia, next to whatever else the host backs up.
+Backs up a home host's whole data disk to Garage on aldrin, via restic
+(modules/restic-garage.nix). The same job on tummi and ursalia, next to
+whatever else the host backs up.
 
 Its own bucket and key instead of a path in the host's existing repository:
 data disks are measured in terabytes, and a nightly job for Paperless should
@@ -1019,7 +1102,7 @@ Verification (modules/restic-verified.nix), different from the other jobs:
 No restic exporter: the NixOS module runs one per host, and ursalia's watches
 its Paperless repository. The verified metrics and the receiving side
 (hosts/aldrin/s3-upload-metrics.nix) cover these jobs, see the alerts in
-hosts/grammi/alerting.nix.
+hosts/grammi/alerting/backups.nix.
 
 Setting up a host:
 
@@ -1051,6 +1134,33 @@ restic-data restore <id> --sparse --target /root/restore --include /data/.restic
 
 [Quelltext](https://github.com/tioan/nixlab-docs/blob/main/modules/restic-data.nix)
 
+## restic-garage.nix
+
+restic jobs that back up to the lab's Garage S3 store, one bucket each
+(#318). Each job gets what every host used to write out by hand: the
+repository password and the bucket key from sops, the S3 environment file,
+the repository URL, `initialize = false` (modules/restic-verified.nix
+explains why), the timer, the prune policy and the verification by
+modules/restic-verified.nix. Optionally one job per host is watched by the
+restic exporter, which the NixOS module runs once per host - with a
+read-only key of its own, if the host has one (exporter.ownKey).
+
+Not here: buckets and keys (terraform/garage), what a job reads and how it
+makes that consistent (`paths`, `prepare`, `cleanup` per job), restic jobs
+with other targets (BorgBase on ursalia).
+
+Setting up a job: bucket and key in terraform/garage, `just garage-apply`,
+the secrets into the job's sops file, deploy, then once `restic-<job> init`.
+
+**Optionen** (`services.resticGarage`):
+
+| Option | Beschreibung |
+| --- | --- |
+| `endpoint` | URL of the Garage S3 endpoint, without a bucket. |
+| `jobs` | restic jobs (services.restic.backups.<name>) to a bucket of their own in Garage. |
+
+[Quelltext](https://github.com/tioan/nixlab-docs/blob/main/modules/restic-garage.nix)
+
 ## restic-verified.nix
 
 A backup only counts as successful once that has been verified (#238).
@@ -1073,16 +1183,29 @@ new data
 after   the snapshot is read back from the repository: it exists, it is
 from this run, its size is plausible against the last verified one,
 the required paths are in it, `restic check` passes (Sundays with
-a sample of the data, checkSubset)
+a sample of the data, checkSubset). If one of these fails, the
+snapshot is tagged `unverified` afterwards - only for jobs with
+pruneOpts: an append-only repository cannot change a snapshot
+(BorgBase), and nothing forgets there anyway. Until the tag is
+confirmed, its ID waits in <stateDir>/<job>.untagged and no forget
+runs
 only then
 nixlab_backup_verified_timestamp_seconds moves and forget/prune
 runs. Anything else sets nixlab_backup_last_run_failed, which only
 a verified run clears and which, being a file, survives switches.
+forget  the job's pruneOpts apply to snapshots without a tag only, so
+unverified ones never take a verified one's keep slot (#246).
+Unverified ones older than keepUnverifiedDays are forgotten by the
+first verified run after that - while runs keep failing, nothing
+is forgotten at all
 ```
 
 
+Snapshots that failed a check before this tagging existed (2026-11) carry no
+tag and count as verified until the policy drops them.
+
 Failed jobs are started again by a timer after the upgrade window, for
-whatever the reason was. Alerts: hosts/grammi/alerting.nix. Restoring: use the
+whatever the reason was. Alerts: hosts/grammi/alerting/backups.nix. Restoring: use the
 snapshot ID in nixlab_backup_verified_snapshot_info rather than `latest`,
 which may be an `unverified` one.
 
@@ -1151,7 +1274,7 @@ nixlab_state_metrics_last_success_timestamp_seconds{name}
 nixlab_state_metrics_interval_seconds{name}
 ```
 
-and StateMetricsStale (hosts/grammi/alerting.nix) compares the two, so a
+and StateMetricsStale (hosts/grammi/alerting/backups.nix) compares the two, so a
 query that starts failing - an upstream schema change, a lost GRANT - shows
 up without an alert per job.
 
@@ -1334,11 +1457,12 @@ The Traefik plugin judges the client by X-Forwarded-For only when the peer
 is the mesh: the NetBird reverse proxy reaches Traefik's apps entrypoint
 from there (hosts/grammi/traefik.nix).
 
-Plus the metric for "AppSec unreachable": a textfile writer
-(modules/textfile-metrics.nix) asks the AppSec port once a minute. Both
-bouncers fail open (services.waf.failOpen), so without it an AppSec that
-is down would only show as a WAF that never blocks. The alert is
-WafAppsecDown in hosts/grammi/alerting.nix.
+Plus the metrics for "AppSec unreachable" and "AppSec refuses the key": a
+textfile writer (modules/textfile-metrics.nix) runs the WAF module's probe
+once a minute with the bouncer's key. Both bouncers fail open
+(services.waf.failOpen), so without it an AppSec that is down would only
+show as a WAF that never blocks. The alerts are WafAppsecDown and
+WafAppsecProbeFailed in hosts/grammi/alerting/security.nix.
 
 [Quelltext](https://github.com/tioan/nixlab-docs/blob/main/modules/waf-lab.nix)
 
@@ -1392,7 +1516,12 @@ Failure: `failOpen` (default). If CrowdSec is down or slow, requests go
 through unchecked rather than the services going down with it. Neither the
 Lua bouncer nor the Traefik plugin can decide this per name, so it is one
 switch for the host; the metric `<prefix>waf_appsec_up` is what gets
-noticed.
+noticed. It comes from `probe.package`, which the host runs on a timer
+(modules/waf-lab.nix): with the bouncer key it sends one harmless request
+from `probe.address` and checks for a 200; the scraper drops the AppSec
+counters that request adds (`probe.metricRelabelConfigs`). Until
+admin/nixlab#452 the probe asked without key, and CrowdSec logged
+"missing API key" at error level once a minute.
 
 Docs: docs/site/*/explanation/waf.md.
 

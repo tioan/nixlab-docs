@@ -67,7 +67,7 @@
 #     "loopback"  IP sockets, but IPAddressDeny=any except localhost
 #     "any"       IP sockets to anywhere
 #   `addressFamilies` adds to the list (e.g. AF_NETLINK for getifaddrs).
-{ config, lib, ... }:
+{ lib, ... }:
 let
   inherit (lib) mkOption types;
 
@@ -75,13 +75,22 @@ let
     enable = lib.mkEnableOption "the shared systemd sandbox profile for this unit";
 
     level = mkOption {
-      type = types.enum [ "base" "standard" "strict" ];
+      type = types.enum [
+        "base"
+        "standard"
+        "strict"
+      ];
       default = "standard";
       description = "How much of the profile applies; see the module header for what each level adds.";
     };
 
     network = mkOption {
-      type = types.enum [ "none" "netlink" "loopback" "any" ];
+      type = types.enum [
+        "none"
+        "netlink"
+        "loopback"
+        "any"
+      ];
       default = "none";
       description = "Which sockets the unit may open.";
     };
@@ -115,7 +124,10 @@ let
     systemCalls = mkOption {
       type = types.listOf types.str;
       default = [ ];
-      example = [ "@chown" "perf_event_open" ];
+      example = [
+        "@chown"
+        "perf_event_open"
+      ];
       description = "System calls or groups added back after the deny list (level standard and up).";
     };
 
@@ -128,7 +140,10 @@ let
     devices = mkOption {
       type = types.listOf types.str;
       default = [ ];
-      example = [ "block-sd r" "char-nvme rw" ];
+      example = [
+        "block-sd r"
+        "char-nvme rw"
+      ];
       description = ''
         DeviceAllow entries. Non-empty turns PrivateDevices off and the
         device policy to closed, so only these (and the pseudo devices)
@@ -155,21 +170,41 @@ let
     };
   };
 
-  atLeast = want: level:
-    let rank = { base = 0; standard = 1; strict = 2; };
-    in rank.${level} >= rank.${want};
+  atLeast =
+    want: level:
+    let
+      rank = {
+        base = 0;
+        standard = 1;
+        strict = 2;
+      };
+    in
+    rank.${level} >= rank.${want};
 
-  profile = h:
+  profile =
+    h:
     let
       std = atLeast "standard" h.level;
       strict = atLeast "strict" h.level;
       families =
         {
           none = [ "AF_UNIX" ];
-          netlink = [ "AF_UNIX" "AF_NETLINK" ];
-          loopback = [ "AF_UNIX" "AF_INET" "AF_INET6" ];
-          any = [ "AF_UNIX" "AF_INET" "AF_INET6" ];
-        }.${h.network}
+          netlink = [
+            "AF_UNIX"
+            "AF_NETLINK"
+          ];
+          loopback = [
+            "AF_UNIX"
+            "AF_INET"
+            "AF_INET6"
+          ];
+          any = [
+            "AF_UNIX"
+            "AF_INET"
+            "AF_INET6"
+          ];
+        }
+        .${h.network}
         ++ h.addressFamilies;
     in
     {
@@ -204,7 +239,12 @@ let
     // lib.optionalAttrs std {
       # An empty assignment is the empty set: no capabilities at all.
       CapabilityBoundingSet = if h.capabilities == [ ] then "" else h.capabilities;
-      SystemCallFilter = [ "@system-service" "~@privileged" "~@resources" ] ++ h.systemCalls;
+      SystemCallFilter = [
+        "@system-service"
+        "~@privileged"
+        "~@resources"
+      ]
+      ++ h.systemCalls;
       SystemCallErrorNumber = "EPERM";
       UMask = h.umask;
     }

@@ -12,7 +12,7 @@
 #   service    the service id in inventory.json
 # on probe_success, probe_duration_seconds, probe_http_status_code and
 # probe_ssl_earliest_cert_expiry. Alerts PublicServiceDown,
-# PublicProbeMissing and ServedCertExpiring in hosts/grammi/alerting.nix,
+# PublicProbeMissing and ServedCertExpiring in hosts/grammi/alerting/hosts-services.nix,
 # dashboard Homelab / Public endpoints.
 #
 # Heartbeat (optional, `heartbeat.sopsFile`): every 5 minutes, if all of this
@@ -33,7 +33,9 @@ let
   host = config.networking.hostName;
   port = config.services.prometheus.exporters.blackbox.port;
 
-  probes = lib.filter (p: p.prober == host) (import ./public-probes-targets.nix { inherit lib inventory; }).probes;
+  probes =
+    lib.filter (p: p.prober == host)
+      (import ./public-probes-targets.nix { inherit lib inventory; }).probes;
 
   blackboxConfig = (pkgs.formats.yaml { }).generate "blackbox.yaml" {
     modules = lib.listToAttrs (
@@ -53,7 +55,12 @@ let
           // lib.optionalAttrs (p.body != [ ]) { fail_if_body_not_matches_regexp = p.body; }
           // lib.optionalAttrs (p.hostHeader != null) { headers.Host = p.hostHeader; }
           // lib.optionalAttrs (p.location != null) {
-            fail_if_header_not_matches = [ { header = "Location"; regexp = p.location; } ];
+            fail_if_header_not_matches = [
+              {
+                header = "Location";
+                regexp = p.location;
+              }
+            ];
           };
         }
       ) probes
@@ -124,51 +131,62 @@ in
     };
   };
 
-  config = lib.mkIf cfg.enable (lib.mkMerge [
-    {
-      assertions = [{
-        assertion = probes != [ ];
-        message = "services.publicProbes: no public endpoint is assigned to ${host} in modules/public-probes-targets.nix";
-      }];
+  config = lib.mkIf cfg.enable (
+    lib.mkMerge [
+      {
+        assertions = [
+          {
+            assertion = probes != [ ];
+            message = "services.publicProbes: no public endpoint is assigned to ${host} in modules/public-probes-targets.nix";
+          }
+        ];
 
-      services.prometheus.exporters.blackbox = {
-        enable = true;
-        listenAddress = "127.0.0.1";
-        configFile = blackboxConfig;
-      };
-
-      services.metricsShipping.extraScrapeConfigs = lib.mkIf config.services.metricsShipping.enable [ scrapeConfig ];
-      services.victoriametrics.prometheusConfig.scrape_configs = lib.mkIf (!config.services.metricsShipping.enable) [ scrapeConfig ];
-    }
-
-    (lib.mkIf hasHeartbeat {
-      sops.secrets.${secretName}.sopsFile = cfg.heartbeat.sopsFile;
-
-      systemd.services.public-probes-heartbeat = {
-        description = "Ping the external dead man's switch while all public probes of ${host} succeed";
-        after = [ "network-online.target" "prometheus-blackbox-exporter.service" ];
-        wants = [ "network-online.target" ];
-        serviceConfig = {
-          Type = "oneshot";
-          DynamicUser = true;
-          LoadCredential = [ "ping-url:${config.sops.secrets.${secretName}.path}" ];
-          ExecStart = heartbeat;
-        };
-        # Asks the local blackbox exporter, then one HTTPS call out.
-        hardening = {
+        services.prometheus.exporters.blackbox = {
           enable = true;
-          level = "strict";
-          network = "any";
+          listenAddress = "127.0.0.1";
+          configFile = blackboxConfig;
         };
-      };
 
-      systemd.timers.public-probes-heartbeat = {
-        wantedBy = [ "timers.target" ];
-        timerConfig = {
-          OnBootSec = "2min";
-          OnUnitActiveSec = "5min";
+        services.metricsShipping.extraScrapeConfigs = lib.mkIf config.services.metricsShipping.enable [
+          scrapeConfig
+        ];
+        services.victoriametrics.prometheusConfig.scrape_configs = lib.mkIf (
+          !config.services.metricsShipping.enable
+        ) [ scrapeConfig ];
+      }
+
+      (lib.mkIf hasHeartbeat {
+        sops.secrets.${secretName}.sopsFile = cfg.heartbeat.sopsFile;
+
+        systemd.services.public-probes-heartbeat = {
+          description = "Ping the external dead man's switch while all public probes of ${host} succeed";
+          after = [
+            "network-online.target"
+            "prometheus-blackbox-exporter.service"
+          ];
+          wants = [ "network-online.target" ];
+          serviceConfig = {
+            Type = "oneshot";
+            DynamicUser = true;
+            LoadCredential = [ "ping-url:${config.sops.secrets.${secretName}.path}" ];
+            ExecStart = heartbeat;
+          };
+          # Asks the local blackbox exporter, then one HTTPS call out.
+          hardening = {
+            enable = true;
+            level = "strict";
+            network = "any";
+          };
         };
-      };
-    })
-  ]);
+
+        systemd.timers.public-probes-heartbeat = {
+          wantedBy = [ "timers.target" ];
+          timerConfig = {
+            OnBootSec = "2min";
+            OnUnitActiveSec = "5min";
+          };
+        };
+      })
+    ]
+  );
 }

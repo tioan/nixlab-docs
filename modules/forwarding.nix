@@ -30,14 +30,13 @@ let
   quote = s: ''"${s}"'';
   nftSet = l: "{ ${lib.concatMapStringsSep ", " quote l} }";
 
-  match = a:
-    "iifname ${quote a.from}" + lib.optionalString (a.to != null) " oifname ${quote a.to}";
+  match = a: "iifname ${quote a.from}" + lib.optionalString (a.to != null) " oifname ${quote a.to}";
 
   # `allow` pairs that open connections into an overlay from outside it:
   # let through by the guard.
-  intoOverlay = a:
-    !(lib.elem a.from cfg.overlayInterfaces)
-    && (a.to == null || lib.elem a.to cfg.overlayInterfaces);
+  intoOverlay =
+    a:
+    !(lib.elem a.from cfg.overlayInterfaces) && (a.to == null || lib.elem a.to cfg.overlayInterfaces);
 in
 {
   options.networking.forwardFilter = {
@@ -50,24 +49,29 @@ in
     };
 
     allow = lib.mkOption {
-      type = lib.types.listOf (lib.types.submodule {
-        options = {
-          from = lib.mkOption {
-            type = lib.types.str;
-            example = "wg0";
-            description = "Interface the connection comes in on.";
+      type = lib.types.listOf (
+        lib.types.submodule {
+          options = {
+            from = lib.mkOption {
+              type = lib.types.str;
+              example = "wg0";
+              description = "Interface the connection comes in on.";
+            };
+            to = lib.mkOption {
+              type = lib.types.nullOr lib.types.str;
+              default = null;
+              example = "eth0";
+              description = "Interface it goes out on; null for any.";
+            };
           };
-          to = lib.mkOption {
-            type = lib.types.nullOr lib.types.str;
-            default = null;
-            example = "eth0";
-            description = "Interface it goes out on; null for any.";
-          };
-        };
-      });
+        }
+      );
       default = [ ];
       example = [
-        { from = "wg0"; to = "eth0"; }
+        {
+          from = "wg0";
+          to = "eth0";
+        }
         { from = "br-containers"; }
       ];
       description = ''
@@ -81,7 +85,10 @@ in
     overlayInterfaces = lib.mkOption {
       type = lib.types.listOf lib.types.str;
       default = [ ];
-      example = [ "wg0" "tailscale0" ];
+      example = [
+        "wg0"
+        "tailscale0"
+      ];
       description = ''
         Overlay interfaces (VPN meshes). New connections into them from any
         other interface are dropped by a guard chain unless an `allow` pair
@@ -91,20 +98,24 @@ in
   };
 
   config = lib.mkIf cfg.enable {
-    assertions = [{
-      assertion = config.networking.firewall.enable && config.networking.nftables.enable;
-      message = "networking.forwardFilter needs the NixOS firewall on its nftables backend.";
-    }];
+    assertions = [
+      {
+        assertion = config.networking.firewall.enable && config.networking.nftables.enable;
+        message = "networking.forwardFilter needs the NixOS firewall on its nftables backend.";
+      }
+    ];
 
     boot.kernel.sysctl = {
       "net.ipv4.ip_forward" = 1;
-    } // lib.optionalAttrs cfg.ipv6 {
+    }
+    // lib.optionalAttrs cfg.ipv6 {
       "net.ipv6.conf.all.forwarding" = 1;
     };
 
     networking.firewall.filterForward = true;
-    networking.firewall.extraForwardRules =
-      lib.concatMapStringsSep "\n" (a: "${match a} accept") cfg.allow;
+    networking.firewall.extraForwardRules = lib.concatMapStringsSep "\n" (
+      a: "${match a} accept"
+    ) cfg.allow;
 
     # Counters on the drop: `nft list table inet forward-guard` shows what
     # tried to get in.
@@ -115,7 +126,9 @@ in
           type filter hook forward priority filter - 2; policy accept;
           ${lib.concatStringsSep "\n          " (
             map (a: "ct state new ${match a} accept") (lib.filter intoOverlay cfg.allow)
-            ++ [ "ct state new iifname != ${nftSet cfg.overlayInterfaces} oifname ${nftSet cfg.overlayInterfaces} counter drop" ]
+            ++ [
+              "ct state new iifname != ${nftSet cfg.overlayInterfaces} oifname ${nftSet cfg.overlayInterfaces} counter drop"
+            ]
           )}
         }
       '';

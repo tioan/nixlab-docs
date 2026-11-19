@@ -16,7 +16,7 @@
 # Every job exports
 #   nixlab_state_metrics_last_success_timestamp_seconds{name}
 #   nixlab_state_metrics_interval_seconds{name}
-# and StateMetricsStale (hosts/grammi/alerting.nix) compares the two, so a
+# and StateMetricsStale (hosts/grammi/alerting/backups.nix) compares the two, so a
 # query that starts failing - an upstream schema change, a lost GRANT - shows
 # up without an alert per job.
 {
@@ -178,7 +178,6 @@ in
 
   imports = [ ./textfile-metrics.nix ];
 
-
   config = lib.mkIf (cfg.jobs != { }) {
     assertions = lib.mapAttrsToList (name: job: {
       assertion = job.user != "root" || job.capabilities != [ ];
@@ -187,12 +186,16 @@ in
 
     services.textfileMetrics.writers = lib.mapAttrs' mkWriter cfg.jobs;
 
-    users.users = lib.mapAttrs' (name: _: lib.nameValuePair "state-${name}" {
-      isSystemUser = true;
-      group = "state-${name}";
-      description = "state metrics job ${name}";
-    }) (lib.filterAttrs (_: job: job.user == null) cfg.jobs);
-    users.groups = lib.mapAttrs' (name: _: lib.nameValuePair "state-${name}" { })
-      (lib.filterAttrs (_: job: job.user == null) cfg.jobs);
+    users.users = lib.mapAttrs' (
+      name: _:
+      lib.nameValuePair "state-${name}" {
+        isSystemUser = true;
+        group = "state-${name}";
+        description = "state metrics job ${name}";
+      }
+    ) (lib.filterAttrs (_: job: job.user == null) cfg.jobs);
+    users.groups = lib.mapAttrs' (name: _: lib.nameValuePair "state-${name}" { }) (
+      lib.filterAttrs (_: job: job.user == null) cfg.jobs
+    );
   };
 }

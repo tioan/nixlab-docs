@@ -17,7 +17,12 @@
 #   - prebuild.enable (ursalia): the nightly update + build + upload, with
 #     the read-write key and the signing key (hosts/ursalia/nix-cache.yaml).
 # Both files come from `just nix-cache-secrets`.
-{ config, lib, pkgs, ... }:
+{
+  config,
+  lib,
+  pkgs,
+  ...
+}:
 
 let
   cfg = config.services.nixCache;
@@ -48,13 +53,86 @@ let
     Priority: 50
   '';
 
+  fc = cfg.prebuild.flakeCheck;
+  inherit (pkgs.stdenv.hostPlatform) system;
+  flakeDir = toString config.services.autoUpgradeGit.flakeDir;
+  textfileDir = config.services.textfileMetrics.directory;
+  prefix = config.services.textfileMetrics.metricPrefix;
+  writeProm = lib.getExe config.services.textfileMetrics.writeProm;
+
+  # The names of the checks that run after the push instead of before it,
+  # as a JSON list, evaluated from the given flake reference.
+  vmTestsJson =
+    flake:
+    if fc.vmTestsAttr == null then "'[]'" else ''"$(nix eval --json "${flake}#${fc.vmTestsAttr}")"'';
+
+  # flake-check-metrics <part> <started> <failed>: one run of the flake
+  # check (part "gate": before the push, "vm": after it) into the textfile
+  # collector's root directory - both units are root jobs anyway, like
+  # nixos-upgrade (modules/textfile-metrics.nix). Written after every run,
+  # passed or failed, so FlakeCheckFailed and FlakeCheckStale
+  # (hosts/grammi/alerting/units-updates.nix) see both.
+  flakeCheckMetrics = pkgs.writeShellScript "flake-check-metrics" ''
+    set -eu
+    part=$1 started=$2 failed=$3
+    now=$(${pkgs.coreutils}/bin/date +%s)
+    ${writeProm} ${textfileDir}/flake-check-$part.prom ${pkgs.coreutils}/bin/printf '%s\n' \
+      "# HELP ${prefix}flake_check_last_run_timestamp_seconds Unix time the nightly flake check (part: gate before the lock push, vm after it) last finished." \
+      "# TYPE ${prefix}flake_check_last_run_timestamp_seconds gauge" \
+      "${prefix}flake_check_last_run_timestamp_seconds{part=\"$part\"} $now" \
+      "# HELP ${prefix}flake_check_failed_checks Checks that failed in the last nightly flake check run." \
+      "# TYPE ${prefix}flake_check_failed_checks gauge" \
+      "${prefix}flake_check_failed_checks{part=\"$part\"} $failed" \
+      "# HELP ${prefix}flake_check_duration_seconds Duration of the last nightly flake check run." \
+      "# TYPE ${prefix}flake_check_duration_seconds gauge" \
+      "${prefix}flake_check_duration_seconds{part=\"$part\"} $((now - started))"
+  '';
+
+  # Only after a run that got through to the end (built, checked, uploaded,
+  # lock pushed or nothing to push). The unit's failed state is no record:
+  # the next switch clears it.
+  prebuildMetrics = pkgs.writeShellScript "nix-cache-prebuild-metrics" ''
+    set -eu
+    started=$1
+    now=$(${pkgs.coreutils}/bin/date +%s)
+    ${writeProm} ${textfileDir}/nix-cache-prebuild.prom ${pkgs.coreutils}/bin/printf '%s\n' \
+      "# HELP ${prefix}nix_cache_prebuild_last_success_timestamp_seconds Unix time of the last successful nightly prebuild (lock updated, hosts built, uploaded, pushed)." \
+      "# TYPE ${prefix}nix_cache_prebuild_last_success_timestamp_seconds gauge" \
+      "${prefix}nix_cache_prebuild_last_success_timestamp_seconds $now" \
+      "# HELP ${prefix}nix_cache_prebuild_duration_seconds Duration of the last successful nightly prebuild." \
+      "# TYPE ${prefix}nix_cache_prebuild_duration_seconds gauge" \
+      "${prefix}nix_cache_prebuild_duration_seconds $((now - started))"
+  '';
+
+  # The checks that run after the lock push (admin/nixlab#391): the VM
+  # tests take long and can fail on timing, and a held lock holds back
+  # every host's updates - so a failure here only alerts, the next night
+  # tries again. From the commit the prebuild just pushed, by rev, so a
+  # pull into the checkout meanwhile changes nothing under it.
+  vmCheck = pkgs.writeShellScript "nix-flake-check-vm" ''
+    set -euo pipefail
+    started=$(date +%s)
+    flake="git+file://${flakeDir}?rev=$(git -C ${flakeDir} rev-parse HEAD)"
+    failed=""
+    for t in $(jq -r '.[]' <<<${vmTestsJson "$flake"}); do
+      echo "nix-flake-check-vm: $t"
+      nix build --no-link -L "$flake#checks.${system}.$t" || failed="$failed $t"
+    done
+    ${flakeCheckMetrics} vm "$started" "$(wc -w <<<"$failed")"
+    if [ -n "$failed" ]; then
+      echo "nix-flake-check-vm: failed:$failed" >&2
+      exit 1
+    fi
+  '';
+
   upload = pkgs.writers.writePython3Bin "nix-cache-upload" {
     flakeIgnore = [ "E501" ];
   } (builtins.readFile ./nix-cache-upload.py);
 
   prebuild = pkgs.writeShellScript "nix-cache-prebuild" ''
     set -euo pipefail
-    cd ${toString config.services.autoUpgradeGit.flakeDir}
+    started=$(date +%s)
+    cd ${flakeDir}
 
     git checkout -- flake.lock
     # Build and sign only on top of a verified main: the lock commit below
@@ -80,6 +158,31 @@ let
       echo "nix-cache-prebuild: failed to build:$failed - flake.lock not pushed" >&2
       exit 1
     fi
+    ${lib.optionalString fc.enable ''
+
+      # Every check of the flake on the new lock, except the ones that run
+      # after the push (vmTestsAttr): these are deterministic, so a failure
+      # means the new lock breaks something, and it holds the lock back like
+      # a host build (admin/nixlab#391). First every output evaluated
+      # (`nix flake check` without building; a failure there counts as the
+      # one check "flake-outputs"), then the checks built in one
+      # go; only when that fails one by one, for the names.
+      checkStarted=$(date +%s)
+      checkFailed=""
+      nix flake check --no-build || checkFailed=" flake-outputs"
+      gate=$(nix eval --json .#checks.${system} --apply builtins.attrNames \
+        | jq -r --argjson vm ${vmTestsJson "."} '.[] | select(. as $n | $vm | index($n) | not)')
+      if ! nix build --no-link -L --keep-going $(printf '.#checks.${system}.%s ' $gate); then
+        for c in $gate; do
+          nix build --no-link ".#checks.${system}.$c" || checkFailed="$checkFailed $c"
+        done
+      fi
+      ${flakeCheckMetrics} gate "$checkStarted" "$(wc -w <<<"$checkFailed")"
+      if [ -n "$checkFailed" ]; then
+        echo "nix-cache-prebuild: checks failed:$checkFailed - flake.lock not pushed" >&2
+        exit 1
+      fi
+    ''}
 
     nix-cache-upload ${stateDir}/systems/*
 
@@ -102,6 +205,12 @@ let
         fi
       fi
     fi
+
+    ${prebuildMetrics} "$started"
+    ${lib.optionalString (fc.enable && fc.vmTestsAttr != null) ''
+      # Queued behind this unit (After=), so it starts once this one exits.
+      systemctl start --no-block nix-flake-check-vm.service
+    ''}
   '';
 in
 {
@@ -123,6 +232,27 @@ in
         is pushed just pulls nothing new tonight.
       '';
     };
+
+    flakeCheck = {
+      enable = lib.mkEnableOption ''
+        `nix flake check` on every nightly lock: all checks but the ones
+        named by vmTestsAttr after the host builds, holding the lock back
+        when one fails; those after the push, in nix-flake-check-vm, only
+        alerting
+      '';
+
+      vmTestsAttr = lib.mkOption {
+        type = lib.types.nullOr lib.types.str;
+        default = null;
+        example = "lib.vmTests";
+        description = ''
+          Flake attribute that evaluates to a list of check names (of this
+          system) to run after the lock push instead of before it: long or
+          timing-sensitive tests that should not hold every host's updates
+          back. null: every check runs before the push.
+        '';
+      };
+    };
   };
 
   config = lib.mkMerge [
@@ -141,13 +271,28 @@ in
       };
 
       nix.settings = {
-        extra-substituters = [ "s3://${bucket}?endpoint=${endpoint}&region=garage&profile=nix-cache&priority=50" ];
+        extra-substituters = [
+          "s3://${bucket}?endpoint=${endpoint}&region=garage&profile=nix-cache&priority=50"
+        ];
         extra-trusted-public-keys = [ publicKey ];
         # aldrin down or in maintenance must not stall every build: give up
         # on a connection after 5s (default: curl's own, minutes), and build
         # locally when a substituter that listed a path fails to deliver it.
         connect-timeout = 5;
         fallback = true;
+        # Most of what ursalia uploads are small configuration derivations
+        # (units, etc files, runCommandLocal/writeText) marked
+        # allowSubstitutes = false, which Nix by default never looks up in
+        # any substituter - so the hosts built them all again: 349-507 per
+        # host on the nixpkgs bump of 2026-11-17 (aldrin 13 min, 1.3 GiB
+        # swap). This makes Nix fetch them like anything else; measured on
+        # zummi (aldrin's toplevel, admin/nixlab#326): 283 local builds down
+        # to 18, a few MB from the cache. It only changes where a path may
+        # come from, not which signatures are accepted.
+        # Cost: with aldrin's S3 unreachable each of these lookups times out
+        # and is retried before the fallback builds it (dry run 4 -> 18 min);
+        # tracked in admin/nixlab#460.
+        always-allow-substitutes = true;
       };
 
       systemd.services.nix-daemon.environment = awsEnv;
@@ -178,10 +323,21 @@ in
         after = [ "network-online.target" ];
         wants = [ "network-online.target" ];
         restartIfChanged = false;
-        path = [ config.nix.package pkgs.git pkgs.openssh pkgs.jq pkgs.rclone upload ];
+        path = [
+          config.nix.package
+          pkgs.git
+          pkgs.openssh
+          pkgs.jq
+          pkgs.rclone
+          upload
+          config.systemd.package
+        ];
         environment = awsEnv // {
           inherit (config.systemd.services.nixos-upgrade.environment)
-            GIT_SSH_COMMAND GIT_AUTHOR_EMAIL GIT_COMMITTER_EMAIL;
+            GIT_SSH_COMMAND
+            GIT_AUTHOR_EMAIL
+            GIT_COMMITTER_EMAIL
+            ;
           GIT_AUTHOR_NAME = "${config.networking.hostName} nix-cache-prebuild";
           GIT_COMMITTER_NAME = "${config.networking.hostName} nix-cache-prebuild";
           # Sign every commit this unit makes (the lock commit and its
@@ -226,7 +382,12 @@ in
       # reset of flake.lock would pull the rug from under this run - and with
       # After= it waits for a run still going, so it switches to tonight's
       # lock rather than yesterday's.
-      systemd.services.nixos-upgrade.after = [ "nix-cache-prebuild.service" ];
+      # The VM tests too: they keep the CPU busy, and their outputs have no
+      # GC root either.
+      systemd.services.nixos-upgrade.after = [
+        "nix-cache-prebuild.service"
+      ]
+      ++ lib.optional (fc.enable && fc.vmTestsAttr != null) "nix-flake-check-vm.service";
 
       # The same for the nightly GC (03:15): the prebuild keeps its results
       # as out-links under ${stateDir}/systems, but a build still running
@@ -235,7 +396,32 @@ in
       # exits, and a start job for nix-gc queued meanwhile waits behind it
       # (After= delays a job while the other unit still has a job, not only
       # inside one transaction). Nothing changes on quiet nights.
-      systemd.services.nix-gc.after = [ "nix-cache-prebuild.service" ];
+      systemd.services.nix-gc.after = [
+        "nix-cache-prebuild.service"
+      ]
+      ++ lib.optional (fc.enable && fc.vmTestsAttr != null) "nix-flake-check-vm.service";
+
+      systemd.services.nix-flake-check-vm = lib.mkIf (fc.enable && fc.vmTestsAttr != null) {
+        description = "Run the flake's VM tests on the lock the nightly prebuild pushed";
+        # Started by the prebuild; after it also when started by hand.
+        after = [ "nix-cache-prebuild.service" ];
+        restartIfChanged = false;
+        path = [
+          config.nix.package
+          pkgs.git
+          pkgs.jq
+          pkgs.coreutils
+        ];
+        # root's nix substitutes itself (see credentials above).
+        environment = awsEnv;
+        serviceConfig = {
+          Type = "oneshot";
+          ExecStart = vmCheck;
+          TimeoutStartSec = "60min";
+          PrivateTmp = true;
+          Nice = 10;
+        };
+      };
 
       systemd.timers.nix-cache-prebuild = {
         wantedBy = [ "timers.target" ];

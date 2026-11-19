@@ -41,6 +41,7 @@
   config,
   lib,
   pkgs,
+  inventory,
   ...
 }:
 let
@@ -50,8 +51,14 @@ let
     ++ lib.optional config.services.traefik.enable "traefik";
 
   buckets = config.services.crowdsecBuckets;
+
+  # The home line: its dyndns name (kept current by gruffi,
+  # openwrt/gruffi/ddns-home.sh) and the prefix it delegates.
+  home = inventory.uplinks.home;
 in
 {
+  imports = [ ./crowdsec-dynamic-allow.nix ];
+
   # S3 clients look like scanners to the HTTP scenarios (see the whitelist
   # below), so their bucket traffic is exempted - but only on the vhost that
   # serves the buckets, recognised by its own access log.
@@ -70,7 +77,10 @@ in
     buckets = lib.mkOption {
       type = lib.types.listOf (lib.types.strMatching "[a-z0-9][a-z0-9-]*");
       default = [ ];
-      example = [ "backups" "nix-cache" ];
+      example = [
+        "backups"
+        "nix-cache"
+      ];
       description = "Bucket names (path-style) whose ordinary traffic is not counted.";
     };
 
@@ -78,8 +88,10 @@ in
       type = lib.types.nullOr lib.types.str;
       readOnly = true;
       default =
-        if config.services.crowdsecBuckets.vhost == null then null
-        else "/var/log/nginx/${config.services.crowdsecBuckets.vhost}.log";
+        if config.services.crowdsecBuckets.vhost == null then
+          null
+        else
+          "/var/log/nginx/${config.services.crowdsecBuckets.vhost}.log";
       defaultText = lib.literalExpression ''"/var/log/nginx/''${vhost}.log"'';
       description = ''
         The vhost's access log, in nginx's combined format, for anything else
@@ -90,6 +102,25 @@ in
   };
 
   config = {
+    # Never ban the home line for noise (admin/nixlab#444). Its address is
+    # dynamic, so it cannot go into homelab/lab-hosts below; the dyndns name
+    # is resolved when a scenario overflows (modules/crowdsec-dynamic-allow.nix).
+    # Only the scenarios that banned it before - a workstation running
+    # `tofu apply`, a load test of the public path, a client sending junk -
+    # so brute force, CVE probes and the WAF's own scenarios still ban a
+    # compromised device or a guest at home. If that turns out too narrow,
+    # the fallback is scenarios = [ ] (all of them).
+    services.crowdsecDynamicAllow = {
+      name = home.dyndnsName or null;
+      whitelistName = "homelab/home-line";
+      ipv6PrefixLength = home.ipv6PrefixLength;
+      scenarios = [
+        "crowdsecurity/http-crawl-non_statics"
+        "crowdsecurity/http-probing"
+      ]
+      ++ lib.optional config.services.nginx.enable "homelab/http-malformed-request";
+    };
+
     services.crowdsec = {
       enable = true;
 
@@ -190,10 +221,7 @@ in
               "203.0.113.12" # grammi v4
               "2001:db8:12::2" # grammi v6
             ];
-            cidr = [
-              "192.0.2.0/24" # NetBird mesh (terraform/netbird)
-              "2001:db8:203:0::/64" # NetBird mesh, IPv6 overlay (terraform/netbird/main.tf)
-            ];
+            cidr = config.lab.mesh.networks; # the NetBird mesh, both ranges
           };
         }
       ]
@@ -387,8 +415,7 @@ in
     # mkIf, not an empty list: defining users.users.crowdsec at all on a host
     # without either would create a half-declared user and fail evaluation.
     users.users.crowdsec.extraGroups = lib.mkIf (logGroups != [ ]) logGroups;
-    systemd.services.crowdsec.serviceConfig.SupplementaryGroups =
-      lib.mkIf (logGroups != [ ]) logGroups;
+    systemd.services.crowdsec.serviceConfig.SupplementaryGroups = lib.mkIf (logGroups != [ ]) logGroups;
 
     # The nixpkgs module links local parsers under a name with the store hash
     # and never removes the old link, so every change to one leaves the previous

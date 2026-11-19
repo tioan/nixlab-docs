@@ -75,7 +75,10 @@ in
       # 2026-09-29 with grist.homelab.example: lego's check against 1.1.1.1
       # passed, Let's Encrypt still got NXDOMAIN for the TXT record.
       # Costs every order/renewal a flat 2 minutes.
-      extraLegoFlags = [ "--dns.propagation-wait" "120s" ];
+      extraLegoFlags = [
+        "--dns.propagation-wait"
+        "120s"
+      ];
     };
   };
 
@@ -93,7 +96,8 @@ in
   # (to stay within Let's Encrypt's 5 failed validations per hour) but no
   # Restart=, so that delay never comes into play. Only Restart= is added
   # here; setting RestartSec again conflicts with the module's definition.
-  systemd.services = lib.mapAttrs' (name: _:
+  systemd.services = lib.mapAttrs' (
+    name: _:
     lib.nameValuePair "acme-order-renew-${name}" {
       serviceConfig.Restart = "on-failure";
       # At most 3 starts per hour (first try + 2 retries 15 min apart), then
@@ -102,5 +106,6 @@ in
         StartLimitIntervalSec = "1h";
         StartLimitBurst = 3;
       };
-    }) config.security.acme.certs;
+    }
+  ) config.security.acme.certs;
 }

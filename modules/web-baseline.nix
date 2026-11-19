@@ -34,7 +34,12 @@
 # plain-HTTP listener a NetBird reverse proxy service points at. Anything
 # else of the vhost goes into `nginx`, merged into services.nginx.
 # virtualHosts as it is.
-{ config, options, lib, ... }:
+{
+  config,
+  options,
+  lib,
+  ...
+}:
 let
   cfg = config.lab.web;
   nginx = config.services.nginx;
@@ -65,14 +70,18 @@ let
       lib.optional (ownHeaders v.extraConfig) "services.nginx.virtualHosts.\"${vn}\".extraConfig"
       ++ lib.concatLists (
         lib.mapAttrsToList (
-          ln: l: lib.optional (ownHeaders l.extraConfig) "services.nginx.virtualHosts.\"${vn}\".locations.\"${ln}\".extraConfig"
+          ln: l:
+          lib.optional (ownHeaders l.extraConfig) "services.nginx.virtualHosts.\"${vn}\".locations.\"${ln}\".extraConfig"
         ) v.locations
       )
     ) nginx.virtualHosts
   );
 
   # --- Default servers -------------------------------------------------------
-  defaultNames = [ "_default-http" "_default-https" ];
+  defaultNames = [
+    "_default-http"
+    "_default-https"
+  ];
   # nginx reads [::] and [::0] as the same address; one spelling, or the
   # default server would be declared twice.
   normalise = a: if a == "[::0]" then "[::]" else a;
@@ -83,10 +92,19 @@ let
   webAddresses = lib.unique (
     lib.concatLists (
       lib.mapAttrsToList (
-        vn: v:
+        _vn: v:
         map normalise (
           if v.listen != [ ] then
-            map (l: l.addr) (lib.filter (l: lib.elem (l.port or null) [ 80 443 null ]) v.listen)
+            map (l: l.addr) (
+              lib.filter (
+                l:
+                lib.elem (l.port or null) [
+                  80
+                  443
+                  null
+                ]
+              ) v.listen
+            )
           else if v.listenAddresses != [ ] then
             v.listenAddresses
           else
@@ -106,7 +124,7 @@ let
 
   # --- vhost helper ----------------------------------------------------------
   vhostModule =
-    { name, ... }:
+    { ... }:
     {
       options = {
         serverName = lib.mkOption {
@@ -159,7 +177,11 @@ let
         };
 
         maintenance = lib.mkOption {
-          type = lib.types.enum [ "switch" "errorPages" "none" ];
+          type = lib.types.enum [
+            "switch"
+            "errorPages"
+            "none"
+          ];
           default = "switch";
           description = ''
             Registration in modules/maintenance.nix: the maintenance switch
@@ -190,19 +212,23 @@ let
 
   namesWhere = pred: lib.attrNames (lib.filterAttrs (_: pred) config.lab.vhosts);
 
-  allowBlock = v: lib.optionalString (v.meshOnly || v.proxyListener != null) (
-    lib.concatMapStrings (a: "allow ${a};\n") (config.lab.mesh.networks ++ v.allow) + "deny all;\n"
-  );
+  allowBlock =
+    v:
+    lib.optionalString (v.meshOnly || v.proxyListener != null) (
+      lib.concatMapStrings (a: "allow ${a};\n") (config.lab.mesh.networks ++ v.allow) + "deny all;\n"
+    );
 
   # A function, not an attribute set: the vhost submodule reads a bare
   # attribute set as config only, which would make `imports` an option.
   toNginx =
-    name: v:
+    _name: v:
     { ... }:
     {
       imports = [ v.nginx ];
       serverName = lib.mkIf (v.serverName != null) v.serverName;
-      extraConfig = allowBlock v + v.extraConfig
+      extraConfig =
+        allowBlock v
+        + v.extraConfig
         + lib.optionalString (v.proxyListener != null) "absolute_redirect off;\n";
       locations = lib.mkIf (v.port != null) {
         "/" = {
@@ -214,7 +240,16 @@ let
     // (
       if v.proxyListener != null then
         {
-          listen = map (addr: { inherit addr; port = v.proxyListener; }) [ "0.0.0.0" "[::]" ];
+          listen =
+            map
+              (addr: {
+                inherit addr;
+                port = v.proxyListener;
+              })
+              [
+                "0.0.0.0"
+                "[::]"
+              ];
         }
       else
         {
@@ -223,7 +258,9 @@ let
           forceSSL = true;
           # The nixpkgs default spelling, so a host whose defaults are the
           # wildcard renders the same.
-          listenAddresses = lib.mkIf v.meshOnly ([ "0.0.0.0" ] ++ lib.optional config.networking.enableIPv6 "[::0]");
+          listenAddresses = lib.mkIf v.meshOnly (
+            [ "0.0.0.0" ] ++ lib.optional config.networking.enableIPv6 "[::0]"
+          );
         }
     );
 in
@@ -290,13 +327,21 @@ in
           serverName = "_";
           default = true;
           rejectSSL = true;
-          listen = map (addr: { inherit addr; port = 443; ssl = true; }) defaultAddresses;
+          listen = map (addr: {
+            inherit addr;
+            port = 443;
+            ssl = true;
+          }) defaultAddresses;
           extraConfig = "return 444;\n";
         };
         "_default-http" = {
           serverName = "_";
           default = true;
-          listen = map (addr: { inherit addr; port = 80; ssl = false; }) defaultAddresses;
+          listen = map (addr: {
+            inherit addr;
+            port = 80;
+            ssl = false;
+          }) defaultAddresses;
           locations."/".return = "301 https://$host$request_uri";
         };
       };
@@ -323,11 +368,15 @@ in
       assertions = [
         {
           assertion = options.services ? maintenance || namesWhere (v: v.maintenance != "none") == [ ];
-          message = "lab.vhosts: ${lib.concatStringsSep ", " (namesWhere (v: v.maintenance != "none"))} want maintenance, but modules/maintenance.nix is not imported";
+          message = "lab.vhosts: ${
+            lib.concatStringsSep ", " (namesWhere (v: v.maintenance != "none"))
+          } want maintenance, but modules/maintenance.nix is not imported";
         }
         {
           assertion = options.services ? waf || namesWhere (v: v.waf) == [ ];
-          message = "lab.vhosts: ${lib.concatStringsSep ", " (namesWhere (v: v.waf))} want the WAF, but modules/waf.nix is not imported";
+          message = "lab.vhosts: ${
+            lib.concatStringsSep ", " (namesWhere (v: v.waf))
+          } want the WAF, but modules/waf.nix is not imported";
         }
       ];
     }

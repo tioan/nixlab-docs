@@ -19,3 +19,7 @@ App passwords, OIDC clients and the like live in `hosts/<host>/secrets.yaml`, en
 | `terraform/*/secrets.yaml` | sops on the MacBook with the workstation key from 1Password |
 
 Everything that needs sops on the MacBook runs with the sign-in in front – see [just recipes](../reference/recipes.md).
+
+## Writing a recipe that handles a secret
+
+A process's command line is visible to everyone on the machine (`ps`), its environment to the same user. So a secret never goes into a child's arguments or into an environment variable set for it: into `jq` through a pipe (`printf '%s' "$v" | jq -Rs …`, or `--rawfile k <(printf '%s' "$v")` – `printf` is a shell builtin, no process of its own), into `curl` as a header file (`-H @<(printf 'Authorization: Token %s' "$t")`) and a body file (`--data-binary @<(…)`), into `sops` with `set --value-stdin` or `scripts/sops-write.sh`, into a remote host on stdin (nixlab#395, nixlab#401).

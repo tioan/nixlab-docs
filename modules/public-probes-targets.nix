@@ -1,6 +1,6 @@
 # What every public endpoint must answer, and from where it is probed - the
 # data behind modules/public-probes.nix (the probes on zummi and grammi) and
-# the PublicProbeMissing series in hosts/grammi/alerting.nix. admin/nixlab#169.
+# the PublicProbeMissing series in hosts/grammi/alerting/hosts-services.nix. admin/nixlab#169.
 #
 # The endpoints come from inventory.json: every endpoint with exposure
 # "public" of a service that runs on a lab host. A new public endpoint
@@ -48,7 +48,10 @@ let
       {
         path = "/status.php";
         status = 200;
-        body = _: [ ''"installed": *true'' ''"maintenance": *false'' ];
+        body = _: [
+          ''"installed": *true''
+          ''"maintenance": *false''
+        ];
       }
     ];
     floccus-dav = [
@@ -102,23 +105,40 @@ let
   webEndpoints = lib.concatLists (
     lib.mapAttrsToList (
       id: s:
-      map (e: {
-        inherit id;
-        inherit (e) fqdn exposure;
-        lands = if e.exposure == "proxy" then hostsOf e.via else s.hosts or null;
-      }) (lib.filter (e: (e.fqdn or null) != null && (e.port or null) == null && lib.elem e.exposure [ "public" "mesh" "proxy" ]) (s.endpoints or [ ]))
+      map
+        (e: {
+          inherit id;
+          inherit (e) fqdn exposure;
+          lands = if e.exposure == "proxy" then hostsOf e.via else s.hosts or null;
+        })
+        (
+          lib.filter (
+            e:
+            (e.fqdn or null) != null
+            && (e.port or null) == null
+            && lib.elem e.exposure [
+              "public"
+              "mesh"
+              "proxy"
+            ]
+          ) (s.endpoints or [ ])
+        )
     ) services
   );
   web = lib.filter (ep: ep.lands != null && ep.lands != [ ]) webEndpoints;
 
-  redirectProber = ep:
-    if ep.exposure == "mesh" then (if lib.elem "grammi" ep.lands then "zummi" else "grammi")
-    else proberFor { hosts = ep.lands; };
+  redirectProber =
+    ep:
+    if ep.exposure == "mesh" then
+      (if lib.elem "grammi" ep.lands then "zummi" else "grammi")
+    else
+      proberFor { hosts = ep.lands; };
 
   # One endpoint per host and kind of address carries the Host-header
   # variants: a host's public and mesh addresses can have different default
   # servers (aldrin binds its public vhosts to the public address).
-  key = ep: "${lib.concatStringsSep "+" ep.lands} ${if ep.exposure == "mesh" then "mesh" else "public"}";
+  key =
+    ep: "${lib.concatStringsSep "+" ep.lands} ${if ep.exposure == "mesh" then "mesh" else "public"}";
   representatives = lib.attrValues (
     lib.foldl' (acc: ep: if acc ? ${key ep} then acc else acc // { ${key ep} = ep; }) { } (
       lib.sort (a: b: a.fqdn < b.fqdn) web
@@ -126,27 +146,44 @@ let
   );
 
   redirectVariants = [
-    { name = "name"; host = null; }
-    { name = "localhost"; host = "localhost"; }
-    { name = "unknown"; host = "nonexistent.invalid"; }
+    {
+      name = "name";
+      host = null;
+    }
+    {
+      name = "localhost";
+      host = "localhost";
+    }
+    {
+      name = "unknown";
+      host = "nonexistent.invalid";
+    }
   ];
 
   redirectProbesOf =
     ep: variants:
     lib.concatMap (
       v:
-      map (family: {
-        inherit (ep) id fqdn;
-        path = "/ (port 80${lib.optionalString (v.host != null) ", Host: ${v.host}"})";
-        status = [ 301 308 ];
-        inherit family;
-        body = [ ];
-        hostHeader = v.host;
-        location = "^https://";
-        prober = redirectProber ep;
-        url = "http://${ep.fqdn}/";
-        module = "${ep.id}-${lib.replaceStrings [ "." ] [ "-" ] ep.fqdn}-http-${v.name}-ip${family}";
-      }) [ "4" "6" ]
+      map
+        (family: {
+          inherit (ep) id fqdn;
+          path = "/ (port 80${lib.optionalString (v.host != null) ", Host: ${v.host}"})";
+          status = [
+            301
+            308
+          ];
+          inherit family;
+          body = [ ];
+          hostHeader = v.host;
+          location = "^https://";
+          prober = redirectProber ep;
+          url = "http://${ep.fqdn}/";
+          module = "${ep.id}-${lib.replaceStrings [ "." ] [ "-" ] ep.fqdn}-http-${v.name}-ip${family}";
+        })
+        [
+          "4"
+          "6"
+        ]
     ) variants;
 
   redirectProbes =
@@ -160,19 +197,32 @@ let
   # (openwrt/web-probe-targets.nix feeds both). A device's own firmware picks
   # the redirect code (Reolink answers 302, NanoKVM 307), so any
   # redirect counts as long as it points at https.
-  applianceProbes = map (t: {
-    id = t.name;
-    fqdn = t.name;
-    path = "/ (port 80)";
-    status = [ 301 302 307 308 ];
-    family = "4";
-    body = [ ];
-    hostHeader = null;
-    location = "^https://";
-    prober = "ursalia";
-    url = "http://${t.address}/";
-    module = "appliance-${t.name}-http-ip4";
-  }) (import ../openwrt/web-probe-targets.nix { inherit lib; inherit (inventory) hosts; });
+  applianceProbes =
+    map
+      (t: {
+        id = t.name;
+        fqdn = t.name;
+        path = "/ (port 80)";
+        status = [
+          301
+          302
+          307
+          308
+        ];
+        family = "4";
+        body = [ ];
+        hostHeader = null;
+        location = "^https://";
+        prober = "ursalia";
+        url = "http://${t.address}/";
+        module = "appliance-${t.name}-http-ip4";
+      })
+      (
+        import ../openwrt/web-probe-targets.nix {
+          inherit lib;
+          inherit (inventory) hosts;
+        }
+      );
 
   probesOf =
     ep:
@@ -184,19 +234,24 @@ let
     lib.concatLists (
       lib.imap0 (
         i: c:
-        map (family: {
-          inherit (ep) id fqdn;
-          inherit (c) path;
-          status = [ c.status ];
-          inherit family;
-          body = c.body ep.fqdn;
-          hostHeader = null;
-          location = null;
-          prober = proberFor ep.service;
-          url = "https://${ep.fqdn}${c.path}";
-          # The blackbox module this probe uses, unique per check and family.
-          module = "${ep.id}-${toString i}-ip${family}";
-        }) [ "4" "6" ]
+        map
+          (family: {
+            inherit (ep) id fqdn;
+            inherit (c) path;
+            status = [ c.status ];
+            inherit family;
+            body = c.body ep.fqdn;
+            hostHeader = null;
+            location = null;
+            prober = proberFor ep.service;
+            url = "https://${ep.fqdn}${c.path}";
+            # The blackbox module this probe uses, unique per check and family.
+            module = "${ep.id}-${toString i}-ip${family}";
+          })
+          [
+            "4"
+            "6"
+          ]
       ) list
     );
 in

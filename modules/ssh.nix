@@ -1,7 +1,7 @@
 # Shared sshd policy. The authorized keys themselves stay per host - each host
 # has its own keypair on purpose - so this module only defines *who may log in
 # from where*, never *with which key*.
-{ ... }:
+{ config, lib, ... }:
 {
   services.openssh = {
     enable = true;
@@ -24,8 +24,7 @@
     # NetBird mesh address. LocalAddress rather than Address on purpose: it
     # keys on which local IP sshd accepted the connection on, which a remote
     # peer cannot spoof the way it could a source address. Ranges are the
-    # mesh, 192.0.2.0/24 and its IPv6 overlay 2001:db8:203:0::/64
-    # (terraform/netbird/main.tf).
+    # mesh and its IPv6 overlay (lab.mesh, modules/lab.nix).
     #
     # Verified with `sshd -T -C ...`:
     #   laddr=<public>          -> permitrootlogin no
@@ -50,7 +49,7 @@
     # requires Match blocks to live. Deploys therefore go over the mesh; see
     # the host addresses in the justfile.
     extraConfig = ''
-      Match LocalAddress 192.0.2.0/24,2001:db8:203:0::/64
+      Match LocalAddress ${lib.concatStringsSep "," config.lab.mesh.networks}
         PermitRootLogin prohibit-password
     '';
   };

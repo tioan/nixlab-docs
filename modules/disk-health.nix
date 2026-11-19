@@ -35,7 +35,12 @@
 #
 # test is short/extended/other. last_passed is 0 for aborted tests too (a
 # reboot during the 11 h QVO test, for instance) - the journal says which.
-{ config, lib, pkgs, ... }:
+{
+  config,
+  lib,
+  pkgs,
+  ...
+}:
 let
   cfg = config.services.diskHealth;
   pad = n: lib.fixedWidthString 2 "0" (toString n);
@@ -57,10 +62,12 @@ in
   config = lib.mkIf (cfg.devices != [ ]) {
     # Long tests on day 1..n of the month; 21 keeps the short-test hours
     # (03 + index) inside the day as well.
-    assertions = [{
-      assertion = lib.length cfg.devices <= 21;
-      message = "services.diskHealth: at most 21 disks per host (one test slot each).";
-    }];
+    assertions = [
+      {
+        assertion = lib.length cfg.devices <= 21;
+        message = "services.diskHealth: at most 21 disks per host (one test slot each).";
+      }
+    ];
 
     services.smartd = {
       enable = true;
@@ -93,11 +100,24 @@ in
     services.textfileMetrics.writers.smart-selftest-metric = {
       description = "SMART self-test results for node_exporter's textfile collector";
       file = "smart-selftest.prom";
-      path = [ pkgs.smartmontools pkgs.jq ];
-      supplementaryGroups = [ "disk" "smartctl-exporter-access" ];
+      path = [
+        pkgs.smartmontools
+        pkgs.jq
+      ];
+      supplementaryGroups = [
+        "disk"
+        "smartctl-exporter-access"
+      ];
       hardening = {
-        capabilities = [ "CAP_SYS_RAWIO" "CAP_SYS_ADMIN" ];
-        devices = [ "block-sd r" "block-blkext r" "char-nvme rw" ];
+        capabilities = [
+          "CAP_SYS_RAWIO"
+          "CAP_SYS_ADMIN"
+        ];
+        devices = [
+          "block-sd r"
+          "block-blkext r"
+          "char-nvme rw"
+        ];
         systemCalls = [ "@raw-io" ];
       };
       # smartctl's exit status is a bit mask that is non-zero for many a

@@ -80,7 +80,7 @@ in
     };
 
     # Marker for the HardwareWatchdogInactive alert on grammi
-    # (hosts/grammi/alerting.nix): node_exporter's watchdog collector shows
+    # (hosts/grammi/alerting/security.nix): node_exporter's watchdog collector shows
     # every device, this says which one systemd is supposed to hold.
     systemd.tmpfiles.rules = [
       ''f+ ${textfileDir}/hardware-watchdog.prom 0644 root root - nixlab_hardware_watchdog_enabled{name="${baseNameOf cfg.device}"} 1\n''

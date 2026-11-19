@@ -132,13 +132,13 @@ UserKnownHostsFile ~/.ssh/known_hosts ~/.ssh/known_hosts.nixlab
 ## `just docs`
 
 Build the project documentation in German and English: the private PDFs
-docs/nixlab-documentation.private.{de,en}.pdf from the site pages in
-docs/site/, and the anonymised public version (README.md, README.de.md,
-PDFs, site sources, modules/) into public-docs/, the gitignored clone of
-the public repo admin/nixlab-docs in the main checkout, whose workflow
-builds the site on GitHub Pages - see docs/build.sh and
-docs/anonymize.sed. Aborts if any real value would slip through, or if
-the public site does not build.
+docs/nixlab-documentation.private.{de,en}.pdf (local only, gitignored)
+from the site pages in docs/site/, and the anonymised public version
+(README.md, README.de.md, PDFs, site sources, modules/) into public-docs/,
+the gitignored clone of the public repo admin/nixlab-docs in the main
+checkout, whose workflow builds the site on GitHub Pages - see
+docs/build.sh and docs/anonymize.sed. Aborts if any real value would slip
+through, or if the public site does not build.
 
 Publishes only from the current origin/main with a clean tree (nixlab#314):
 from a branch, build for review with NIXLAB_DOCS_NO_PUSH=1.
@@ -162,11 +162,10 @@ Then the private site doku.homelab.example: its hosts (services.docs-site in
 inventory.json - aldrin for the mesh, ursalia for the home LAN) build it
 from their own checkout, so they are deployed (`just deploy`: git pull and
 a full rebuild - whatever else is new on main goes out too). Only when
-main is pushed and nothing but the two private PDFs this recipe rebuilds
-is uncommitted - otherwise the hosts would build something other than
-this checkout, so the deploy is skipped with a note. A host that fails
-does not stop the others; the recipe fails at the end and names it.
-NIXLAB_DOCS_NO_DEPLOY=1 skips the deploy.
+main is pushed and nothing is uncommitted - otherwise the hosts would
+build something other than this checkout, so the deploy is skipped with a
+note. A host that fails does not stop the others; the recipe fails at the
+end and names it. NIXLAB_DOCS_NO_DEPLOY=1 skips the deploy.
 
 ## `just docs-serve`
 
@@ -182,7 +181,6 @@ there is always the leftover of a nightly upgrade that never finished
 make `git pull` refuse; discard it first. The pull is the same signature-
 checked one as the nightly upgrade (auto-upgrade-git-pull, #304): an
 unsigned tip on main is refused here too - sign it with `just seal`.
-Hosts deployed before the check existed fall back to a plain pull.
 
 ## `just rebuild host`
 
@@ -245,7 +243,8 @@ of minutes. The NixOS VM tests exist for x86_64-linux only: `just test-vm`.
 
 The NixOS VM tests under checks.x86_64-linux, built on ursalia: all of them,
 or only the ones named. Which checks are VM tests is read from the flake
-(x86_64-linux only, with a test driver), so a new test needs no edit here.
+(lib.vmTests: x86_64-linux only, with a test driver), so a new test needs
+no edit here.
 
 ```
 just test-vm                  all, about 15 min
@@ -266,6 +265,13 @@ without confirmation, none with it. No secrets, about 4 min.
 
 modules/loopback-v6-proxy.nix in a throwaway VM on ursalia: a 127.0.0.1-only
 service must answer on [::1] too, and on no other address. About 1 min.
+
+## `just test-restic-exporter-readonly`
+
+The restic exporter with a read-only key of its own (modules/restic-garage.nix,
+exporter.ownKey) against a real Garage in a throwaway VM on ursalia: the
+collection works, `restic check` included; the key can neither write nor
+delete. No secrets, a few minutes.
 
 ## `just test-gw-remote-private-users`
 
@@ -514,11 +520,31 @@ after) or creates it if the host is new. A plain apply rather than
 without policies has full write access to the account - the policies must
 never lag behind. tofu shows the whole plan and asks first.
 
+## `just desec-ddns-key`
+
+Mint the home line's dyndns token (desec_token.ddns_home: may write only
+the A and AAAA of uplinks.home.dyndnsName, admin/nixlab#444) and set it as
+desec_ddns_token in openwrt/gruffi/secrets.yaml - from `tofu output` into
+`sops set`, never printed, never on disk in plaintext. Replaces an existing
+token (the old one stops working at once - run gruffi-ddns-install right
+after). A plain apply, as with desec-key: the policies must never lag.
+
 ## `just desec-verify`
 
 Verify each host's token actually enforces its scope - see
 terraform/desec-tokens/verify-scope.sh. Needs no bootstrap token, only
 the state; talks to deSEC from each host over the mesh.
+
+## `just gruffi-ddns-install`
+
+Put the home line's dyndns updater on the running gruffi without a new
+image (decision 11a in admin/nixlab#444): the script, its hotplug script
+and exporter collector, the node exporter's init script (it mounts the
+state directory), the uci settings from uci.nix, the token from sops
+(straight into a 0600 file over SSH, never printed) and the cron entry.
+The next image carries all of it (gen-files.sh, 90-gruffi), so this is
+for the time until then; running it again is harmless. Needs the LAN or
+the mesh: run it from gusto in a terminal, not from Claude's pane.
 
 ## `just netbird-server-secrets`
 
@@ -742,8 +768,9 @@ hosts/<host>/netbird.yaml, encrypted for that host (and the admin key)
 per .sops.yaml - piped from `tofu output` into `sops encrypt`, never on
 disk in plaintext. The key is valid for 24 h and single use; run this
 right before deploying the host's NetBird client, and again whenever the
-host has to re-register (reinstall, lost state). Only this one key is
-targeted, and tofu asks before replacing it.
+host has to re-register (reinstall, lost state). A targeted `tofu apply`
+(#394): only this one key is replaced, and tofu shows the plan and asks
+before it applies - none of the netbird-key* recipes passes -auto-approve.
 
 ## `just netbird-router-key`
 
@@ -753,7 +780,8 @@ the Mac's clipboard: never printed, never on disk. Universal Clipboard
 hands it to the iPhone, whose keyboard prompt for the Apple TV can paste
 it (Settings > Change Server > https://mesh.homelab.example:443 > Add this
 device with a setup key). Reusable for two registrations, valid for 24 h;
-run it again when an Apple TV has to re-register.
+run it again when an Apple TV has to re-register. A targeted `tofu apply`
+of that one key; tofu asks before it applies.
 
 ## `just netbird-key-homeassistant`
 
@@ -993,6 +1021,15 @@ The key of bucket <host>-data-backups from Tofu state plus a new repository
 password into hosts/<host>/backup-data.yaml (modules/restic-data.nix), straight
 into sops, never printed. Refuses to overwrite: a new password would lock out
 the existing repository.
+
+## `just restic-exporter-secrets`
+
+The restic exporters' read-only keys (terraform/garage/restic-exporter.tf,
+output restic_exporter_keys) into hosts/<host>/restic-exporter.yaml for
+services.resticGarage.exporter.ownKey - from `tofu output` straight into
+sops, never printed. Encrypting needs only the public keys (.sops.yaml).
+Refuses while any of the files exists; after rotating a key, remove that
+host's file first.
 
 ## `just garage-admin-token`
 

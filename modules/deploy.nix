@@ -52,7 +52,10 @@ in
   # sops-nix is not in the list: its activation code runs as root with every
   # secret of the host, so it is bumped by hand, with the diff read first
   # (`nix flake update sops-nix`, #313).
-  services.nixCache.prebuild.updateInputs = [ "nixpkgs" "nixpkgs-unstable" ];
+  services.nixCache.prebuild.updateInputs = [
+    "nixpkgs"
+    "nixpkgs-unstable"
+  ];
 
   services.autoUpgradeGit = {
     enable = true;

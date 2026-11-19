@@ -11,7 +11,13 @@
 # 192.0.2.0/24, in the group its setup key assigns (terraform/netbird,
 # local.hosts): "servers" for the lab's own hosts, "subraum-devices" for
 # cuckoosegg, which only gets what terraform/netbird/subraum.tf grants.
-{ config, lib, pkgs, inputs, ... }:
+{
+  config,
+  lib,
+  pkgs,
+  inputs,
+  ...
+}:
 let
   nb = inputs.nixpkgs-netbird.legacyPackages.${pkgs.stdenv.hostPlatform.system};
 
@@ -76,13 +82,16 @@ in
       # runs `netbird up` only while the client still reports NeedsLogin -
       # so a spent or expired key in sops is harmless once registered.
       setupKeyFile =
-        if externalKey != null then externalKey
-        else lib.mkIf hasSetupKey config.sops.secrets."netbird_setup_key".path;
+        if externalKey != null then
+          externalKey
+        else
+          lib.mkIf hasSetupKey config.sops.secrets."netbird_setup_key".path;
     };
   };
 
-  warnings = lib.optional (!hasSetupKey && externalKey == null)
-    "netbird: no hosts/${config.networking.hostName}/netbird.yaml - the client runs but cannot register; run `just netbird-key ${config.networking.hostName}`.";
+  warnings =
+    lib.optional (!hasSetupKey && externalKey == null)
+      "netbird: no hosts/${config.networking.hostName}/netbird.yaml - the client runs but cannot register; run `just netbird-key ${config.networking.hostName}`.";
 
   # The module's login script only acts on "NeedsLogin" and otherwise waits
   # for "Connected" - after one failed `netbird up` the daemon sits in
