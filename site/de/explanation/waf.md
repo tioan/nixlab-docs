@@ -69,11 +69,14 @@ Metriken: `cs_node_wl_hits_ok_total{name="homelab/home-line"}` (verworfene Sperr
 
 `services.waf.failOpen = true` (Standard): Ist AppSec nicht erreichbar oder antwortet nicht rechtzeitig, gehen Requests ungeprüft durch – Pocket ID, der NetBird-Login und die Sync-Clients sollen nicht mit CrowdSec ausfallen. Keiner der beiden Bouncer kann das pro Name entscheiden. Das Traefik-Plugin würde von sich aus blockieren, wenn AppSec oder die LAPI nicht erreichbar sind, und bis zum ersten Abruf der Sperren; das Modul schaltet all das ab.
 
+Wie lange „rechtzeitig“ ist: `services.waf.appsecTimeout` (500 ms, das `APPSEC_PROCESS_TIMEOUT` des Bouncers) beim nginx-Bouncer; das Traefik-Plugin wartet `httpTimeoutSeconds` (10 s). Den teilt es mit dem vollen Abruf der Sperrliste, der mit 2 s auf grammi jede Minute scheiterte (2026-11-19); er bleibt deshalb beim Plugin-Standard, ein crowdsec-Neustart antwortet ohnehin sofort mit `connection refused`. Traefik hat keinen Zähler pro Request; es loggt `appsecQuery:unreachable` (ohne Router) für jeden Request, den es ungeprüft durchließ, und eine VictoriaLogs-Regel zählt das. Ein Request, zu dem AppSec kein Urteil abgab, zählt auf nginx als `result="unchecked"` (#413): Das Modul umhüllt den AppSec-Aufruf des Bouncers und wertet dessen Fehler-Rückgabe aus. Das deckt Zeitüberschreitung, nicht lauschendes AppSec (`connection refused`) und ein AppSec ab, das bei zu großem Body die Verbindung schließt. Eine 401 oder 5xx von AppSec liefert keinen Fehler und sieht bei fail open aus wie eine 200; die deckt die Probe ab. Mit `failOpen = false` werden dieselben Requests abgewiesen und zählen trotzdem als unchecked. Gemessen 2026-11-05..19: fast alle kamen, während crowdsec neu startete (nächtliches Hub-Index-Update um 00:01, Deploys) – meist `connection refused`, ein längerer Timeout hätte also nicht geholfen; AppSecs eigene Verarbeitung blieb auf jedem Host bei p99,9 unter 25 ms.
+
 ## Metriken und Alarme
 
 | Metrik | Quelle |
 | --- | --- |
-| `nixlab_waf_requests_total{vhost, result="refused"\|"passed"}` | nginx, pro vhost, in der Log-Phase gezählt (`127.0.0.1:9932/metrics`, von vmagent abgeholt) |
+| `nixlab_waf_requests_total{vhost, result="refused"\|"unchecked"\|"passed"}` | nginx, pro vhost, in der Log-Phase gezählt (`127.0.0.1:9932/metrics`, von vmagent abgeholt) |
+| `nixlab_waf_appsec_duration_seconds` (Histogramm) | nginx, pro Host: wie lange der Bouncer auf AppSec wartete, Request-Body eingeschlossen; eine Zeitüberschreitung zählt mit ihrer vollen Wartezeit |
 | `traefik_router_requests_total{code="403"}` auf `dash`, `mesh-oauth2`, `mesh-dashboard` | Traefik auf grammi |
 | `nixlab_waf_appsec_up` | Textfile-Writer `waf-appsec-up`, einmal pro Minute: AppSec antwortet auf seinem Port |
 | `nixlab_waf_appsec_probe_ok` | derselbe Writer: eine harmlose Anfrage mit dem Bouncer-Key bekam eine 200 |
@@ -81,7 +84,7 @@ Metriken: `cs_node_wl_hits_ok_total{name="homelab/home-line"}` (verworfene Sperr
 
 Die Probe (`services.waf.probe.package`) schickt ihre Anfrage von `127.0.0.2` (`services.waf.probe.address`) mit dem Bouncer-Key des Hosts, den der Writer als systemd-Credential bekommt. CrowdSec versieht seine AppSec-Zähler mit der Absenderadresse der Verbindung (`source`), bei allem, was ein Bouncer weiterreicht, also `127.0.0.1`; vmagent verwirft die Serien mit der Adresse der Probe (`services.waf.probe.metricRelabelConfigs`), die Zähler zeigen also nur Bouncer-Traffic. Die Laufzeit-Histogramme tragen `source` ebenfalls und werden genauso gefiltert. Ohne Key (ein Host vor `just waf-key` oder eine nicht lesbare Key-Datei) öffnet die Probe nur eine TCP-Verbindung; `nixlab_waf_appsec_up` heißt dann „der Port nimmt Verbindungen an“, nicht „AppSec antwortet per HTTP“. Bei nicht lesbarem Key ist `nixlab_waf_appsec_probe_ok` 0. Bis #452 fragte die Probe ohne Key, und CrowdSec loggte einmal pro Minute „missing API key“ als Fehler.
 
-Alarme (`hosts/grammi/alerting/security.nix`): `WafAppsecDown` (5 Minuten keine Antwort), `WafAppsecProbeFailed` (antwortet, aber die Anfrage mit Key scheitert 10 Minuten lang: Key gesperrt oder Regeln kaputt), `WafBlocksHigh` (mehr als 100 abgewiesene Requests pro Stunde auf einem Namen). Dashboard: Web & Security, Zeile „AppSec WAF“.
+Alarme (`hosts/grammi/alerting/security.nix`): `WafAppsecDown` (5 Minuten keine Antwort), `WafAppsecProbeFailed` (antwortet, aber die Anfrage mit Key scheitert 10 Minuten lang: Key gesperrt oder Regeln kaputt), `WafBlocksHigh` (mehr als 100 abgewiesene Requests pro Stunde auf einem Namen), `WafUncheckedHigh` (mehr als 10 ungeprüfte Requests in 15 Minuten auf einem Namen, 30 Minuten lang – ein Neustart-Schub löst ihn nicht aus; für Traefik pro Host aus dem Journal, `hosts/grammi/alerting/journal.nix`). Dashboard: Web & Security, Zeile „AppSec WAF“.
 
 ## Hosts
 
@@ -104,6 +107,6 @@ Ein Traefik-Plugin auf grammi schützt die Dienste anderer Hosts nicht: Traefik 
 5. Prüfen: `cscli bouncers list` zeigt den Bouncer mit frischem Abruf; `curl -I https://<name>/crowdsec-test-NtktlJHV4TfBSK3wvlhiOBnl` löst einen Test-Alert aus.
 6. Nach einer Woche ohne Fehlalarme: `mode = "detect"` entfernen.
 
-Test: `just test-vm waf` (`tests/waf.nix`) – bösartiger Request über nginx und Traefik blockiert, Ausnahmen gehen durch, Detect alarmiert nur, bei gestopptem CrowdSec fail open.
+Test: `just test-vm waf` (`tests/waf.nix`) – bösartiger Request über nginx und Traefik blockiert, Ausnahmen gehen durch, Detect alarmiert nur, bei gestopptem CrowdSec fail open, und ein AppSec, das nie antwortet: Der Request wartet `appsecTimeout`, geht durch und zählt als unchecked.
 
 Quellen: Die nginx-Anbindung folgt CrowdSecs [`crowdsec_nginx.conf`](https://github.com/crowdsecurity/cs-nginx-bouncer/blob/067541cdfff4b650182d819e92c04a207aa2fbb5/nginx/crowdsec_nginx.conf) aus cs-nginx-bouncer v1.2.3 (MIT); die Lua-Bibliothek ist CrowdSecs [lua-cs-bouncer v1.0.19](https://github.com/crowdsecurity/lua-cs-bouncer/tree/ec94d512927cf70be865686e4eb928d128189633) (MIT); das Traefik-Plugin ist maxlerebourgs [crowdsec-bouncer-traefik-plugin v1.8.1](https://github.com/maxlerebourg/crowdsec-bouncer-traefik-plugin/tree/f9c85b1472d618e9188a025c9b2308d0b27e5321) (Apache-2.0).

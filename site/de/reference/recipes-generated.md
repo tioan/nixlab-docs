@@ -2,10 +2,6 @@
 
 Automatisch erzeugt aus dem `justfile`: jedes Rezept mit dem Kommentar darüber – Gegenstück zur [handgeschriebenen Auswahl](recipes.md). Die Kommentare sind englisch.
 
-## `just default`
-
-List available recipes
-
 ## `just commit message`
 
 Commit all changes with a message. No-op on a clean tree, so that `ship` /
@@ -28,22 +24,148 @@ Put a signed empty commit on top of main and push - the way out when an
 unsigned commit is the tip (a merge on github.com) and the hosts refuse
 to upgrade. Signing it vouches for everything below it: look first.
 
-## `just secrets host`
+## `just sync host`
 
-Edit a host's sops secrets, then bring the result back into the repo.
+Pull the latest config on a remote host, no rebuild. A modified flake.lock
+there is always the leftover of a nightly upgrade that never finished
+(modules/auto-upgrade-git.nix) - never built, never activated - and would
+make `git pull` refuse; discard it first. The pull is the same signature-
+checked one as the nightly upgrade (auto-upgrade-git-pull, #304): an
+unsigned tip on main is refused here too - sign it with `just seal`.
 
-Secrets have to be edited *on the host*: each secrets.yaml is encrypted to
-that machine's SSH host key plus the offline recovery key, neither of which
-lives on this workstation. `ssh -t` is required, otherwise sops gets no TTY
-and the editor never opens.
+## `just rebuild host`
 
-## `just pull-secrets host`
+Refuses while `just try` holds the host on a branch that /etc/nixos does
+not contain yet; once it does (merged and pulled), the hold is lifted and
+the rebuild runs. Every pull-deployed host has modules/deploy-hold.nix.
+Rebuild a remote host from its current /etc/nixos checkout
 
-Copy a host's secrets.yaml back into the repo and clean the host's checkout.
+## `just check host`
 
-Without this the edit only ever exists on the machine, the repo drifts, and
-`just sync` later refuses to pull over the local modification. That is
-exactly how garage_ui_oidc_client_secret ended up uncommitted on aldrin.
+Pull + dry-activate on a remote host without changing anything
+
+## `just deploy host`
+
+Pull + rebuild on a remote host in one go
+
+## `just ship host message`
+
+Commit, push, then deploy to one host
+
+## `just ship-all message`
+
+Commit, push, then deploy to every host
+
+## `just deploy-all`
+
+(ohne Kommentar)
+
+## `just try host`
+
+Builds and switches it like deploy-push, then holds the host there
+(modules/deploy-hold.nix) - the nightly upgrade, `just deploy` from main
+and ursalia's push to cuckoosegg leave it alone until the branch is
+merged. Run it from the topic's worktree. Requires a committed tree (the
+hold names a commit) based on the current origin/main, since anything
+older would roll back what others merged meanwhile. Refuses while another
+branch holds the host. After merging, `just deploy <host>` lifts the hold
+(cuckoosegg: ursalia's nightly push once its checkout has the merge).
+Tofu (netbird-apply & co.) is not covered: one state, applied from main.
+Try the current topic branch on a host before merging it to main
+
+## `just release host`
+
+E.g. when the attempt is abandoned. Does not switch anything back - run
+`just deploy <host>` (or `just deploy-push cuckoosegg` from main) for that.
+Drop a host's `just try` hold without merging
+
+## `just holds`
+
+Every `just try` hold on every NixOS host.
+
+## `just pve-image host pve`
+
+Build a host's Proxmox image (vzdump .vma.zst) on ursalia and copy it
+into the dump directory of a Proxmox host, ready for qmrestore - see
+docs/install-cuckoosegg.md. The image stays only in ursalia's store
+(unrooted, the nightly GC takes it). Copied in two hops through a temp
+file here rather than `scp -3`: the Proxmox host may ask for a password,
+and scp -3 cannot prompt for one (seen with vogon2, 2026-10-18).
+
+## `just maintenance-list`
+
+Every active maintenance flag on every NixOS host.
+
+## `just gc host`
+
+Run the host's nightly garbage collection now (modules/nix.nix): keeps the
+last 10 system generations, then collects everything they do not need.
+
+## `just openinvento-image`
+
+Build the OpenInvento test image on ursalia and switch to it, no deploy
+needed. Merges upstream main with the refs listed one per line in
+~/Projects/upstream/openinvento/testbuild.refs (outside every repo; origin/pr/N
+means the current head of that upstream PR) in the local throwaway branch
+test/ursalia, never pushed. Runs the backend tests, copies the database,
+restarts, checks /api/health. Conflicts stop it; resolved ones are replayed by
+rerere. Keeps the last 3 images and database copies.
+OPENINVENTO_NO_RESTART=1 only builds and tags, for the first build before the
+container exists.
+
+## `just mac-upgrade`
+
+Update the Homebrew pins (Homebrew itself and every tap: flake input
+nix-homebrew plus every input from a github:<owner>/homebrew-<name>
+repository - homebrew-core, homebrew-cask, netbirdio-tap and whatever
+`apps` pinned since; read from flake.lock), switch, then
+`brew upgrade` what is installed, list the formulae and casks new in the
+taps since the last pins (what `brew update` would have printed) - and
+print the NetBird client version here next to the mesh's
+(nixpkgs-netbird; bump that one deliberately, server first, see
+flake.nix). Only on the workstation: the result is a
+flake.lock change to commit like any other update; zorlock has no
+Homebrew. Nothing else in flake.lock moves.
+
+## `just apps *args`
+
+Search, add and remove software in one round, then switch and commit.
+Optional start term; another Mac with --host <host>. Or a subcommand:
+install, uninstall (remove, rm), list, search.
+
+## `just sync-zorlock`
+
+Pull the latest config on zorlock, no rebuild
+
+## `just rebuild-zorlock`
+
+Rebuild zorlock from its current /etc/nixos checkout (no pull, no summary)
+
+## `just check-zorlock`
+
+Pull + show what a switch would change on zorlock
+
+## `just deploy-zorlock`
+
+Pull + switch zorlock, with the summary
+
+## `just ship-zorlock message`
+
+Commit, push, then deploy to zorlock
+
+## `just claude-token-zorlock`
+
+Write hosts/zorlock/claude.yaml from a token of `claude setup-token`
+(run that first; it needs the browser login). Asked for here without
+echo, never an argument. Commit it and deploy zorlock.
+
+## `just version-check-run`
+
+Start the weekly full run now (collect, Claude); log in /var/log/version-check.log
+
+## `just version-check-fetch`
+
+Copy every run from zorlock to .version-check/ in the checkout
 
 ## `just topology`
 
@@ -173,65 +295,6 @@ Preview the private docs site - what doku.homelab.example serves (real values,
 install guides) - from the working tree, uncommitted changes included, at
 http://127.0.0.1:8000. Ctrl-C stops it. English at /, German at /de/.
 
-## `just sync host`
-
-Pull the latest config on a remote host, no rebuild. A modified flake.lock
-there is always the leftover of a nightly upgrade that never finished
-(modules/auto-upgrade-git.nix) - never built, never activated - and would
-make `git pull` refuse; discard it first. The pull is the same signature-
-checked one as the nightly upgrade (auto-upgrade-git-pull, #304): an
-unsigned tip on main is refused here too - sign it with `just seal`.
-
-## `just rebuild host`
-
-Refuses while `just try` holds the host on a branch that /etc/nixos does
-not contain yet; once it does (merged and pulled), the hold is lifted and
-the rebuild runs. Every pull-deployed host has modules/deploy-hold.nix.
-Rebuild a remote host from its current /etc/nixos checkout
-
-## `just check host`
-
-Pull + dry-activate on a remote host without changing anything
-
-## `just deploy host`
-
-Pull + rebuild on a remote host in one go
-
-## `just ship host message`
-
-Commit, push, then deploy to one host
-
-## `just ship-all message`
-
-Commit, push, then deploy to every host
-
-## `just deploy-all`
-
-(ohne Kommentar)
-
-## `just try host`
-
-Builds and switches it like deploy-push, then holds the host there
-(modules/deploy-hold.nix) - the nightly upgrade, `just deploy` from main
-and ursalia's push to cuckoosegg leave it alone until the branch is
-merged. Run it from the topic's worktree. Requires a committed tree (the
-hold names a commit) based on the current origin/main, since anything
-older would roll back what others merged meanwhile. Refuses while another
-branch holds the host. After merging, `just deploy <host>` lifts the hold
-(cuckoosegg: ursalia's nightly push once its checkout has the merge).
-Tofu (netbird-apply & co.) is not covered: one state, applied from main.
-Try the current topic branch on a host before merging it to main
-
-## `just release host`
-
-E.g. when the attempt is abandoned. Does not switch anything back - run
-`just deploy <host>` (or `just deploy-push cuckoosegg` from main) for that.
-Drop a host's `just try` hold without merging
-
-## `just holds`
-
-Every `just try` hold on every NixOS host.
-
 ## `just flake-check`
 
 Every check of this flake for this machine's system (nixlab#324). On the
@@ -251,46 +314,6 @@ just test-vm                  all, about 15 min
 just test-vm forwarding       one
 ```
 
-## `just test-restic-verified`
-
-Forced failures for modules/restic-verified.nix in a throwaway VM on ursalia:
-each must end unverified, only a good run verified. No secrets, about 3 min.
-
-## `just test-try-confirm`
-
-The host side of `just try-confirm` in a throwaway VM on ursalia: rollback
-without confirmation, none with it. No secrets, about 4 min.
-
-## `just test-loopback-v6-proxy`
-
-modules/loopback-v6-proxy.nix in a throwaway VM on ursalia: a 127.0.0.1-only
-service must answer on [::1] too, and on no other address. About 1 min.
-
-## `just test-restic-exporter-readonly`
-
-The restic exporter with a read-only key of its own (modules/restic-garage.nix,
-exporter.ownKey) against a real Garage in a throwaway VM on ursalia: the
-collection works, `restic check` included; the key can neither write nor
-delete. No secrets, a few minutes.
-
-## `just test-gw-remote-private-users`
-
-gw-remote in a user namespace in a throwaway VM on ursalia: the real container
-with a throwaway PKI, keys owned like aldrin's, OpenVPN/nftables/WireGuard
-inside, then the switch back without one. No secrets, a few minutes.
-
-## `just test-forwarding`
-
-modules/forwarding.nix in throwaway VMs on ursalia: an overlay, a
-neighbour and a container bridge behind one router; nothing from the
-neighbour may get into the overlay or onto the bridge (#311). About 2 min.
-
-## `just test-exit-counters`
-
-The exit node's traffic counters (modules/netbird-exit-node.nix) in
-throwaway VMs on ursalia: client traffic moves them, the router's own
-WireGuard traffic does not (#367). About 1 min.
-
 ## `just forward-probe host`
 
 Live check of the forward filter on a routing host (#311): a namespace on
@@ -299,159 +322,6 @@ endpoint on grammi over the mesh. Must end "blocked" everywhere. The neighbour's
 would masquerade on that host: inside the routed network on ursalia (home
 LAN, outside the DHCP pool) and cuckoosegg (a Subraum range), any address
 on the exit nodes. Runtime only, cleans up after itself.
-
-## `just pve-image host pve`
-
-Build a host's Proxmox image (vzdump .vma.zst) on ursalia and copy it
-into the dump directory of a Proxmox host, ready for qmrestore - see
-docs/install-cuckoosegg.md. The image stays only in ursalia's store
-(unrooted, the nightly GC takes it). Copied in two hops through a temp
-file here rather than `scp -3`: the Proxmox host may ask for a password,
-and scp -3 cannot prompt for one (seen with vogon2, 2026-10-18).
-
-## `just cuckoosegg-push-key`
-
-Key for ursalia's nightly push deploy of cuckoosegg (hosts/ursalia/
-push-cuckoosegg.nix): private half encrypted into
-hosts/ursalia/push-cuckoosegg.yaml (ursalia + admin, see .sops.yaml),
-public half into hosts/cuckoosegg/push-key.pub. ssh-keygen needs a file,
-so the private key exists in plaintext only in a private temp dir for
-the seconds this runs. Rotating = run it again, then deploy cuckoosegg
-(new public key) before ursalia (new private key) - or the next night's
-push fails.
-
-## `just root-password host`
-
-root's console password for a NixOS host (modules/base.nix, users are
-immutable since admin/nixlab#310). A random one: 24 characters, letters
-and digits without y/z (the console keymap is German, a VNC client's
-often is not) and without 0/O/o/1/l/I - about 136 bits. Two files, both
-encrypted here (encrypting needs only the public keys, see .sops.yaml):
-
-```
-hosts/<host>/root-password.yaml        yescrypt hash, host + admin -
-what the host reads
-hosts/<host>/root-password-plain.yaml  the password, workstation +
-admin - for `just
-root-password-show <host>`
-```
-
-The password goes from /dev/urandom through pipes into mkpasswd and sops
-only: no argument (ps would show it), no file, no output. Changing it =
-run this again, commit both files, deploy the host.
-
-## `just root-password-show host`
-
-Print root's console password for a host (from `just root-password`).
-Needs the workstation key (SOPS_AGE_KEY_CMD, hosts/gusto/home.nix). Run
-it yourself in Ghostty - not as a `!` command in the Claude app, whose
-output goes into the conversation. The password is meant for a console,
-not for a log or a chat.
-
-## `just nanokvm-mcp-key`
-
-Store the NanoKVM Go+'s MCP API key for the Claude Code bridge on ursalia
-(hosts/ursalia/claude-remote.nix). The key is shown in the KVM's web UI
-under Settings > MCP once MCP is on; it is read silently here and goes
-straight into hosts/ursalia/nanokvm-mcp.yaml (sops, ursalia + admin -
-encrypting needs only the public keys). Commit, then deploy ursalia.
-
-## `just nanokvm-cert`
-
-Fetch the NanoKVM Go+'s self-signed certificate as ursalia's nginx sees it
-and pin it (hosts/ursalia/nanokvm-go.crt, claude-remote.nix). Shows the
-pinned and the offered certificate side by side; only on "y" is the file
-replaced. Compare the fingerprint with the device's web UI or a second
-path first - a certificate taken over the network is only as good as
-that check. Commit, then deploy ursalia.
-
-## `just maintenance-list`
-
-Every active maintenance flag on every NixOS host.
-
-## `just maintenance-key`
-
-Copy the bypass token to the clipboard - never printed. Taken from grammi's
-decrypted secret over SSH: the workstation has no key for the hosts' sops
-files. Paste it at https://<name>/_maintenance/bypass; the cookie then
-holds for every name under homelab.example for 12 h.
-
-## `just maintenance-token`
-
-Create the bypass token once and write it to every host that runs the
-module (hosts/<host>/maintenance.yaml, sops). The same token everywhere,
-since the cookie covers all of homelab.example. Refuses to overwrite: rotating
-means `rm hosts/*/maintenance.yaml`, running this again, and deploying all
-four hosts. Commit, then deploy.
-
-## `just waf-key host`
-
-Register the WAF's bouncer - nginx-appsec, or traefik-appsec on a host
-with Traefik - with a host's CrowdSec LAPI and store its key in
-hosts/<host>/waf.yaml (sops, host + admin - see modules/waf-lab.nix).
-The key goes from cscli on the host straight into `sops encrypt` here,
-never printed or on disk in plaintext. Refuses to overwrite: rotating
-means `cscli bouncers delete <name>` on the host, `rm` the file, and
-running this again. Commit, then deploy the host.
-
-## `just mac-upgrade`
-
-Update the Homebrew pins (Homebrew itself and every tap: flake input
-nix-homebrew plus every input from a github:<owner>/homebrew-<name>
-repository - homebrew-core, homebrew-cask, netbirdio-tap and whatever
-`apps` pinned since; read from flake.lock), switch, then
-`brew upgrade` what is installed, list the formulae and casks new in the
-taps since the last pins (what `brew update` would have printed) - and
-print the NetBird client version here next to the mesh's
-(nixpkgs-netbird; bump that one deliberately, server first, see
-flake.nix). Only on the workstation: the result is a
-flake.lock change to commit like any other update; zorlock has no
-Homebrew. Nothing else in flake.lock moves.
-
-## `just apps *args`
-
-Search, add and remove software in one round, then switch and commit.
-Optional start term; another Mac with --host <host>. Or a subcommand:
-install, uninstall (remove, rm), list, search.
-
-## `just sync-zorlock`
-
-Pull the latest config on zorlock, no rebuild
-
-## `just rebuild-zorlock`
-
-Rebuild zorlock from its current /etc/nixos checkout (no pull, no summary)
-
-## `just check-zorlock`
-
-Pull + show what a switch would change on zorlock
-
-## `just deploy-zorlock`
-
-Pull + switch zorlock, with the summary
-
-## `just ship-zorlock message`
-
-Commit, push, then deploy to zorlock
-
-## `just claude-token-zorlock`
-
-Write hosts/zorlock/claude.yaml from a token of `claude setup-token`
-(run that first; it needs the browser login). Asked for here without
-echo, never an argument. Commit it and deploy zorlock.
-
-## `just version-check-run`
-
-Start the weekly full run now (collect, Claude); log in /var/log/version-check.log
-
-## `just version-check-fetch`
-
-Copy every run from zorlock to .version-check/ in the checkout
-
-## `just gc host`
-
-Run the host's nightly garbage collection now (modules/nix.nix): keeps the
-last 10 system generations, then collects everything they do not need.
 
 ## `just tf-state-passphrase`
 
@@ -545,6 +415,58 @@ state directory), the uci settings from uci.nix, the token from sops
 The next image carries all of it (gen-files.sh, 90-gruffi), so this is
 for the time until then; running it again is harmless. Needs the LAN or
 the mesh: run it from gusto in a terminal, not from Claude's pane.
+
+## `just pocketid-plan`
+
+(ohne Kommentar)
+
+## `just pocketid-apply`
+
+(ohne Kommentar)
+
+## `just pocketid-api-key`
+
+Store a Pocket ID API key (Pocket ID admin UI -> Settings -> API Keys) in
+terraform/secrets.yaml, for terraform/pocket-id and terraform/netbird.
+Pocket ID keys expire: create a new one before the old one's date and run
+this again.
+
+## `just pocketid-api-key-move`
+
+Once, 2026-10-22: move the Pocket ID API key from terraform/netbird/
+secrets.yaml, where it sat while netbird was its only user, to the shared
+terraform/secrets.yaml. Refuses if the shared file already exists.
+
+## `just garage-plan`
+
+(ohne Kommentar)
+
+## `just garage-apply`
+
+(ohne Kommentar)
+
+## `just garage-admin-token`
+
+Copy Garage's admin token from aldrin (hosts/aldrin/secrets.yaml, which the
+workstation key cannot read) into terraform/secrets.yaml - over SSH straight
+into sops, never printed. Again after rotating garage_admin_token.
+
+## `just github-plan`
+
+(ohne Kommentar)
+
+## `just github-apply`
+
+(ohne Kommentar)
+
+## `just github-key host`
+
+New deploy key for a host's /etc/nixos checkout: generates an ed25519 key
+pair in a temp dir, writes the private half sops-encrypted for the host
+(and the admin key) to hosts/<host>/github.yaml and the public half to
+hosts/<host>/github-deploy.pub, then registers it on GitHub - read-only or
+not per terraform/github/main.tf. The temp dir is removed on exit. The old
+key stops working with the apply, so commit and deploy right after.
 
 ## `just netbird-server-secrets`
 
@@ -700,29 +622,6 @@ Show only the DNS-related lines of a stored bundle.
 
 Delete a bundle before its 24 h are up.
 
-## `just dokumente-share-pin`
-
-The NetBird reverse proxy service dokumente (terraform/netbird/
-reverse-proxy.tf) asks for this PIN before it serves a share link: 6
-digits, the only format NetBird accepts. Stored in
-terraform/netbird/secrets.yaml and printed once; takes effect with the
-next `just netbird-apply`. Changing it locks out everyone who only knows
-the old one - share links themselves stay valid.
-New random PIN for Paperless' share links from outside the mesh.
-
-## `just docs-login-key`
-
-New key for the private docs from the internet: the NetBird proxy sends it
-to aldrin's login listener, which serves only requests that carry it
-(modules/docs-site.nix, terraform/netbird/reverse-proxy.tf). Written to
-both sides - aldrin's secrets.yaml only opens with aldrin's host key, so
-that one is set on aldrin and copied back (as in `just secrets`). Then
-commit both, just netbird-apply and deploy aldrin.
-
-## `just dokumente-share-pin-show`
-
-Show the current share-link PIN, to pass on with a link.
-
 ## `just netbird-rotate-token`
 
 Move the service user's token (netbird_token.terraform) from Tofu state
@@ -738,28 +637,6 @@ an imported token has none, its plaintext only exists at creation.
 Replace the service user's token (every 90 days, when NetbirdTokenExpiring fires) and
 store the new one: the replace authenticates with the current token, then
 netbird-rotate-token swaps it in secrets.yaml.
-
-## `just gw-remote-pki`
-
-OpenVPN keys for gw-remote (hosts/gw-remote/container.nix, issue #84): a CA of
-its own, the server certificate, one client certificate per uplink
-profile of the Remote site's ER7206 and the tls-crypt key - encrypted
-straight into hosts/gw-remote/secrets.yaml (server side, for aldrin) and
-hosts/gw-remote/clients.yaml (workstation only), never on disk in plaintext.
-The CA key is thrown away: a new client means a new CA and new profiles
-for both uplinks, which is cheaper than keeping a CA key safe for years.
-RSA, not EC: which OpenVPN the ER7206 runs is not documented. Refuses to
-overwrite; delete both files to start over.
-
-## `just gw-remote-ovpn uplink out`
-
-The ER7206's OpenVPN client profile for one uplink (uplink1, uplink2 -
-hosts/gw-remote/site.json), with certificate, key and the tls-auth key
-inline, as the Omada controller imports it (VPN > VPN Client > OpenVPN,
-bound to that uplink's WAN). Kept to what the ER7206 takes: its client
-silently drops a profile with tls-crypt, the controller wants an IP as
-the server (aldrin's, from DNS), and newer options are left out. Written to <out> with mode 600 - it is the client's
-login, delete it after the import. Needs the workstation key (1Password).
 
 ## `just netbird-key host`
 
@@ -817,6 +694,149 @@ terraform/netbird/techo5.tf), on the Mac's clipboard: never printed,
 never on disk. Paste it on the device's setup page (Network > NetBird) -
 the steps are in that file. One-off, valid for 24 h; run again if it has
 to re-register.
+
+## `just secrets host`
+
+Edit a host's sops secrets, then bring the result back into the repo.
+
+Secrets have to be edited *on the host*: each secrets.yaml is encrypted to
+that machine's SSH host key plus the offline recovery key, neither of which
+lives on this workstation. `ssh -t` is required, otherwise sops gets no TTY
+and the editor never opens.
+
+## `just pull-secrets host`
+
+Copy a host's secrets.yaml back into the repo and clean the host's checkout.
+
+Without this the edit only ever exists on the machine, the repo drifts, and
+`just sync` later refuses to pull over the local modification. That is
+exactly how garage_ui_oidc_client_secret ended up uncommitted on aldrin.
+
+## `just cuckoosegg-push-key`
+
+Key for ursalia's nightly push deploy of cuckoosegg (hosts/ursalia/
+push-cuckoosegg.nix): private half encrypted into
+hosts/ursalia/push-cuckoosegg.yaml (ursalia + admin, see .sops.yaml),
+public half into hosts/cuckoosegg/push-key.pub. ssh-keygen needs a file,
+so the private key exists in plaintext only in a private temp dir for
+the seconds this runs. Rotating = run it again, then deploy cuckoosegg
+(new public key) before ursalia (new private key) - or the next night's
+push fails.
+
+## `just root-password host`
+
+root's console password for a NixOS host (modules/base.nix, users are
+immutable since admin/nixlab#310). A random one: 24 characters, letters
+and digits without y/z (the console keymap is German, a VNC client's
+often is not) and without 0/O/o/1/l/I - about 136 bits. Two files, both
+encrypted here (encrypting needs only the public keys, see .sops.yaml):
+
+```
+hosts/<host>/root-password.yaml        yescrypt hash, host + admin -
+what the host reads
+hosts/<host>/root-password-plain.yaml  the password, workstation +
+admin - for `just
+root-password-show <host>`
+```
+
+The password goes from /dev/urandom through pipes into mkpasswd and sops
+only: no argument (ps would show it), no file, no output. Changing it =
+run this again, commit both files, deploy the host.
+
+## `just root-password-show host`
+
+Print root's console password for a host (from `just root-password`).
+Needs the workstation key (SOPS_AGE_KEY_CMD, hosts/gusto/home.nix). Run
+it yourself in Ghostty - not as a `!` command in the Claude app, whose
+output goes into the conversation. The password is meant for a console,
+not for a log or a chat.
+
+## `just nanokvm-mcp-key`
+
+Store the NanoKVM Go+'s MCP API key for the Claude Code bridge on ursalia
+(hosts/ursalia/claude-remote.nix). The key is shown in the KVM's web UI
+under Settings > MCP once MCP is on; it is read silently here and goes
+straight into hosts/ursalia/nanokvm-mcp.yaml (sops, ursalia + admin -
+encrypting needs only the public keys). Commit, then deploy ursalia.
+
+## `just nanokvm-cert`
+
+Fetch the NanoKVM Go+'s self-signed certificate as ursalia's nginx sees it
+and pin it (hosts/ursalia/nanokvm-go.crt, claude-remote.nix). Shows the
+pinned and the offered certificate side by side; only on "y" is the file
+replaced. Compare the fingerprint with the device's web UI or a second
+path first - a certificate taken over the network is only as good as
+that check. Commit, then deploy ursalia.
+
+## `just maintenance-key`
+
+Copy the bypass token to the clipboard - never printed. Taken from grammi's
+decrypted secret over SSH: the workstation has no key for the hosts' sops
+files. Paste it at https://<name>/_maintenance/bypass; the cookie then
+holds for every name under homelab.example for 12 h.
+
+## `just maintenance-token`
+
+Create the bypass token once and write it to every host that runs the
+module (hosts/<host>/maintenance.yaml, sops). The same token everywhere,
+since the cookie covers all of homelab.example. Refuses to overwrite: rotating
+means `rm hosts/*/maintenance.yaml`, running this again, and deploying all
+four hosts. Commit, then deploy.
+
+## `just waf-key host`
+
+Register the WAF's bouncer - nginx-appsec, or traefik-appsec on a host
+with Traefik - with a host's CrowdSec LAPI and store its key in
+hosts/<host>/waf.yaml (sops, host + admin - see modules/waf-lab.nix).
+The key goes from cscli on the host straight into `sops encrypt` here,
+never printed or on disk in plaintext. Refuses to overwrite: rotating
+means `cscli bouncers delete <name>` on the host, `rm` the file, and
+running this again. Commit, then deploy the host.
+
+## `just dokumente-share-pin`
+
+The NetBird reverse proxy service dokumente (terraform/netbird/
+reverse-proxy.tf) asks for this PIN before it serves a share link: 6
+digits, the only format NetBird accepts. Stored in
+terraform/netbird/secrets.yaml and printed once; takes effect with the
+next `just netbird-apply`. Changing it locks out everyone who only knows
+the old one - share links themselves stay valid.
+New random PIN for Paperless' share links from outside the mesh.
+
+## `just docs-login-key`
+
+New key for the private docs from the internet: the NetBird proxy sends it
+to aldrin's login listener, which serves only requests that carry it
+(modules/docs-site.nix, terraform/netbird/reverse-proxy.tf). Written to
+both sides - aldrin's secrets.yaml only opens with aldrin's host key, so
+that one is set on aldrin and copied back (as in `just secrets`). Then
+commit both, just netbird-apply and deploy aldrin.
+
+## `just dokumente-share-pin-show`
+
+Show the current share-link PIN, to pass on with a link.
+
+## `just gw-remote-pki`
+
+OpenVPN keys for gw-remote (hosts/gw-remote/container.nix, issue #84): a CA of
+its own, the server certificate, one client certificate per uplink
+profile of the Remote site's ER7206 and the tls-crypt key - encrypted
+straight into hosts/gw-remote/secrets.yaml (server side, for aldrin) and
+hosts/gw-remote/clients.yaml (workstation only), never on disk in plaintext.
+The CA key is thrown away: a new client means a new CA and new profiles
+for both uplinks, which is cheaper than keeping a CA key safe for years.
+RSA, not EC: which OpenVPN the ER7206 runs is not documented. Refuses to
+overwrite; delete both files to start over.
+
+## `just gw-remote-ovpn uplink out`
+
+The ER7206's OpenVPN client profile for one uplink (uplink1, uplink2 -
+hosts/gw-remote/site.json), with certificate, key and the tls-auth key
+inline, as the Omada controller imports it (VPN > VPN Client > OpenVPN,
+bound to that uplink's WAN). Kept to what the ER7206 takes: its client
+silently drops a profile with tls-crypt, the controller wants an IP as
+the server (aldrin's, from DNS), and newer options are left out. Written to <out> with mode 600 - it is the client's
+login, delete it after the import. Needs the workstation key (1Password).
 
 ## `just dns01proxy-key-homeassistant`
 
@@ -951,18 +971,6 @@ short.homelab.example's OIDC client secret (terraform/pocket-id/shortener.tf) fr
 hosts/aldrin/shortener-oidc.yaml. Run after pocketid-apply has created (or replaced)
 the client.
 
-## `just openinvento-image`
-
-Build the OpenInvento test image on ursalia and switch to it, no deploy
-needed. Merges upstream main with the refs listed one per line in
-~/Projects/upstream/openinvento/testbuild.refs (outside every repo; origin/pr/N
-means the current head of that upstream PR) in the local throwaway branch
-test/ursalia, never pushed. Runs the backend tests, copies the database,
-restarts, checks /api/health. Conflicts stop it; resolved ones are replayed by
-rerere. Keeps the last 3 images and database copies.
-OPENINVENTO_NO_RESTART=1 only builds and tags, for the first build before the
-container exists.
-
 ## `just healthlog-offhost`
 
 HealthLog's off-host copies (hosts/ursalia/healthlog.nix): bucket
@@ -979,35 +987,6 @@ when the file or the bucket exists. Ran on 2026-10-26; bucket, key and
 permission are in terraform/garage since, the lifecycle rule is not (the
 provider has none). Should it ever run again, import the new bucket and key
 there (terraform/garage/README.md). New buckets go through terraform/garage.
-
-## `just pocketid-plan`
-
-(ohne Kommentar)
-
-## `just pocketid-apply`
-
-(ohne Kommentar)
-
-## `just pocketid-api-key`
-
-Store a Pocket ID API key (Pocket ID admin UI -> Settings -> API Keys) in
-terraform/secrets.yaml, for terraform/pocket-id and terraform/netbird.
-Pocket ID keys expire: create a new one before the old one's date and run
-this again.
-
-## `just pocketid-api-key-move`
-
-Once, 2026-10-22: move the Pocket ID API key from terraform/netbird/
-secrets.yaml, where it sat while netbird was its only user, to the shared
-terraform/secrets.yaml. Refuses if the shared file already exists.
-
-## `just garage-plan`
-
-(ohne Kommentar)
-
-## `just garage-apply`
-
-(ohne Kommentar)
 
 ## `just aldrin-backup-secrets`
 
@@ -1031,12 +1010,6 @@ sops, never printed. Encrypting needs only the public keys (.sops.yaml).
 Refuses while any of the files exists; after rotating a key, remove that
 host's file first.
 
-## `just garage-admin-token`
-
-Copy Garage's admin token from aldrin (hosts/aldrin/secrets.yaml, which the
-workstation key cannot read) into terraform/secrets.yaml - over SSH straight
-into sops, never printed. Again after rotating garage_admin_token.
-
 ## `just nix-cache-secrets`
 
 The nix cache's secrets (modules/nix-cache.nix): both S3 keys from
@@ -1059,19 +1032,6 @@ hosts/ursalia/git-signing.pub. Rotating = run it again, commit, then
 deploy every host before ursalia's next prebuild (02:30) - hosts with the
 old list refuse the new signature until then.
 
-## `just github-plan`
+## `just default`
 
-(ohne Kommentar)
-
-## `just github-apply`
-
-(ohne Kommentar)
-
-## `just github-key host`
-
-New deploy key for a host's /etc/nixos checkout: generates an ed25519 key
-pair in a temp dir, writes the private half sops-encrypted for the host
-(and the admin key) to hosts/<host>/github.yaml and the public half to
-hosts/<host>/github-deploy.pub, then registers it on GitHub - read-only or
-not per terraform/github/main.tf. The temp dir is removed on exit. The old
-key stops working with the apply, so commit and deploy right after.
+List available recipes

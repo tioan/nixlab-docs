@@ -5,9 +5,10 @@
 | `just try <host>` | Deploy the current topic branch to a host and hold it there until the branch is merged ([Test a branch before merging](../how-to/try-branch.md)) |
 | `just try-confirm <host> [minutes] [via]` | Like `try`, but rolls itself back unless the host is reached and confirmed within the deadline ([with automatic rollback](../how-to/try-branch.md#confirm)) |
 | `just release <host>` / `holds` | Drop a hold without merging / list every hold |
-| `just test-restic-verified` | Forced backup failures in a throwaway VM on ursalia ([When a backup counts as successful](../explanation/monitoring.md#backup-verified)) |
-| `just test-gw-remote-private-users` | gw-remote in a user namespace in a throwaway VM on ursalia: OpenVPN, nftables, WireGuard inside, then the switch back without one |
-| `just test-forwarding` | The forward filter in throwaway VMs on ursalia: nothing from a neighbour into the overlay or onto a container bridge ([Exit nodes](../explanation/secrets-network-access.md)) |
+| `just test-vm [name …]` | The NixOS VM tests (`checks.x86_64-linux`, one per `tests/*.nix` with a test driver), built on ursalia: all of them, or only the ones named; the rows below are the ones with a page of their own |
+| `just test-vm restic-verified` | Forced backup failures in a throwaway VM on ursalia ([When a backup counts as successful](../explanation/monitoring.md#backup-verified)) |
+| `just test-vm gw-remote-private-users` | gw-remote in a user namespace in a throwaway VM on ursalia: OpenVPN, nftables, WireGuard inside, then the switch back without one |
+| `just test-vm forwarding` | The forward filter in throwaway VMs on ursalia: nothing from a neighbour into the overlay or onto a container bridge ([Exit nodes](../explanation/secrets-network-access.md)) |
 | `just forward-probe <host>` | Live check on a routing host: a namespace neighbour must not reach the mesh; runtime only, cleans up |
 | `just restore-test <host> [isolation]` | Restore grammi or zummi from restic into a throwaway VM on ursalia without network and measure the RTO ([Test a restore](../how-to/restore-test.md)) |
 | `just check <host>` | `git pull` + `nixos-rebuild dry-activate` |

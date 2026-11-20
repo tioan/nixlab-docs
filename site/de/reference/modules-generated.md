@@ -582,8 +582,8 @@ hash) is then not evaluated at all.
 
 A fix that no version number marks takes `fixedWhen` instead of (or next
 to) fixedVersion: a boolean that turns true once nixpkgs has it, e.g. "the
-package no longer takes the argument the override replaces"
-(hosts/ursalia/paperless-v3.nix). Pick a test that flips in the same
+package's own list of relaxed dependencies now names the one the override
+relaxes". Pick a test that flips in the same
 nixpkgs commit as the fix, so it cannot switch the hotfix off early.
 
 Credits: the pattern is snowball's (BBBSnowball), offered for reuse on
@@ -1521,7 +1521,11 @@ noticed. It comes from `probe.package`, which the host runs on a timer
 from `probe.address` and checks for a 200; the scraper drops the AppSec
 counters that request adds (`probe.metricRelabelConfigs`). Until
 admin/nixlab#452 the probe asked without key, and CrowdSec logged
-"missing API key" at error level once a minute.
+"missing API key" at error level once a minute. Single requests AppSec did
+not judge in time (`appsecTimeout`, mostly while CrowdSec loads its rules
+after a restart) count as `result="unchecked"` in
+`<prefix>waf_requests_total` on nginx, next to the latency histogram
+`<prefix>waf_appsec_duration_seconds` (admin/nixlab#413).
 
 Docs: docs/site/*/explanation/waf.md.
 

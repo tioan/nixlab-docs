@@ -69,11 +69,14 @@ Metrics: `cs_node_wl_hits_ok_total{name="homelab/home-line"}` (bans dropped), `n
 
 `services.waf.failOpen = true` (default): if AppSec cannot be reached or does not answer in time, requests pass unchecked – Pocket ID, the NetBird login and the sync clients should not go down with CrowdSec. Neither bouncer can decide this per name. The Traefik plugin would block by default when AppSec or the LAPI is unreachable and until its first decision pull; the module switches all of that off.
 
+How long "in time" is: `services.waf.appsecTimeout` (500 ms, the bouncer's `APPSEC_PROCESS_TIMEOUT`) for the nginx bouncer; the Traefik plugin waits `httpTimeoutSeconds` (10 s). That one is shared with its full decision pull, which failed every minute with 2 s on grammi (2026-11-19), so it stays at the plugin default; a crowdsec restart answers `connection refused` at once anyway. Traefik has no per-request counter; it logs `appsecQuery:unreachable` (no router named) for every request it let through unchecked, which a VictoriaLogs rule counts. A request AppSec gave no verdict for counts as `result="unchecked"` on nginx (#413): the module wraps the bouncer's AppSec call and takes its error return, which covers a timeout, AppSec not listening (`connection refused`) and AppSec closing the connection on an oversized body. A 401 or 5xx from AppSec returns no error and looks like a 200 when failing open; the probe covers those. With `failOpen = false` the same requests are refused and still count as unchecked. Measured 2026-11-05..19: almost all of them came while crowdsec restarted (nightly hub index update at 00:01, deploys) - mostly `connection refused`, so a longer timeout would not have helped; AppSec's own processing stayed under 25 ms at p99.9 on every host.
+
 ## Metrics and alerts
 
 | Metric | Source |
 | --- | --- |
-| `nixlab_waf_requests_total{vhost, result="refused"\|"passed"}` | nginx, per vhost, counted in the log phase (`127.0.0.1:9932/metrics`, scraped by vmagent) |
+| `nixlab_waf_requests_total{vhost, result="refused"\|"unchecked"\|"passed"}` | nginx, per vhost, counted in the log phase (`127.0.0.1:9932/metrics`, scraped by vmagent) |
+| `nixlab_waf_appsec_duration_seconds` (histogram) | nginx, per host: how long the bouncer waited for AppSec, request body included; a timeout counts with its full wait |
 | `traefik_router_requests_total{code="403"}` on `dash`, `mesh-oauth2`, `mesh-dashboard` | Traefik on grammi |
 | `nixlab_waf_appsec_up` | textfile writer `waf-appsec-up`, once a minute: AppSec answers on its port |
 | `nixlab_waf_appsec_probe_ok` | same writer: a harmless request with the bouncer key got a 200 |
@@ -81,7 +84,7 @@ Metrics: `cs_node_wl_hits_ok_total{name="homelab/home-line"}` (bans dropped), `n
 
 The probe (`services.waf.probe.package`) sends its request from `127.0.0.2` (`services.waf.probe.address`) with the host's bouncer key, which the writer gets as a systemd credential. CrowdSec labels its AppSec counters with the connecting address (`source`), which is `127.0.0.1` for everything a bouncer forwards; vmagent drops the series with the probe's address (`services.waf.probe.metricRelabelConfigs`), so the counters show bouncer traffic only. The parsing-time histograms carry `source` too and are filtered the same way. Without a key (a host before `just waf-key`, or a key file that cannot be read) the probe only opens a TCP connection, so `nixlab_waf_appsec_up` then means "the port accepts connections", not "AppSec answers HTTP"; with an unreadable key `nixlab_waf_appsec_probe_ok` is 0. Until #452 the probe asked without key, and CrowdSec logged "missing API key" at error level once a minute.
 
-Alerts (`hosts/grammi/alerting/security.nix`): `WafAppsecDown` (no answer for 5 minutes), `WafAppsecProbeFailed` (answers, but the request with key fails for 10 minutes: key revoked or rules broken), `WafBlocksHigh` (more than 100 refused requests an hour on one name). Dashboard: Web & Security, row "AppSec WAF".
+Alerts (`hosts/grammi/alerting/security.nix`): `WafAppsecDown` (no answer for 5 minutes), `WafAppsecProbeFailed` (answers, but the request with key fails for 10 minutes: key revoked or rules broken), `WafBlocksHigh` (more than 100 refused requests an hour on one name), `WafUncheckedHigh` (more than 10 unchecked requests in 15 minutes on one name, for 30 minutes - a restart burst does not fire it; for Traefik per host, from the journal in `hosts/grammi/alerting/journal.nix`). Dashboard: Web & Security, row "AppSec WAF".
 
 ## Hosts
 
@@ -104,6 +107,6 @@ A Traefik plugin on grammi does not protect the services of other hosts: Traefik
 5. Check: `cscli bouncers list` shows the bouncer with a recent pull; `curl -I https://<name>/crowdsec-test-NtktlJHV4TfBSK3wvlhiOBnl` raises a test alert.
 6. After a week without false positives: drop the `mode = "detect"`.
 
-Test: `just test-vm waf` (`tests/waf.nix`) – known-bad request blocked through nginx and Traefik, exceptions pass, detect only alerts, fail open with CrowdSec stopped.
+Test: `just test-vm waf` (`tests/waf.nix`) – known-bad request blocked through nginx and Traefik, exceptions pass, detect only alerts, fail open with CrowdSec stopped, and an AppSec that never answers: the request waits `appsecTimeout`, passes and counts as unchecked.
 
 Sources: the nginx wiring follows CrowdSec's [`crowdsec_nginx.conf`](https://github.com/crowdsecurity/cs-nginx-bouncer/blob/067541cdfff4b650182d819e92c04a207aa2fbb5/nginx/crowdsec_nginx.conf) from cs-nginx-bouncer v1.2.3 (MIT); the Lua library is CrowdSec's [lua-cs-bouncer v1.0.19](https://github.com/crowdsecurity/lua-cs-bouncer/tree/ec94d512927cf70be865686e4eb928d128189633) (MIT); the Traefik plugin is maxlerebourg's [crowdsec-bouncer-traefik-plugin v1.8.1](https://github.com/maxlerebourg/crowdsec-bouncer-traefik-plugin/tree/f9c85b1472d618e9188a025c9b2308d0b27e5321) (Apache-2.0).

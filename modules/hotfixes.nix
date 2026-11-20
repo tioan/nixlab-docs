@@ -34,8 +34,8 @@
 #
 # A fix that no version number marks takes `fixedWhen` instead of (or next
 # to) fixedVersion: a boolean that turns true once nixpkgs has it, e.g. "the
-# package no longer takes the argument the override replaces"
-# (hosts/ursalia/paperless-v3.nix). Pick a test that flips in the same
+# package's own list of relaxed dependencies now names the one the override
+# relaxes". Pick a test that flips in the same
 # nixpkgs commit as the fix, so it cannot switch the hotfix off early.
 #
 # Credits: the pattern is snowball's (BBBSnowball), offered for reuse on

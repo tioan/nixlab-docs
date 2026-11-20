@@ -55,6 +55,24 @@ let
   # The home line: its dyndns name (kept current by gruffi,
   # openwrt/gruffi/ddns-home.sh) and the prefix it delegates.
   home = inventory.uplinks.home;
+
+  # For the nightly hub upgrade (see crowdsec-update-hub below), all read from
+  # the nixpkgs module instead of repeated here. The cscli wrapper is the one
+  # it puts on the system path, with the generated config baked in; the config
+  # test is crowdsec.service's own `crowdsec -c <config> -t` start step.
+  findOrThrow =
+    what: pred: list:
+    lib.findFirst pred (throw "modules/crowdsec.nix: no ${what} in the nixpkgs crowdsec module") list;
+  cscli = findOrThrow "cscli wrapper" (p: lib.getName p == "cscli") config.environment.systemPackages;
+  configTest =
+    findOrThrow "config test step" (lib.hasSuffix " -t -error")
+      config.systemd.services.crowdsec.serviceConfig.ExecStartPre;
+  csPaths = config.services.crowdsec.settings.general.config_paths;
+  hubDirs = lib.unique [
+    csPaths.hub_dir
+    csPaths.data_dir
+  ];
+  dbPath = config.services.crowdsec.settings.general.db_config.db_path;
 in
 {
   imports = [ ./crowdsec-dynamic-allow.nix ];
@@ -173,8 +191,9 @@ in
       settings.lapi.credentialsFile = "/var/lib/crowdsec/state/local_api_credentials.yaml";
       settings.capi.credentialsFile = "/var/lib/crowdsec/state/online_api_credentials.yaml";
 
-      # Refreshes the hub index daily so new scenarios are picked up. Only the
-      # index - it does not swap out parsers underneath a running system.
+      # Refreshes the hub index daily; the override further down upgrades the
+      # installed items against it and reloads the engine only when that
+      # changed something (#487).
       autoUpdateService = true;
 
       # NOTE: setting console.tokenFile above does NOT actually enrol the host.
@@ -437,34 +456,81 @@ in
       ''}"
     ];
 
-    # crowdsec-update-hub.service had failed every night since at least
-    # 2026-08-13, and which step fails is the whole point: the
-    # `cscli --error hub update` ExecStart exits 0, so the hub index really is
-    # being refreshed. What fails is the unit's own ExecStartPost. It took two
-    # rounds to see why, because the first fault hid the second:
+    # Nightly hub refresh: upgrade, then reload only if that changed anything
+    # (#487).
     #
-    #   1. As shipped it failed with "Access denied" (4/NOPERMISSION). The unit
-    #      does not run as root, and asking the manager to act on a system unit
-    #      needs an authorisation it does not have. systemd's `+` prefix runs
-    #      that one command with full privileges, independently of
-    #      User=/DynamicUser= and the unit's sandboxing - the manager checks
-    #      authorisation before applicability, which is why this had to be
-    #      cleared before the actual problem became visible.
-    #   2. With that out of the way the real fault appeared: "Job type reload is
-    #      not applicable for unit crowdsec.service" (3/NOTIMPLEMENTED). The
-    #      module's crowdsec.service carries no ExecReload at all, so there is
-    #      nothing to reload. Upstream's own unit has
-    #      ExecReload=/bin/kill -HUP $MAINPID; nixpkgs dropped it.
+    # nixpkgs' crowdsec-update-hub.service runs `cscli hub update`, which only
+    # fetches .index.json; installed items stay as they are. Its own
+    # ExecStartPost (`systemctl reload crowdsec`) never worked: first "Access
+    # denied" (the unit does not run as root - hence `+` below), then "Job type
+    # reload is not applicable", because nixpkgs clears the ExecReload of
+    # upstream's unit and sets none. Until #487 we restarted instead, and that
+    # restart was the real upgrade: crowdsec.service's setup script runs
+    # `cscli collections install`, which re-downloads installed items the new
+    # index marks as outdated. But a restart leaves the AppSec listener
+    # (127.0.0.1:7422) down for 10-40 s - setup script, `crowdsec -t` with the
+    # CRS, start - and the bouncers pass everything unchecked meanwhile. Up to
+    # 2026-11-19 that was 38 of 50 nginx "AppSec check: connection refused"
+    # lines in 30 days, while only ~4 of 19 nights actually changed anything.
     #
-    # Restarting rather than re-adding that ExecReload: if this crowdsec build
-    # does not install a SIGHUP handler, the default disposition terminates the
-    # process, and discovering that at 00:04 unattended is not worth the saved
-    # restart. `try-restart` and not `restart`, so a deliberately stopped engine
-    # stays stopped instead of being started by a hub refresh. The cost is the
-    # in-memory bucket state, once a day - a fair price for actually picking up
-    # the index that was just downloaded.
-    systemd.services.crowdsec-update-hub.serviceConfig.ExecStartPost =
-      lib.mkForce "+${config.systemd.package}/bin/systemctl try-restart crowdsec.service";
+    # Now the unit runs `cscli hub upgrade` itself (items and data files), and
+    # reloads the engine only if the content of a file in the hub or data
+    # directory changed. A reload is SIGHUP: crowdsec 1.7.8
+    # handles it (cmd/crowdsec/serve.go, HandleSignals -> shutdown +
+    # reloadHandler), skipping setup script and process start, so the listener
+    # is down for the engine's own re-init only. It still drops it, and the
+    # in-memory buckets go too, same as a restart.
+    #
+    # The upgrade runs as the unit's user, not as root, so no file under the
+    # state directory ends up root-owned. Only the systemctl call needs `+`;
+    # the two steps talk through a flag file in the unit's RuntimeDirectory.
+    systemd.services.crowdsec-update-hub.serviceConfig = {
+      RuntimeDirectory = "crowdsec-update-hub";
+      ExecStartPost = lib.mkForce [
+        "${pkgs.writeShellScript "crowdsec-hub-upgrade" ''
+          set -eu
+          # Content, not timestamps: for a data file past its 7-day shelf life
+          # the downloader fetches it again and, if the content is the same,
+          # still bumps its times (go-cs-lib downloader, os.Chtimes), so mtime
+          # and ctime both claim a change that is not there.
+          # The LAPI database lives in the data directory and changes all the
+          # time; *.etag files are the downloader's cache validators.
+          snapshot() {
+            ${pkgs.findutils}/bin/find ${lib.escapeShellArgs hubDirs} -type f \
+              ! -path ${lib.escapeShellArg dbPath} ! -path ${lib.escapeShellArg "${dbPath}-*"} ! -name '*.etag' -print0 |
+              ${pkgs.coreutils}/bin/sort -zu | ${pkgs.findutils}/bin/xargs -0r ${pkgs.coreutils}/bin/sha256sum
+          }
+          snapshot >"$RUNTIME_DIRECTORY/before"
+          ${lib.getExe cscli} --error hub upgrade
+          snapshot >"$RUNTIME_DIRECTORY/after"
+          if changed=$(${pkgs.diffutils}/bin/diff "$RUNTIME_DIRECTORY/before" "$RUNTIME_DIRECTORY/after"); then
+            echo "hub upgrade changed nothing, no reload"
+          else
+            echo "hub upgrade changed:"
+            echo "$changed" | ${pkgs.gnused}/bin/sed -n 's/^> [0-9a-f]*  //p'
+            ${pkgs.coreutils}/bin/touch "$RUNTIME_DIRECTORY/reload"
+          fi
+        ''}"
+        # try-reload-or-restart: a deliberately stopped engine stays stopped.
+        "+${pkgs.writeShellScript "crowdsec-hub-reload" ''
+          set -eu
+          if [ -e "$RUNTIME_DIRECTORY/reload" ]; then
+            ${config.systemd.package}/bin/systemctl try-reload-or-restart crowdsec.service
+          fi
+        ''}"
+      ];
+    };
+
+    # Upstream's unit reloads with a config test first, then SIGHUP; nixpkgs
+    # clears both. Same here: a config that fails the test never reaches the
+    # running engine, the reload job fails and so does crowdsec-update-hub. A
+    # SIGHUP that fails inside crowdsec makes it exit, and Restart=always with
+    # RestartSec=60 then costs a minute - the test is what keeps that rare.
+    # The test command is the module's own ExecStartPre step.
+    systemd.services.crowdsec.serviceConfig.ExecReload = lib.mkAfter [
+      configTest
+      "${pkgs.coreutils}/bin/kill -HUP $MAINPID"
+    ];
 
     # Must exist in *each* host's secrets.yaml before the first rebuild, or
     # activation fails. Note that this machine's own SSH host key is the only

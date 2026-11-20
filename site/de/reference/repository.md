@@ -21,7 +21,7 @@ Ein Flake, `nixosConfigurations` für fünf Hosts plus `darwinConfigurations` f�
 | `inventory.json` / `inventory.nix` | Lab-Inventar (jede Maschine: Art, Site, Uplink, Beziehungen, Entsperren) und seine Prüfung, siehe [Inventar](inventory.md) |
 | `inventory.schema.json` | JSON-Schema zum Bearbeiten von `inventory.json`, generiert |
 | `tests/` | Tests, die `nix flake check` auswertet (`inventory.nix`) |
-| `justfile` | Alle Bedienabläufe: deploy, secrets, netbird-\*, desec-\* |
+| `justfile` / `just/` | Alle Bedienabläufe (`just --list`): das `justfile` hält die gemeinsamen Einstellungen (`hosts`, `mesh`) und importiert `just/<Bereich>.just` – deploy, mac, inventory, docs, tests, tofu (desec-\*, …), netbird-\*, secrets; längere Shell steht in `scripts/` |
 | `docs/` | Diese Projektdokumentation: Seiten unter `site/{de,en}/`, Zensical-Konfiguration, Build (`build.sh`, `site-src.sh`, `assemble.py`, `gen-reference.py`, `gen-llms.py`), Paket der privaten Site (`package.nix`) und was sie sonst von Dritten laden würde – Schriften, glightbox (`assets.nix`), Installationsanleitungen (ursalia, cuckoosegg, gusto), Upstream-Issue-Entwürfe |
 | `dnsconfig.js` | Symlink ins separate DNSControl-Repo – öffentliche DNS-Records leben dort |
 | `.sops.yaml` | age-Empfänger pro Host, `admin` (Offline-Recovery) und `workstation` (1Password) |

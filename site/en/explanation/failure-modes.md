@@ -32,10 +32,10 @@ Two independent ways notice when that chain itself breaks:
 | **Kernel or PID 1 hangs** | nobody: the hardware watchdog resets the host (60 s NUCs, 30 s VMs, softdog on zummi) | – then HostGone if it does not come back | Short outage, reboot | Automatic; HardwareWatchdogInactive if systemd does not hold the device | zummi 2026-11-03; `kill -SEGV 1` procedure not run |
 | **Unit fails** | UnitFailed within ~5 min (journal), also between switches | HA push | That service | Fix and deploy; the alert clears once the failure leaves the 30-min window | selftest procedure exists, date not recorded |
 | **Nightly upgrade fails** | NixosUpgradeStale after 26 h (not under a deploy hold) | HA push | Host stays on the old generation; a broken boot takes the host down at 04:00 | Provider console or on site; rollback to the previous generation | not tested |
-| **Backup fails** | BackupRunFailed after 5 min, BackupNotVerified after 26 h, BackupBucketNoNewObject (aldrin's view) | HA push (after 06:00 if at night) | No new verified snapshot | restic-verified retries at 05:15 and 07:15 | `just test-restic-verified`, date not recorded |
+| **Backup fails** | BackupRunFailed after 5 min, BackupNotVerified after 26 h, BackupBucketNoNewObject (aldrin's view) | HA push (after 06:00 if at night) | No new verified snapshot | restic-verified retries at 05:15 and 07:15 | `just test-vm restic-verified`, date not recorded |
 | **Disk full** | DiskFull above 85 % for 15 min | HA push | Depends on the mount | Free space | not tested |
 | **Certificate not renewed** | CertExpiring below 21 days (file), ServedCertExpiring below 14 days (served) | HA push | Nothing yet – renewal starts at 30 days | Check ACME/deSEC; reload the listener | not tested |
-| **Matter reports dropped** | MatterReportsRejected after 5 min; MatterDevicesUnavailable after 30 min | HA push (via HA, so not if HA is down) | Motion and door reports do not reach HA | Fix the address in gruffi's Matter rules (nixlab#46) | incident 2026-11-14 |
+| **Matter reports dropped** | MatterReportsRejected 5 min after a single rejected report (it stays 30 min); MatterDevicesUnavailable after 30 min | HA push (via HA, so not if HA is down) | Motion and door reports do not reach HA | Fix the address in gruffi's Matter rules (nixlab#46) | incident 2026-11-14 |
 
 ## Gaps { #gaps }
 

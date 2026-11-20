@@ -32,10 +32,10 @@ Zwei unabhängige Wege merken, wenn die Kette selbst reißt:
 | **Kernel oder PID 1 hängt** | niemand: der Hardware-Watchdog setzt den Host zurück (60 s NUCs, 30 s VMs, softdog auf zummi) | – danach HostGone, wenn er nicht zurückkommt | Kurzer Ausfall, Neustart | Automatisch; HardwareWatchdogInactive, wenn systemd das Gerät nicht hält | zummi 2026-11-03; Ablauf mit `kill -SEGV 1` nicht ausgeführt |
 | **Unit schlägt fehl** | UnitFailed nach ~5 min (Journal), auch zwischen Switches | HA-Push | Dieser Dienst | Beheben und deployen; der Alarm geht, wenn der Fehlschlag aus dem 30-min-Fenster fällt | Selbsttest beschrieben, Datum nicht festgehalten |
 | **Nächtliches Upgrade scheitert** | NixosUpgradeStale nach 26 h (nicht bei Deploy-Hold) | HA-Push | Der Host bleibt auf der alten Generation; ein kaputter Boot legt ihn um 04:00 lahm | Provider-Konsole oder vor Ort; Rückfall auf die vorige Generation | nicht getestet |
-| **Backup scheitert** | BackupRunFailed nach 5 min, BackupNotVerified nach 26 h, BackupBucketNoNewObject (aldrins Sicht) | HA-Push (nachts erst ab 06:00) | Kein neuer verifizierter Snapshot | restic-verified versucht es um 05:15 und 07:15 erneut | `just test-restic-verified`, Datum nicht festgehalten |
+| **Backup scheitert** | BackupRunFailed nach 5 min, BackupNotVerified nach 26 h, BackupBucketNoNewObject (aldrins Sicht) | HA-Push (nachts erst ab 06:00) | Kein neuer verifizierter Snapshot | restic-verified versucht es um 05:15 und 07:15 erneut | `just test-vm restic-verified`, Datum nicht festgehalten |
 | **Platte voll** | DiskFull über 85 % für 15 min | HA-Push | Je nach Mount | Platz schaffen | nicht getestet |
 | **Zertifikat nicht erneuert** | CertExpiring unter 21 Tagen (Datei), ServedCertExpiring unter 14 Tagen (ausgeliefert) | HA-Push | Noch nichts – erneuert wird ab 30 Tagen | ACME/deSEC prüfen; den Listener neu laden | nicht getestet |
-| **Matter-Meldungen verworfen** | MatterReportsRejected nach 5 min; MatterDevicesUnavailable nach 30 min | HA-Push (über HA, also nicht, wenn HA aus ist) | Bewegungs- und Türmeldungen erreichen HA nicht | Adresse in gruffis Matter-Regeln korrigieren (nixlab#46) | Vorfall 2026-11-14 |
+| **Matter-Meldungen verworfen** | MatterReportsRejected 5 min nach einem einzelnen abgewiesenen Report (bleibt 30 min); MatterDevicesUnavailable nach 30 min | HA-Push (über HA, also nicht, wenn HA aus ist) | Bewegungs- und Türmeldungen erreichen HA nicht | Adresse in gruffis Matter-Regeln korrigieren (nixlab#46) | Vorfall 2026-11-14 |
 
 ## Lücken { #gaps }
 

@@ -49,7 +49,11 @@
 # from `probe.address` and checks for a 200; the scraper drops the AppSec
 # counters that request adds (`probe.metricRelabelConfigs`). Until
 # admin/nixlab#452 the probe asked without key, and CrowdSec logged
-# "missing API key" at error level once a minute.
+# "missing API key" at error level once a minute. Single requests AppSec did
+# not judge in time (`appsecTimeout`, mostly while CrowdSec loads its rules
+# after a restart) count as `result="unchecked"` in
+# `<prefix>waf_requests_total` on nginx, next to the latency histogram
+# `<prefix>waf_appsec_duration_seconds` (admin/nixlab#413).
 #
 # Docs: docs/site/*/explanation/waf.md.
 {
@@ -323,7 +327,7 @@ let
     APPSEC_FAILURE_ACTION=${if cfg.failOpen then "passthrough" else "deny"}
     APPSEC_CONNECT_TIMEOUT=100
     APPSEC_SEND_TIMEOUT=100
-    APPSEC_PROCESS_TIMEOUT=500
+    APPSEC_PROCESS_TIMEOUT=${toString cfg.appsecTimeout}
     ALWAYS_SEND_TO_APPSEC=false
     EOF
     chgrp ${config.services.nginx.group} "$tmp"
@@ -331,18 +335,76 @@ let
     mv "$tmp" ${nginxBouncerConf}
   '';
 
+  # Upper bounds (seconds) of the AppSec latency histogram. Spans the
+  # bouncer's timeout: a request that hits it lands in the bucket above.
+  durationBuckets = "0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5";
+
+  # Wraps the bouncer's AppSec call (lua-cs-bouncer 1.0.19, crowdsec.lua
+  # AppSecCheck), admin/nixlab#413. On a transport error - timeout, connection
+  # refused, AppSec closing the connection on an oversized body - it returns
+  # the failure action (passthrough: allow; deny: FALLBACK_REMEDIATION) plus
+  # the error, and Allow() only logs "AppSec check: <err>". The fifth return
+  # value is the one reliable sign that AppSec did not judge the request, so
+  # the wrapper keeps it in ngx.ctx for the log phase. Not covered: a 401 or
+  # 5xx answer returns no error and, failing open, looks exactly like a 200;
+  # the probe's waf_appsec_probe_ok catches those.
+  #
+  # Allow() calls csmod.AppSecCheck through the module table, so replacing
+  # the field takes effect. If an update renames it, nginx logs the error
+  # below and tests/waf.nix fails.
+  appsecWrapLua = ''
+    local check = cs.AppSecCheck
+    if type(check) ~= "function" then
+      ngx.log(ngx.ERR, "[waf] crowdsec.AppSecCheck not found: unchecked requests and AppSec latency are not counted")
+    else
+      local buckets = { ${durationBuckets} }
+      cs.AppSecCheck = function(ip)
+        ngx.update_time()
+        local t0 = ngx.now()
+        local ok, remediation, status, resp, err = check(ip)
+        ngx.update_time()
+        local took = ngx.now() - t0
+        local m = ngx.shared.crowdsec_waf_metrics
+        for i, le in ipairs(buckets) do
+          if took <= le then
+            m:incr("#bucket|" .. i, 1, 0)
+            break
+          end
+        end
+        m:incr("#count", 1, 0)
+        m:incr("#sum", took, 0)
+        if err ~= nil then
+          ngx.ctx.crowdsec_waf_unchecked = true
+        end
+        return ok, remediation, status, resp, err
+      end
+    end
+  '';
+
   metricsLua = ''
     local d = ngx.shared.crowdsec_waf_metrics
     local out = {
-      "# HELP ${cfg.metricPrefix}waf_requests_total Requests of a WAF vhost by outcome at the bouncer step: refused (WAF match or ban) or passed.",
+      "# HELP ${cfg.metricPrefix}waf_requests_total Requests of a WAF vhost by outcome at the bouncer step: refused (WAF match or ban), unchecked (AppSec gave no verdict: timeout or unreachable; the status says whether it passed) or passed.",
       "# TYPE ${cfg.metricPrefix}waf_requests_total counter",
     }
     for _, k in ipairs(d:get_keys(0)) do
-      local vhost, result = k:match("^(.*)|(%a+)$")
+      local vhost, result = k:match("^([^#].*)|(%a+)$")
       if vhost then
         out[#out + 1] = string.format('${cfg.metricPrefix}waf_requests_total{vhost="%s",result="%s"} %d', vhost, result, d:get(k) or 0)
       end
     end
+    local h = "${cfg.metricPrefix}waf_appsec_duration_seconds"
+    out[#out + 1] = "# HELP " .. h .. " Time the bouncer waited for AppSec's verdict, request body included; a timeout counts with its full wait."
+    out[#out + 1] = "# TYPE " .. h .. " histogram"
+    local cum = 0
+    for i, le in ipairs({ ${durationBuckets} }) do
+      cum = cum + (d:get("#bucket|" .. i) or 0)
+      out[#out + 1] = string.format('%s_bucket{le="%g"} %d', h, le, cum)
+    end
+    local count = d:get("#count") or 0
+    out[#out + 1] = string.format('%s_bucket{le="+Inf"} %d', h, count)
+    out[#out + 1] = string.format("%s_sum %.6f", h, d:get("#sum") or 0)
+    out[#out + 1] = string.format("%s_count %d", h, count)
     ngx.header["Content-Type"] = "text/plain; version=0.0.4"
     ngx.say(table.concat(out, "\n"))
   '';
@@ -491,6 +553,20 @@ in
         Let requests through unchecked when AppSec cannot be reached or does
         not answer in time. false refuses them instead - for every name on
         the host; neither bouncer can decide this per name.
+      '';
+    };
+
+    appsecTimeout = mkOption {
+      type = types.ints.positive;
+      default = 500;
+      description = ''
+        Milliseconds the nginx bouncer waits for AppSec's verdict on a
+        request (APPSEC_PROCESS_TIMEOUT). Past it the request goes on
+        unchecked or is refused, per `failOpen`, and counts as
+        `result="unchecked"`. Longer means fewer unchecked requests while
+        CrowdSec is slow (rule loading after a restart), and a longer wait
+        for real users when it is. nginx only: the Traefik plugin's
+        timeout is shared with its decision pull and stays at 10 s.
       '';
     };
 
@@ -823,6 +899,7 @@ in
               ngx.log(ngx.ERR, "[Crowdsec] " .. err)
               error()
             end
+            ${appsecWrapLua}
           }
 
           init_worker_by_lua_block {
@@ -857,7 +934,9 @@ in
 
         # The access phase asks the bouncer; the log phase counts what it did.
         # A request the bouncer refused ends in the access phase with a 403
-        # and never reaches an upstream. Redirects that return earlier (in
+        # and never reaches an upstream. One AppSec gave no verdict for is
+        # "unchecked" whatever happened to it (appsecWrapLua): passed when
+        # failing open, refused otherwise. Redirects that return earlier (in
         # rewrite) are not counted at all.
         services.nginx.virtualHosts = lib.genAttrs cfg.nginx.vhosts (_: {
           extraConfig = ''
@@ -867,8 +946,13 @@ in
             }
             log_by_lua_block {
               if ngx.ctx.crowdsec_waf then
-                local refused = ngx.status == 403 and (ngx.var.upstream_addr or "") == ""
-                ngx.shared.crowdsec_waf_metrics:incr(ngx.var.server_name .. (refused and "|refused" or "|passed"), 1, 0)
+                local result = "passed"
+                if ngx.ctx.crowdsec_waf_unchecked then
+                  result = "unchecked"
+                elseif ngx.status == 403 and (ngx.var.upstream_addr or "") == "" then
+                  result = "refused"
+                end
+                ngx.shared.crowdsec_waf_metrics:incr(ngx.var.server_name .. "|" .. result, 1, 0)
               end
             }
           '';
@@ -908,6 +992,15 @@ in
           crowdsecAppsecUnreadableBodyBlock = !cfg.failOpen;
           streamStartupBlock = !cfg.failOpen;
           updateMaxFailure = if cfg.failOpen then -1 else 0;
+          # One timeout for the AppSec and the LAPI client (plugin 1.8.1,
+          # bouncer.go), the plugin's default, stated so the test can read
+          # it. A real user waits this long while AppSec hangs; it is not
+          # lower because the same client does the full decision pull: with
+          # 2 s that pull failed every minute on grammi (about 79,000
+          # decisions, 2026-11-19, admin/nixlab#413) and the plugin had no
+          # bans. A crowdsec restart answers "connection refused" at once,
+          # so the wait only matters for a hanging AppSec.
+          httpTimeoutSeconds = 10;
           forwardedHeadersTrustedIps = cfg.traefik.trustedProxies;
         };
 

@@ -9,7 +9,7 @@ Gemietete VMs werden beim Anbieter von Hand angelegt; Bare Metal und die Subraum
 ## 2. Konfiguration anlegen
 
 - `hosts/<host>/configuration.nix` und `hardware-configuration.nix` anlegen.
-- In `flake.nix` unter `nixosConfigurations` eintragen: die Profile des Hosts mit ihren Namen aus `lib/hosts.nix` (`pulled`, `publicVm`, `services`, `homeNuc`, `docsSite`, aus den Dateien `profiles/pulled.nix`, `public-vm.nix`, … – `common` kommt immer dazu) und die Module, die nur er hat. `mkHost` hängt `hosts/<host>/configuration.nix` selbst an. Ein Profil, das der Host nicht importiert, bekommt einen Kommentar mit Begründung („importiert Profil X nicht, weil …“). Ein anderes nixpkgs liest ein Modul als `inputs.<pin>.legacyPackages.${system}`, nie als eigenes Argument (`checks.no-pin-args`).
+- In `flake.nix` unter `nixosConfigurations` eintragen: die Profile des Hosts mit ihren Namen aus `lib/hosts.nix` (`pulled`, `publicVm`, `services`, `homeNuc`, `docsSite`, aus den Dateien `profiles/pulled.nix`, `public-vm.nix`, … – `common` kommt immer dazu) und die Module, die nur er hat. `mkHost` hängt `hosts/<host>/configuration.nix` selbst an. Ein Profil, das der Host nicht importiert, bekommt einen Kommentar mit Begründung („importiert Profil X nicht, weil …“). Ein anderes nixpkgs liest ein Modul als `inputs.<pin>.legacyPackages.${system}`, nie als eigenes Argument und nie als Eintrag in `specialArgs`, auch nicht in dem eines Containers (`checks.no-pin-args`).
 
 ## 3. Überall eintragen, wo Hosts aufgezählt sind
 

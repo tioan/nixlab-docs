@@ -5,9 +5,10 @@
 | `just try <host>` | Aktuellen Themen-Branch auf einen Host deployen und ihn dort halten, bis der Branch gemergt ist ([Branch vor dem Merge testen](../how-to/try-branch.md)) |
 | `just try-confirm <host> [minutes] [via]` | Wie `try`, rollt aber von selbst zurück, wenn der Host nicht innerhalb der Frist erreicht und bestätigt wird ([mit automatischem Zurückrollen](../how-to/try-branch.md#confirm)) |
 | `just release <host>` / `holds` | Halt ohne Merge aufheben / alle Halte anzeigen |
-| `just test-restic-verified` | Erzwungene Backup-Fehler in einer Wegwerf-VM auf ursalia ([Wann ein Backup als erfolgreich gilt](../explanation/monitoring.md#backup-verified)) |
-| `just test-gw-remote-private-users` | gw-remote im User-Namespace in einer Wegwerf-VM auf ursalia: OpenVPN, nftables, WireGuard im Container, dann der Switch zurück ohne |
-| `just test-forwarding` | Der Forward-Filter in Wegwerf-VMs auf ursalia: nichts von einem Nachbarn ins Overlay oder auf eine Container-Bridge ([Exit-Nodes](../explanation/secrets-network-access.md)) |
+| `just test-vm [Name …]` | Die NixOS-VM-Tests (`checks.x86_64-linux`, je einer pro `tests/*.nix` mit Test-Driver), auf ursalia gebaut: alle oder nur die genannten; die Zeilen darunter sind die mit eigener Seite |
+| `just test-vm restic-verified` | Erzwungene Backup-Fehler in einer Wegwerf-VM auf ursalia ([Wann ein Backup als erfolgreich gilt](../explanation/monitoring.md#backup-verified)) |
+| `just test-vm gw-remote-private-users` | gw-remote im User-Namespace in einer Wegwerf-VM auf ursalia: OpenVPN, nftables, WireGuard im Container, dann der Switch zurück ohne |
+| `just test-vm forwarding` | Der Forward-Filter in Wegwerf-VMs auf ursalia: nichts von einem Nachbarn ins Overlay oder auf eine Container-Bridge ([Exit-Nodes](../explanation/secrets-network-access.md)) |
 | `just forward-probe <host>` | Live-Prüfung auf einem routenden Host: ein Namespace-Nachbar darf das Mesh nicht erreichen; nur zur Laufzeit, räumt auf |
 | `just restore-test <host> [isolation]` | grammi oder zummi aus restic in eine Wegwerf-VM ohne Netz auf ursalia zurückholen und die RTO messen ([Restore testen](../how-to/restore-test.md)) |
 | `just check <host>` | `git pull` + `nixos-rebuild dry-activate` |

@@ -9,7 +9,7 @@ Rented VMs are created by hand at the provider; bare metal and the Subraum VM fo
 ## 2. Create the configuration
 
 - Create `hosts/<host>/configuration.nix` and `hardware-configuration.nix`.
-- Add it to `nixosConfigurations` in `flake.nix`: the host's profiles by their names in `lib/hosts.nix` (`pulled`, `publicVm`, `services`, `homeNuc`, `docsSite`, from the files `profiles/pulled.nix`, `public-vm.nix`, … – `common` is always in) and the modules only it has. `mkHost` adds `hosts/<host>/configuration.nix` itself. A profile the host does not import gets a comment saying why ("does not import profile X because …"). A module reads another nixpkgs as `inputs.<pin>.legacyPackages.${system}`, never as an argument of its own (`checks.no-pin-args`).
+- Add it to `nixosConfigurations` in `flake.nix`: the host's profiles by their names in `lib/hosts.nix` (`pulled`, `publicVm`, `services`, `homeNuc`, `docsSite`, from the files `profiles/pulled.nix`, `public-vm.nix`, … – `common` is always in) and the modules only it has. `mkHost` adds `hosts/<host>/configuration.nix` itself. A profile the host does not import gets a comment saying why ("does not import profile X because …"). A module reads another nixpkgs as `inputs.<pin>.legacyPackages.${system}`, never as an argument of its own and never as a `specialArgs` entry, a container's included (`checks.no-pin-args`).
 
 ## 3. Add it wherever hosts are listed
 
