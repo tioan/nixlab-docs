@@ -51,7 +51,7 @@ All per name, under `services.waf.hosts."<name>"`:
 | `s3.aldrin.homelab.example` (S3, `/nix-cache/`), `s3-admin`, `doku` | not behind the WAF | signed or binary bodies, or mesh only; bucket whitelist from #307 |
 | `cloud.homelab.example` (OpenCloud) | detect for a week, then block; `no-server-side-scripts` off on `/remote.php`, `/status.php`, `/ocs/`; CRS 911100 off for WebDAV methods; PUT/PATCH bodies on `/remote.php/dav/`, `/remote.php/webdav/`, `/dav/`, `/data/` not inspected | the sync clients use ownCloud's paths and WebDAV; uploads with `proxy_request_buffering off` |
 | `tabs.homelab.example` (floccus) | detect for a week, then block; CRS 911100 off for WebDAV methods | WebDAV client |
-| `short.homelab.example`, `fotos.homelab.example`, `dash.homelab.example` | block | public, no login, only scanners in the detect data |
+| `short.homelab.example`, `fotos.homelab.example`, `metrics.homelab.example` (public dashboard paths only) | block | public, no login, only scanners in the detect data |
 | ACME, MQTT 8883, Home Assistant app | nothing to do | DNS-01 / tls-alpn, plain TCP, and HA goes through the NetBird proxy, not through these front doors |
 
 ## Home line
@@ -94,7 +94,7 @@ Alerts (`hosts/grammi/alerting/security.nix`): `WafAppsecDown` (no answer for 5 
 | aldrin | `short.homelab.example`, `fotos.homelab.example` | block (#4) |
 | ursalia | `inv.homelab.example` (OpenInvento's proxy listener, before its public lost-and-found paths) | block (#503) |
 | aldrin | `cloud.homelab.example`, `tabs.homelab.example` | detect, then block |
-| grammi | `dash.homelab.example` | block (#4) |
+| grammi | `metrics.homelab.example` (public dashboard paths only) | block (#4) |
 | grammi | `mesh.homelab.example` (dashboard, `/oauth2/`) | detect, then block |
 
 ursalia has its own CrowdSec engine since #503 (`modules/crowdsec.nix`, the same module as the public VMs; its `secrets.yaml` needs `crowdsec_enroll_token` and `crowdsec_bouncer_api_key`), only for NetBird proxy listeners that take public paths. Those listeners use `lab.vhosts.<name>.realip`, so the WAF and the application see the visitor and not the proxy's mesh address.

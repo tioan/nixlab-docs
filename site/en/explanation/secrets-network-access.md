@@ -271,9 +271,10 @@ Then commit and deploy grammi each time. **Alerts** (`hosts/grammi/alerting/iden
 
 In the mesh `dokumente.homelab.example` resolves straight to ursalia through the NetBird zone (full app, Pocket ID login).
 
-**From outside** `dokumente` is a CNAME to the reverse proxy. Its service `dokumente` has two targets, both a listener on ursalia (port 8092, mesh only, HTTP through the tunnel), told apart by path (`access_action`, NetBird 0.81 and later):
+**From outside** `dokumente` is a CNAME to the reverse proxy. Its service `dokumente` has three targets, both a listener on ursalia (port 8092, mesh only, HTTP through the tunnel), told apart by path (`access_action`, NetBird 0.81 and later):
 
 - **`/share/`, without any login**, for third parties with a share link: `share/<slug>` only (documents and bundles, both paperless' `SharedLinkView`), 404 otherwise. An expired or unknown link makes paperless redirect to its login page; the listener catches that redirect and answers with a short note.
+- **`/admin/`, blocked** (403): paperless' regular login is disabled, but the break-glass `admin` signs in at `/admin/login/`, which every SSO user could otherwise reach from outside. It stays available in the mesh.
 - **everything else, SSO** via Pocket ID (groups `paperless-users`/`paperless-admins`): the full app including paperless-gpt, as in the mesh. Paperless' own Pocket ID login still follows, usually without a prompt.
 
 | Who | Path | Result |
@@ -301,14 +302,14 @@ In the mesh `dokumente.homelab.example` resolves straight to ursalia through the
 
 Since 2026-10-23 dashboards can be shared outside ("Share externally", "public dashboards" in Grafana). Only the Grafana role Admin may do that; the SSO login grants it to the Pocket ID group `grafana_admins` (a group just for this, `terraform/netbird/people.tf`; members are kept in Pocket ID and count from the next Grafana login). Everyone else is Viewer since #306: dashboards yes, Explore no – Explore would mean arbitrary queries against every host's journal. For the same reason `vm.homelab.example` and `vl.homelab.example` (the vmui of VictoriaMetrics and VictoriaLogs, no auth of their own) only admit `homelab_admins`. The Viewer role hides Explore but is no hard barrier: Grafana OSS has no datasource permissions, so a Viewer can still send queries to `/api/ds/query`; the real gate is the proxy group of `metrics`.
 
-**The path:** `dash.homelab.example` is a reverse proxy service of its own **without a login**. It targets the same Traefik entrypoint `apps` on grammi as `metrics`, but for this name Traefik lets only `/public-dashboards/`, `/api/public/` and `/public/` (assets) through to Grafana; everything else gets a 404 from Traefik. That router is what keeps the app from anonymous visitors, not the proxy.
+**The path:** `metrics.homelab.example` has three kinds of path (per target, `access_action`, see [Publish a new service](../how-to/new-service.md)): `/public-dashboards/`, `/api/public/` and `/public/` (assets) go through **without a login** and, in Traefik, through the AppSec WAF; `/metrics` (Grafana's own Prometheus endpoint, open by default – VictoriaMetrics scrapes it on loopback) is blocked with a 403; everything else goes to the SSO login. Until 2026-11-20 a name of its own, `dash.homelab.example`, carried the public paths; its links are gone. The proxy's bypass is what lets anonymous visitors in, Traefik's WAF router is what inspects them.
 
 | Who | Path | Result |
 | --- | --- | --- |
-| Anyone with the link | reverse proxy → Traefik `apps` (host `dash`) → Grafana | the shared dashboard only, read-only |
+| Anyone with the link | reverse proxy → Traefik `apps` (host `metrics`, public paths) → Grafana | the shared dashboard only, read-only |
 | SSO | `metrics.homelab.example` | dashboards; Explore and sharing for `grafana_admins` only |
 
-**Passing a link on:** Grafana builds it from `root_url`, so it reads `https://metrics.homelab.example/public-dashboards/<token>` – under `metrics` a guest lands at the SSO login. The link for guests is on the dashboard "Homelab / Shared dashboards": a timer on grammi asks Grafana's API every 10 seconds and writes each share with its `dash` address and the template variables it uses as the metric `grafana_public_dashboard_info` (`hosts/grammi/grafana-shares.nix`). Every dashboard links there at the top right ("Share externally"). The column "Manage" opens the dashboard's share dialog for pausing and revoking – a switch right in the table is not possible, since Grafana lets panel actions call its own API only with POST/PUT and pausing needs PATCH. The tokens thereby sit in VictoriaMetrics, visible to everyone who can open Grafana.
+**Passing a link on:** Grafana builds it from `root_url`, so it reads `https://metrics.homelab.example/public-dashboards/<token>`, and that is the link guests open – no host swap since 2026-11-20. The list of all shares is on the dashboard "Homelab / Shared dashboards": a timer on grammi asks Grafana's API every 10 seconds and writes each share with its link and the template variables it uses as the metric `grafana_public_dashboard_info` (`hosts/grammi/grafana-shares.nix`). Every dashboard links there at the top right ("Share externally"). The column "Manage" opens the dashboard's share dialog for pausing and revoking – a switch right in the table is not possible, since Grafana lets panel actions call its own API only with POST/PUT and pausing needs PATCH. The tokens thereby sit in VictoriaMetrics, visible to everyone who can open Grafana.
 
 **Accepted on purpose:**
 

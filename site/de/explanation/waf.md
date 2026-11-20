@@ -51,7 +51,7 @@ Alle pro Name, unter `services.waf.hosts."<name>"`:
 | `s3.aldrin.homelab.example` (S3, `/nix-cache/`), `s3-admin`, `doku` | nicht hinter der WAF | signierte oder binäre Bodies bzw. nur im Mesh; Bucket-Whitelist aus #307 |
 | `cloud.homelab.example` (OpenCloud) | eine Woche Detect, dann Block; `no-server-side-scripts` aus auf `/remote.php`, `/status.php`, `/ocs/`; CRS 911100 aus für WebDAV-Methoden; PUT/PATCH-Bodies auf `/remote.php/dav/`, `/remote.php/webdav/`, `/dav/`, `/data/` ungeprüft | die Sync-Clients nutzen ownClouds Pfade und WebDAV; Uploads mit `proxy_request_buffering off` |
 | `tabs.homelab.example` (floccus) | eine Woche Detect, dann Block; CRS 911100 aus für WebDAV-Methoden | WebDAV-Client |
-| `short.homelab.example`, `fotos.homelab.example`, `dash.homelab.example` | Block | öffentlich, ohne Login, in den Detect-Daten nur Scanner |
+| `short.homelab.example`, `fotos.homelab.example`, `metrics.homelab.example` (nur die Pfade öffentlicher Dashboards) | Block | öffentlich, ohne Login, in den Detect-Daten nur Scanner |
 | ACME, MQTT 8883, Home-Assistant-App | nichts zu tun | DNS-01 / tls-alpn, reines TCP, und HA läuft über den NetBird-Proxy, nicht über diese Front Doors |
 
 ## Heimanschluss
@@ -94,7 +94,7 @@ Alarme (`hosts/grammi/alerting/security.nix`): `WafAppsecDown` (5 Minuten keine 
 | aldrin | `short.homelab.example`, `fotos.homelab.example` | Block (#4) |
 | ursalia | `inv.homelab.example` (Proxy-Listener von OpenInvento, vor den öffentlichen Fundseiten-Pfaden) | Block (#503) |
 | aldrin | `cloud.homelab.example`, `tabs.homelab.example` | Detect, dann Block |
-| grammi | `dash.homelab.example` | Block (#4) |
+| grammi | `metrics.homelab.example` (nur die Pfade öffentlicher Dashboards) | Block (#4) |
 | grammi | `mesh.homelab.example` (Dashboard, `/oauth2/`) | Detect, dann Block |
 
 ursalia hat seit #503 eine eigene CrowdSec-Engine (`modules/crowdsec.nix`), nur für NetBird-Proxy-Listener mit öffentlichen Pfaden. Diese Listener nutzen `lab.vhosts.<name>.realip`; WAF und Anwendung sehen so den Besucher und nicht die Mesh-Adresse des Proxys.

@@ -27,6 +27,8 @@ For services on grammi:
 
 Services on other hosts get a resource of their own in `terraform/netbird/reverse-proxy.tf` with the host as peer target (examples: `dokumente` on ursalia – SSO for the app, share links under `/share/` without login –, `doku` on aldrin). Here too: push the CNAME first, `just netbird-apply` takes care of the certificates.
 
+**One name, several paths** (public and SSO side by side, or a path blocked): list the service in `local.path_services` in `reverse-proxy.tf` – path, `access_action` (`inherit` = SSO, `bypass` = no login, `block` = 403), options – and take its targets from `local.path_targets`. The helper builds one target per path, switches them all to the maintenance page together and checks the rules at plan time: bypass/block paths end in `/`, the catch-all `/` is `inherit`, a target with a secret header stays `inherit`. Then add the paths to `just netbird-proxy-smoke` (public-side check with `curl --resolve`) and run it after the apply, in maintenance mode too.
+
 ## Directly public
 
 nginx vhost on the host (ACME via DNS-01), A/AAAA records in DNSControl, CrowdSec reads the nginx logs. Only for services that have a login of their own anyway.

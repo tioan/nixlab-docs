@@ -390,9 +390,10 @@ Then commit and deploy grammi each time. **Alerts** (`hosts/grammi/alerting/iden
 
 In the mesh `dokumente.homelab.example` resolves straight to ursalia through the NetBird zone (full app, Pocket ID login).
 
-**From outside** `dokumente` is a CNAME to the reverse proxy. Its service `dokumente` has two targets, both a listener on ursalia (port 8092, mesh only, HTTP through the tunnel), told apart by path (`access_action`, NetBird 0.81 and later):
+**From outside** `dokumente` is a CNAME to the reverse proxy. Its service `dokumente` has three targets, both a listener on ursalia (port 8092, mesh only, HTTP through the tunnel), told apart by path (`access_action`, NetBird 0.81 and later):
 
 - **`/share/`, without any login**, for third parties with a share link: `share/<slug>` only (documents and bundles, both paperless' `SharedLinkView`), 404 otherwise. An expired or unknown link makes paperless redirect to its login page; the listener catches that redirect and answers with a short note.
+- **`/admin/`, blocked** (403): paperless' regular login is disabled, but the break-glass `admin` signs in at `/admin/login/`, which every SSO user could otherwise reach from outside. It stays available in the mesh.
 - **everything else, SSO** via Pocket ID (groups `paperless-users`/`paperless-admins`): the full app including paperless-gpt, as in the mesh. Paperless' own Pocket ID login still follows, usually without a prompt.
 
 | Who | Path | Result |
@@ -420,14 +421,14 @@ In the mesh `dokumente.homelab.example` resolves straight to ursalia through the
 
 Since 2026-10-23 dashboards can be shared outside ("Share externally", "public dashboards" in Grafana). Only the Grafana role Admin may do that; the SSO login grants it to the Pocket ID group `grafana_admins` (a group just for this, `terraform/netbird/people.tf`; members are kept in Pocket ID and count from the next Grafana login). Everyone else is Viewer since #306: dashboards yes, Explore no – Explore would mean arbitrary queries against every host's journal. For the same reason `vm.homelab.example` and `vl.homelab.example` (the vmui of VictoriaMetrics and VictoriaLogs, no auth of their own) only admit `homelab_admins`. The Viewer role hides Explore but is no hard barrier: Grafana OSS has no datasource permissions, so a Viewer can still send queries to `/api/ds/query`; the real gate is the proxy group of `metrics`.
 
-**The path:** `dash.homelab.example` is a reverse proxy service of its own **without a login**. It targets the same Traefik entrypoint `apps` on grammi as `metrics`, but for this name Traefik lets only `/public-dashboards/`, `/api/public/` and `/public/` (assets) through to Grafana; everything else gets a 404 from Traefik. That router is what keeps the app from anonymous visitors, not the proxy.
+**The path:** `metrics.homelab.example` has three kinds of path (per target, `access_action`, see [Publish a new service](#publish-a-new-service)): `/public-dashboards/`, `/api/public/` and `/public/` (assets) go through **without a login** and, in Traefik, through the AppSec WAF; `/metrics` (Grafana's own Prometheus endpoint, open by default – VictoriaMetrics scrapes it on loopback) is blocked with a 403; everything else goes to the SSO login. Until 2026-11-20 a name of its own, `dash.homelab.example`, carried the public paths; its links are gone. The proxy's bypass is what lets anonymous visitors in, Traefik's WAF router is what inspects them.
 
 | Who | Path | Result |
 | --- | --- | --- |
-| Anyone with the link | reverse proxy → Traefik `apps` (host `dash`) → Grafana | the shared dashboard only, read-only |
+| Anyone with the link | reverse proxy → Traefik `apps` (host `metrics`, public paths) → Grafana | the shared dashboard only, read-only |
 | SSO | `metrics.homelab.example` | dashboards; Explore and sharing for `grafana_admins` only |
 
-**Passing a link on:** Grafana builds it from `root_url`, so it reads `https://metrics.homelab.example/public-dashboards/<token>` – under `metrics` a guest lands at the SSO login. The link for guests is on the dashboard "Homelab / Shared dashboards": a timer on grammi asks Grafana's API every 10 seconds and writes each share with its `dash` address and the template variables it uses as the metric `grafana_public_dashboard_info` (`hosts/grammi/grafana-shares.nix`). Every dashboard links there at the top right ("Share externally"). The column "Manage" opens the dashboard's share dialog for pausing and revoking – a switch right in the table is not possible, since Grafana lets panel actions call its own API only with POST/PUT and pausing needs PATCH. The tokens thereby sit in VictoriaMetrics, visible to everyone who can open Grafana.
+**Passing a link on:** Grafana builds it from `root_url`, so it reads `https://metrics.homelab.example/public-dashboards/<token>`, and that is the link guests open – no host swap since 2026-11-20. The list of all shares is on the dashboard "Homelab / Shared dashboards": a timer on grammi asks Grafana's API every 10 seconds and writes each share with its link and the template variables it uses as the metric `grafana_public_dashboard_info` (`hosts/grammi/grafana-shares.nix`). Every dashboard links there at the top right ("Share externally"). The column "Manage" opens the dashboard's share dialog for pausing and revoking – a switch right in the table is not possible, since Grafana lets panel actions call its own API only with POST/PUT and pausing needs PATCH. The tokens thereby sit in VictoriaMetrics, visible to everyone who can open Grafana.
 
 **Accepted on purpose:**
 
@@ -850,7 +851,7 @@ All per name, under `services.waf.hosts."<name>"`:
 | `s3.aldrin.homelab.example` (S3, `/nix-cache/`), `s3-admin`, `doku` | not behind the WAF | signed or binary bodies, or mesh only; bucket whitelist from #307 |
 | `cloud.homelab.example` (OpenCloud) | detect for a week, then block; `no-server-side-scripts` off on `/remote.php`, `/status.php`, `/ocs/`; CRS 911100 off for WebDAV methods; PUT/PATCH bodies on `/remote.php/dav/`, `/remote.php/webdav/`, `/dav/`, `/data/` not inspected | the sync clients use ownCloud's paths and WebDAV; uploads with `proxy_request_buffering off` |
 | `tabs.homelab.example` (floccus) | detect for a week, then block; CRS 911100 off for WebDAV methods | WebDAV client |
-| `short.homelab.example`, `fotos.homelab.example`, `dash.homelab.example` | block | public, no login, only scanners in the detect data |
+| `short.homelab.example`, `fotos.homelab.example`, `metrics.homelab.example` (public dashboard paths only) | block | public, no login, only scanners in the detect data |
 | ACME, MQTT 8883, Home Assistant app | nothing to do | DNS-01 / tls-alpn, plain TCP, and HA goes through the NetBird proxy, not through these front doors |
 
 ### Home line
@@ -893,7 +894,7 @@ Alerts (`hosts/grammi/alerting/security.nix`): `WafAppsecDown` (no answer for 5 
 | aldrin | `short.homelab.example`, `fotos.homelab.example` | block (#4) |
 | ursalia | `inv.homelab.example` (OpenInvento's proxy listener, before its public lost-and-found paths) | block (#503) |
 | aldrin | `cloud.homelab.example`, `tabs.homelab.example` | detect, then block |
-| grammi | `dash.homelab.example` | block (#4) |
+| grammi | `metrics.homelab.example` (public dashboard paths only) | block (#4) |
 | grammi | `mesh.homelab.example` (dashboard, `/oauth2/`) | detect, then block |
 
 ursalia has its own CrowdSec engine since #503 (`modules/crowdsec.nix`, the same module as the public VMs; its `secrets.yaml` needs `crowdsec_enroll_token` and `crowdsec_bouncer_api_key`), only for NetBird proxy listeners that take public paths. Those listeners use `lab.vhosts.<name>.realip`, so the WAF and the application see the visitor and not the proxy's mesh address.
@@ -932,7 +933,7 @@ The values are kept once, in the option `lab.web.securityHeaders`; nginx and Tra
 - **A header the application sends itself wins.** Each header goes through a `map` on `$upstream_http_<name>`; an empty value makes `add_header` skip it. OpenCloud, paperless and HealthLog send their own, partly stricter values (HealthLog: HSTS with `includeSubDomains; preload`, `X-Frame-Options: DENY`) – those stay as they are, without a second copy.
 - **`always`**, so the maintenance page and nginx's own error pages carry them too.
 - **nginx's inheritance:** a level with an `add_header` of its own inherits none from above. Such a location has to repeat the shared lines (`config.lab.web.nginx.headers`; today only paperless' `@share` page). Evaluation fails otherwise.
-- **Traefik** on grammi (the `mesh.homelab.example` routers in `netbird.nix`, the apps entrypoint's routers in `traefik.nix`): a `headers` middleware, first in every chain so the rate limits' 429s and the error pages carry them too. Unlike nginx it replaces a header the backend sent. NetBird, Caddy, Mealie, Grist, logchef, VictoriaMetrics/-Logs and Alertmanager send none of these; Grafana (`metrics`, `dash`) sends `X-Frame-Options: deny` and `nosniff`, so its routers get a variant without those two (`security-headers-grafana`) – `SAMEORIGIN` would weaken its `deny`. The maintenance routers written at runtime have no headers.
+- **Traefik** on grammi (the `mesh.homelab.example` routers in `netbird.nix`, the apps entrypoint's routers in `traefik.nix`): a `headers` middleware, first in every chain so the rate limits' 429s and the error pages carry them too. Unlike nginx it replaces a header the backend sent. NetBird, Caddy, Mealie, Grist, logchef, VictoriaMetrics/-Logs and Alertmanager send none of these; Grafana (`metrics`) sends `X-Frame-Options: deny` and `nosniff`, so its routers get a variant without those two (`security-headers-grafana`) – `SAMEORIGIN` would weaken its `deny`. The maintenance routers written at runtime have no headers.
 
 **Why HSTS without `includeSubDomains` and `preload`:** on a service name like `cloud.homelab.example` the flag only covers names *below* it, of which there are none; only on `short.homelab.example` (an apex) would it cover future subdomains, which would then have to be HTTPS from their first day. `preload` is only accepted for apex domains. HSTS on `homelab.example` itself would be the step that matters (it closes cookie injection over plain HTTP from any `*.homelab.example`), but it would also hit the device pages under that name – a decision of its own. Way back for any name: send `max-age=0` over HTTPS, and every browser that visits again forgets it.
 
@@ -1218,6 +1219,8 @@ For services on grammi:
 4. Deploy grammi first, then `just netbird-apply`. At the end it runs `just netbird-proxy-certs`: it requests every new name once from outside so the proxy fetches its certificate, then restarts `netbird-proxy` once – otherwise the dashboard hangs at "Issuing certificate…" (NetBird discussion #7118).
 
 Services on other hosts get a resource of their own in `terraform/netbird/reverse-proxy.tf` with the host as peer target (examples: `dokumente` on ursalia – SSO for the app, share links under `/share/` without login –, `doku` on aldrin). Here too: push the CNAME first, `just netbird-apply` takes care of the certificates.
+
+**One name, several paths** (public and SSO side by side, or a path blocked): list the service in `local.path_services` in `reverse-proxy.tf` – path, `access_action` (`inherit` = SSO, `bypass` = no login, `block` = 403), options – and take its targets from `local.path_targets`. The helper builds one target per path, switches them all to the maintenance page together and checks the rules at plan time: bypass/block paths end in `/`, the catch-all `/` is `inherit`, a target with a secret header stays `inherit`. Then add the paths to `just netbird-proxy-smoke` (public-side check with `curl --resolve`) and run it after the apply, in maintenance mode too.
 
 ### Directly public
 
@@ -5597,7 +5600,7 @@ Services are named by function, not by product. There are three kinds of reachab
 | `ollama` | Ollama (behind Caddy) | zorlock | mesh only |
 | `health` | [HealthLog](https://github.com/MBombeck/HealthLog) ([`0497d60`](https://github.com/MBombeck/HealthLog/tree/0497d60a893784e709899cdb6fbdf155ef29e3e3) by Marc Bombeck) | ursalia | mesh only (the iOS app needs NetBird too), login via Pocket ID only (group `healthlog_users`); its own encrypted off-host copies in Garage on aldrin (bucket `healthlog-backups`, 30 days) |
 | `bambuddy` | [Bambuddy](https://github.com/maziggy/bambuddy) ([`98ecaf5`](https://github.com/maziggy/bambuddy/tree/98ecaf5020e3a20a5de49859b8ad5a754d5ad85c) by MartinNYHC) | ursalia | through the reverse proxy with SSO (groups `bambuddy_user` / `bambuddy_admin`), then Bambuddy's own login via Pocket ID; printers by IP in LAN mode; virtual printer for Bambu Studio on ursalia's LAN address (ports in the home LAN only, from outside via the NetBird route into the home LAN) |
-| `inv` | [OpenInvento](https://github.com/openinvento/openinvento) (mrtncode), test system from upstream `main` and unreleased branches | ursalia | through the reverse proxy with SSO (groups `inventar_users` / `inventar_admins`), then login via Pocket ID without another prompt; image built locally with `just openinvento-image` |
+| `inv` | [OpenInvento](https://github.com/openinvento/openinvento) (mrtncode), test system from upstream `main` and unreleased branches | ursalia | through the reverse proxy with SSO (groups `inventar_users` / `inventar_admins`), then login via Pocket ID without another prompt; the finder's page of the lostfound module (`/i/…` and its endpoints) is public (`openinvento_lostfound` in `reverse-proxy.tf`, on since 2026-11-20; the contact limit counts per worker, so up to 10 messages an hour per IP, openinvento#168); image built locally with `just openinvento-image` |
 | `fotos` | [Immich](https://github.com/immich-app/immich) (photos and videos) | ursalia | in the mesh directly, browser and app, login via Pocket ID only (groups `immich_users` / `immich_admins`); from outside only shared links, through the reverse proxy without login to [Immich Public Proxy](https://github.com/alangrainger/immich-public-proxy) (Alan Grainger) on aldrin, with WAF and CrowdSec there; visitor uploads into shares that allow them |
 | `dns` | [AdGuard Home](https://github.com/AdguardTeam/AdGuardHome) | ursalia | DNS for the home LAN (53, DoT/DoQ 853, DoH) and people's devices in the mesh (NetBird nameserver group) ([why](#dns-with-adguard-home)) |
 | `adguard` | AdGuard Home, admin UI | ursalia | through the reverse proxy with SSO (`homelab_admins`), then AdGuard's own login ([why](#dns-with-adguard-home)) |

@@ -695,6 +695,23 @@ never on disk. Paste it on the device's setup page (Network > NetBird) -
 the steps are in that file. One-off, valid for 24 h; run again if it has
 to re-register.
 
+## `just netbird-proxy-smoke`
+
+Smoke test of the proxy's per-path access (terraform/netbird/reverse-proxy.tf,
+local.path_services) from the public side: every request goes to the
+proxy's public address with --resolve, because this machine resolves the
+service names through the mesh (to ursalia), which is not what a visitor
+sees. Run it after every apply that touches a path service and during
+proxy maintenance too (`just proxy-maintenance`): the statuses below hold
+in both states, only the body differs (the maintenance page for bypass).
+
+Expectations: sso = redirect to the login (mesh.homelab.example), open = past
+the login (any status except sso and 403 - the backend decides), block =
+403, bad = 400 (path traversal is refused by the proxy). The forged
+X-NetBird-User header goes along on every request: bypass and block must
+not let it turn a request into an SSO one, and the SSO paths must not
+take it for a login.
+
 ## `just secrets host`
 
 Edit a host's sops secrets, then bring the result back into the repo.
