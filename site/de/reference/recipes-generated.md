@@ -793,16 +793,6 @@ never printed or on disk in plaintext. Refuses to overwrite: rotating
 means `cscli bouncers delete <name>` on the host, `rm` the file, and
 running this again. Commit, then deploy the host.
 
-## `just dokumente-share-pin`
-
-The NetBird reverse proxy service dokumente (terraform/netbird/
-reverse-proxy.tf) asks for this PIN before it serves a share link: 6
-digits, the only format NetBird accepts. Stored in
-terraform/netbird/secrets.yaml and printed once; takes effect with the
-next `just netbird-apply`. Changing it locks out everyone who only knows
-the old one - share links themselves stay valid.
-New random PIN for Paperless' share links from outside the mesh.
-
 ## `just docs-login-key`
 
 New key for the private docs from the internet: the NetBird proxy sends it
@@ -811,10 +801,6 @@ to aldrin's login listener, which serves only requests that carry it
 both sides - aldrin's secrets.yaml only opens with aldrin's host key, so
 that one is set on aldrin and copied back (as in `just secrets`). Then
 commit both, just netbird-apply and deploy aldrin.
-
-## `just dokumente-share-pin-show`
-
-Show the current share-link PIN, to pass on with a link.
 
 ## `just gw-remote-pki`
 

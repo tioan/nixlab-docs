@@ -386,35 +386,34 @@ Danach jeweils Commit und Deploy von grammi. **Alarme** (`hosts/grammi/alerting/
 - Neue Person: nach `just netbird-apply` die neue `terraform/netbird/group-sync.json` committen und grammi deployen.
 - `group-sync.json` enthält auch grammis Mesh-Adressen; ändern die sich (neue v6-Adresse), zummi deployen.
 
-#### Paperless: von außen Freigabelinks (PIN) und App (SSO)
+#### Paperless: von außen Freigabelinks (offen) und App (SSO)
 
 Im Mesh löst `dokumente.homelab.example` über die NetBird-Zone direkt zu ursalia auf (volle App, Login per Pocket ID).
 
-**Von außen** ist `dokumente` ein CNAME auf den Reverse Proxy. Dessen Dienst `dokumente` bietet zwei Anmeldungen und reicht beide an einen Listener auf ursalia weiter (Port 8092, nur Mesh, HTTP durch den Tunnel):
+**Von außen** ist `dokumente` ein CNAME auf den Reverse Proxy. Dessen Dienst `dokumente` hat zwei Ziele, beide ein Listener auf ursalia (Port 8092, nur Mesh, HTTP durch den Tunnel), unterschieden nach Pfad (`access_action`, ab NetBird 0.81):
 
-- **PIN**, für Dritte mit einem Freigabelink: nur `share/<slug>` (Dokumente und Bündel, beides `SharedLinkView` in Paperless), sonst 404. Ein abgelaufener oder unbekannter Link führt in Paperless auf die Login-Seite; der Listener beantwortet das mit einem kurzen Hinweistext.
-- **SSO** über Pocket ID (Gruppen `paperless-users`/`paperless-admins`): die volle App samt paperless-gpt wie im Mesh. Danach folgt noch der Pocket-ID-Login von Paperless selbst, meist ohne Eingabe.
+- **`/share/` ohne Anmeldung**, für Dritte mit einem Freigabelink: nur `share/<slug>` (Dokumente und Bündel, beides `SharedLinkView` in Paperless), sonst 404. Ein abgelaufener oder unbekannter Link führt in Paperless auf die Login-Seite; der Listener fängt diese Weiterleitung ab und antwortet mit einem kurzen Hinweistext.
+- **alles andere mit SSO** über Pocket ID (Gruppen `paperless-users`/`paperless-admins`): die volle App samt paperless-gpt wie im Mesh. Danach folgt noch der Pocket-ID-Login von Paperless selbst, meist ohne Eingabe.
 
 | Wer | Weg | Ergebnis |
 | --- | --- | --- |
-| Extern mit PIN | Reverse Proxy (grammi) → ursalia:8092 | nur `/share/<slug>`, sonst 404 |
+| Extern ohne Anmeldung | Reverse Proxy (grammi) → ursalia:8092 | nur `/share/<slug>`; jeder andere Pfad führt zum SSO |
 | Extern mit SSO | Reverse Proxy (grammi) → ursalia:8092 | volle App |
-| Im Mesh | direkt ursalia:443 | volle App, Freigabelinks ohne PIN |
+| Im Mesh | direkt ursalia:443 | volle App |
 
-**Woran der Listener SSO erkennt:** am Header `X-NetBird-User`. Der Proxy löscht bei jeder Anfrage, was der Client unter diesem Namen schickt, und setzt ihn nur bei SSO-Sitzungen auf die E-Mail-Adresse (`stampNetBirdIdentity` in NetBird, geprüft mit 0.81.0 – bei NetBird-Updates erneut prüfen). Der Header wählt nur die Pfade, er meldet niemanden an: Paperless verlangt weiter seinen eigenen Login. Ein Mesh-Peer, der den Header direkt an Port 8092 schickt, bekommt nichts, was er über 443 nicht ohnehin bekäme.
+**Woran der Listener SSO erkennt:** am Header `X-NetBird-User`. Der Proxy löscht bei jeder Anfrage, was der Client unter diesem Namen schickt – auch auf dem offenen Pfad –, und setzt ihn nur bei SSO-Sitzungen auf die E-Mail-Adresse (`stampNetBirdIdentity` in NetBird, geprüft mit 0.81.0; ein gefälschter Header auf dem offenen Pfad mit 0.82.0 als entfernt getestet – bei NetBird-Updates erneut prüfen). Der Header wählt nur die Pfade, er meldet niemanden an: Paperless verlangt weiter seinen eigenen Login. Ein Mesh-Peer, der den Header direkt an Port 8092 schickt, bekommt nichts, was er über 443 nicht ohnehin bekäme.
 
-**Warum derselbe Name:** Paperless baut den Freigabelink aus dem Origin der Oberfläche. Ein Link `https://dokumente.homelab.example/share/<slug>` funktioniert so für Dritte ohne Umschreiben – egal ob im Mesh oder per SSO erzeugt. Ein eigener Name für eine der beiden Anmeldungen hieße, Links von Hand anzupassen.
+**Warum derselbe Name:** Paperless baut den Freigabelink aus dem Origin der Oberfläche. Ein Link `https://dokumente.homelab.example/share/<slug>` funktioniert so für Dritte ohne Umschreiben – egal ob im Mesh oder per SSO erzeugt. Eine eigene Adresse für Freigabelinks kennt Paperless nicht (upstream abgelehnt, [paperless-ngx#14251](https://github.com/paperless-ngx/paperless-ngx/pull/14251)).
 
-**Warum der Listener filtert und nicht die PIN:** Die PIN ist eine zweite Hürde vor dem nicht ratbaren Slug, kein Ersatz. Dass PIN-Besucher die App nicht sehen, hängt allein an nginx auf ursalia. Der Proxy-Dienst hat keinen Pfadfilter (Ziel-`path`), sonst käme die Weiterleitung auf `/accounts/login/` bei abgelaufenen Links nicht mehr beim Listener an.
+**Zwei Filter:** Der Proxy lässt nur `/share/` ohne Anmeldung durch (wörtliches Präfix mit Groß-/Kleinschreibung: `/share` ohne Schrägstrich und `/SHARE/` gehen zum SSO; Traversal wird abgewiesen). Dahinter liefert ursalias Listener einer Anfrage ohne `X-NetBird-User` nur `share/<slug>`. Jeder der beiden hielte die App allein schon zu.
 
-**PIN:** genau 6 Ziffern (mehr nimmt die NetBird-API nicht an), eine für alle Freigaben. Neu: `just dokumente-share-pin` (zufällig, nach `terraform/netbird/secrets.yaml`), dann `just netbird-apply`; anzeigen: `just dokumente-share-pin-show`. Der Proxy sperrt eine Client-Adresse nach 5 falschen PINs in 5 Minuten für 15 Minuten.
+**Terraform-Provider:** Das Release in der Registry kennt `access_action` noch nicht. `pkgs/terraform-provider-netbird.nix` baut ihn aus Upstream-PR #215 plus einem Patch mit `access_action` und PR #264 (zwei Ziele auf einem Peer), beides von Sebastien Baillet; er entfällt mit dem ersten Release, das beides enthält.
 
 **Was das bewusst in Kauf nimmt:**
 
-- Eine noch gültige PIN-Sitzung (Cookie des Proxys) überspringt die Anmeldeseite. Wer dann per SSO in die App will, landet auf einer Hinweisseite und muss erst die Website-Daten löschen oder ein privates Fenster nehmen.
-- Wer die PIN kennt, kommt an jeden Link, dessen Slug er kennt – nicht an andere. Freigaben in Paperless deshalb mit Ablaufdatum anlegen.
-- Die Unterscheidung PIN/SSO hängt an einem Verhalten des Proxys, nicht an einer dokumentierten Schnittstelle.
-- CrowdSec sieht weder PIN-Versuche noch Anfragen an die App (TCP-Passthrough, kein HTTP-Log auf grammi), wie bei allen Proxy-Namen; es bleiben die Sperre des Proxys und der Login von Paperless.
+- Wer einen Link hat, bekommt das Dokument, ohne zweite Hürde – wie bei den geteilten Links von Immich (`fotos`). Der 50-stellige Slug ist das Geheimnis. Freigaben in Paperless deshalb mit Ablaufdatum anlegen und löschen, wenn sie nicht mehr gebraucht werden.
+- Die Unterscheidung der Pfade im Listener hängt an einem Verhalten des Proxys, nicht an einer dokumentierten Schnittstelle.
+- CrowdSec sieht keine Anfragen an die App oder die Freigabelinks (TCP-Passthrough, kein HTTP-Log auf grammi), wie bei allen Proxy-Namen; es bleiben die IP-/Geo-/CrowdSec-Regeln des Proxys und der Login von Paperless.
 - ursalias nginx loggt als Absender die Mesh-Adresse des Proxys, nicht die des Besuchers (kein `realip`: es würde die Adresse vor `allow`/`deny` umschreiben).
 
 #### Grafana: öffentliche Dashboards über `dash`
@@ -800,7 +799,7 @@ Zwei unabhängige Wege merken, wenn die Kette selbst reißt:
 
 ## Web Application Firewall
 
-CrowdSec liest auf jedem Host die Access-Logs von nginx und Traefik und sperrt Adressen, die auffallen (`modules/crowdsec.nix`). Das geschieht im Nachhinein: Der eine Request, der eine Lücke ausnutzt, ist dann schon beim Dienst angekommen. Die WAF (`modules/waf.nix`, seit 2026-10-25) prüft jeden Request, bevor der Proxy ihn weiterreicht – mit CrowdSecs AppSec-Komponente, also derselben Engine, denselben Alerts und denselben Bans. Seit #4 (2026-11-16) läuft sie auf allen drei Front Doors.
+CrowdSec liest auf jedem Host die Access-Logs von nginx und Traefik und sperrt Adressen, die auffallen (`modules/crowdsec.nix`, dasselbe Modul wie auf den öffentlichen VMs; seine `secrets.yaml` braucht `crowdsec_enroll_token` und `crowdsec_bouncer_api_key`). Das geschieht im Nachhinein: Der eine Request, der eine Lücke ausnutzt, ist dann schon beim Dienst angekommen. Die WAF (`modules/waf.nix`, seit 2026-10-25) prüft jeden Request, bevor der Proxy ihn weiterreicht – mit CrowdSecs AppSec-Komponente, also derselben Engine, denselben Alerts und denselben Bans. Seit #4 (2026-11-16) läuft sie auf allen drei Front Doors.
 
 ### Aufbau
 
@@ -892,9 +891,12 @@ Alarme (`hosts/grammi/alerting/security.nix`): `WafAppsecDown` (5 Minuten keine 
 | --- | --- | --- |
 | zummi | `auth.homelab.example` | Block (seit 2026-11-08) |
 | aldrin | `short.homelab.example`, `fotos.homelab.example` | Block (#4) |
+| ursalia | `inv.homelab.example` (Proxy-Listener von OpenInvento, vor den öffentlichen Fundseiten-Pfaden) | Block (#503) |
 | aldrin | `cloud.homelab.example`, `tabs.homelab.example` | Detect, dann Block |
 | grammi | `dash.homelab.example` | Block (#4) |
 | grammi | `mesh.homelab.example` (Dashboard, `/oauth2/`) | Detect, dann Block |
+
+ursalia hat seit #503 eine eigene CrowdSec-Engine (`modules/crowdsec.nix`), nur für NetBird-Proxy-Listener mit öffentlichen Pfaden. Diese Listener nutzen `lab.vhosts.<name>.realip`; WAF und Anwendung sehen so den Besucher und nicht die Mesh-Adresse des Proxys.
 
 Ein Traefik-Plugin auf grammi schützt die Dienste anderer Hosts nicht: Traefik reicht diese Namen als TCP an den NetBird-Proxy durch, der seine Ziele direkt erreicht.
 
@@ -968,6 +970,7 @@ lab.vhosts."health.homelab.example" = {
 | `websockets` | Websockets auf `location /` durchreichen. |
 | `meshOnly`, `allow` | Nur die Mesh-Netze (`lab.mesh`, aus `inventory.json`) plus `allow` zulassen. Ein HTTPS-vHost lauscht dann auf der Wildcard-Adresse – die Mesh-Adresse vergibt NetBird. |
 | `proxyListener` | Statt HTTPS: ein HTTP-Listener auf diesem Port für einen Reverse-Proxy-Dienst von NetBird; immer nur Mesh, relative Weiterleitungen. |
+| `realip` | Nur mit `proxyListener`: Adresse des Besuchers aus dem `X-Forwarded-For` des Proxys (rechtester Nicht-Mesh-Eintrag) statt der Mesh-Adresse des Proxys, für WAF, CrowdSec, Logs und die Anwendung. Die Mesh-Prüfung beurteilt dann den Peer vor realip. |
 | `maintenance` | `switch` (Standard), `errorPages` oder `none` – Eintrag im [Wartungsmodus](#wartungsmodus). |
 | `waf` | Anfragen durch die [AppSec-WAF](#web-application-firewall) schicken. |
 | `serverName`, `extraConfig`, `nginx` | Servername, wenn zwei vHosts sich einen teilen; Direktiven auf Server-Ebene; alles Weitere, unverändert in `services.nginx.virtualHosts.<name>` übernommen. |
@@ -1214,7 +1217,7 @@ Für Dienste auf grammi:
 3. In DNSControl einen CNAME `<name>` → `proxy.homelab.example` pushen – einige Minuten vor dem Apply, sonst cacht der Resolver NXDOMAIN.
 4. Erst grammi deployen, dann `just netbird-apply`. Das ruft am Ende `just netbird-proxy-certs` auf: Es fragt jeden neuen Namen einmal von außen ab, damit der Proxy sein Zertifikat holt, und startet `netbird-proxy` danach einmal neu – sonst hängt das Dashboard bei „Issuing certificate…“ (NetBird-Diskussion #7118).
 
-Dienste auf anderen Hosts bekommen eine eigene Ressource in `terraform/netbird/reverse-proxy.tf` mit dem Host als Peer-Ziel (Beispiele: `dokumente` auf ursalia – SSO für die App, PIN nur für Freigabelinks –, `doku` auf aldrin). Auch hier: CNAME vorher pushen, `just netbird-apply` erledigt die Zertifikate.
+Dienste auf anderen Hosts bekommen eine eigene Ressource in `terraform/netbird/reverse-proxy.tf` mit dem Host als Peer-Ziel (Beispiele: `dokumente` auf ursalia – SSO für die App, Freigabelinks unter `/share/` ohne Anmeldung –, `doku` auf aldrin). Auch hier: CNAME vorher pushen, `just netbird-apply` erledigt die Zertifikate.
 
 ### Direkt öffentlich
 
@@ -1376,7 +1379,7 @@ just proxy-maintenance dokumente on "ursalia wird neu installiert"
 just proxy-maintenance dokumente off
 ```
 
-Das schreibt `terraform/netbird/proxy-maintenance.json`, ruft `just netbird-apply` auf und setzt bzw. löscht das Flag auf grammi. Danach `proxy-maintenance.json` und `expected-peers.json` committen (solange umgestellt ist, fällt der Host aus den Zielen des Proxys). Der Login (SSO, PIN) bleibt davor; aus dem Mesh direkt bleibt der Host natürlich unerreichbar.
+Das schreibt `terraform/netbird/proxy-maintenance.json`, ruft `just netbird-apply` auf und setzt bzw. löscht das Flag auf grammi. Danach `proxy-maintenance.json` und `expected-peers.json` committen (solange umgestellt ist, fällt der Host aus den Zielen des Proxys). Der Login (SSO) bleibt davor, offene Pfade bleiben offen; aus dem Mesh direkt bleibt der Host natürlich unerreichbar.
 
 ### Fehlerseiten bei 502 und 504
 
@@ -5592,7 +5595,7 @@ Dienste sind nach Funktion benannt, nicht nach Produkt. Es gibt drei Arten der E
 | `vm` / `vl` | VictoriaMetrics / VictoriaLogs UI | grammi | Reverse Proxy + SSO |
 | `alertmanager` / `alerts` | Alertmanager UI (Alarme, Silences) | grammi | Reverse Proxy + SSO, nur `homelab_admins` ([Alerting](#alerting)) |
 | `s3-admin` | garage-ui | aldrin | nur Mesh |
-| `dokumente` | Paperless + paperless-gpt (`/paperless-gpt/`) | ursalia | im Mesh direkt; von außen über den Reverse Proxy Freigabelinks per PIN und die App per SSO ([warum](#paperless-von-außen-freigabelinks-pin-und-app-sso)) |
+| `dokumente` | Paperless + paperless-gpt (`/paperless-gpt/`) | ursalia | im Mesh direkt; von außen über den Reverse Proxy Freigabelinks ohne Anmeldung und die App per SSO ([warum](#paperless-von-außen-freigabelinks-offen-und-app-sso)) |
 | `ollama` | Ollama (hinter Caddy) | zorlock | nur Mesh |
 | `health` | [HealthLog](https://github.com/MBombeck/HealthLog) ([`0497d60`](https://github.com/MBombeck/HealthLog/tree/0497d60a893784e709899cdb6fbdf155ef29e3e3) von Marc Bombeck) | ursalia | nur Mesh (auch die iOS-App braucht NetBird), Login nur über Pocket ID (Gruppe `healthlog_users`); eigene verschlüsselte Off-host-Kopien in Garage auf aldrin (Bucket `healthlog-backups`, 30 Tage) |
 | `bambuddy` | [Bambuddy](https://github.com/maziggy/bambuddy) ([`98ecaf5`](https://github.com/maziggy/bambuddy/tree/98ecaf5020e3a20a5de49859b8ad5a754d5ad85c) von MartinNYHC) | ursalia | über den Reverse Proxy mit SSO (Gruppen `bambuddy_user` / `bambuddy_admin`), danach Bambuddys eigener Login über Pocket ID; Drucker per IP im LAN-Modus; virtueller Drucker für Bambu Studio auf der LAN-Adresse von ursalia (Ports nur im Heimnetz, von außen über die NetBird-Route ins Heimnetz) |
@@ -5606,7 +5609,7 @@ Dienste sind nach Funktion benannt, nicht nach Produkt. Es gibt drei Arten der E
 | `doku` | Diese Dokumentation (private Fassung) | aldrin + ursalia | im Mesh nur Admin-Geräte ([warum](#private-doku-admin-geräte-heimnetz-login)), ein A-Record je Host; im Heimnetz über einen eigenen Eintrag des Routers ursalia, außer einer Deny-Liste; von außen über den Reverse Proxy eine Weiterleitung auf die öffentliche Doku, `/login` auf `doku-login` |
 | `doku-login` | Diese Dokumentation (private Fassung) aus dem Internet | aldrin | über den Reverse Proxy mit SSO (Gruppe `docs-readers`), nur mit dem geheimen Header des Proxys |
 
-**Reverse Proxy:** Traefik auf grammi besitzt Port 443. `mesh.homelab.example` terminiert es selbst, alles andere reicht es per TCP-Passthrough mit PROXY-Protokoll v2 an `netbird-proxy` weiter, das TLS und ACME (tls-alpn-01) selbst macht. Login am Proxy ist SSO gegen Pocket ID, begrenzt auf die NetBird-Gruppen der jeweiligen App; `dokumente` zusätzlich mit PIN (nur Freigabelinks). Die Dienste auf grammi erreicht der Proxy alle über den Traefik-Entrypoint `apps` (Port 8090), der Wartungsschalter und Fehlerseiten davorsetzt ([Wartungsmodus](#wartungsmodus)).
+**Reverse Proxy:** Traefik auf grammi besitzt Port 443. `mesh.homelab.example` terminiert es selbst, alles andere reicht es per TCP-Passthrough mit PROXY-Protokoll v2 an `netbird-proxy` weiter, das TLS und ACME (tls-alpn-01) selbst macht. Login am Proxy ist SSO gegen Pocket ID, begrenzt auf die NetBird-Gruppen der jeweiligen App; bei `dokumente` brauchen die Freigabelinks (`/share/`) keine Anmeldung. Die Dienste auf grammi erreicht der Proxy alle über den Traefik-Entrypoint `apps` (Port 8090), der Wartungsschalter und Fehlerseiten davorsetzt ([Wartungsmodus](#wartungsmodus)).
 
 **Mesh-only-Namen:** Jeder Name ist eine eigene NetBird-DNS-Zone mit einem A-Record auf die Mesh-Adresse (192.0.2.x). Öffentliches DNS kennt sie nicht; das Zertifikat kommt per DNS-01 über deSEC.
 
@@ -5678,7 +5681,6 @@ Die 20 Module unter `modules/` tragen die gemeinsame Konfiguration aller Hosts; 
 | `just known-hosts` | `~/.ssh/known_hosts.nixlab` aus dem Inventar schreiben – für eine Workstation außerhalb dieses Repos; gusto bekommt die Schlüssel systemweit |
 | `just netbird-plan` / `netbird-apply` | NetBird-Account ändern; apply schreibt auch `expected-peers.json` (committen, grammi deployen) und `admin-peers.json` (committen, aldrin und ursalia deployen) neu |
 | `just netbird-proxy-certs` | Proxy-Diensten ohne Zertifikat eins holen und das Dashboard nachziehen (NetBird #7118); läuft am Ende von `netbird-apply` |
-| `just dokumente-share-pin` / `dokumente-share-pin-show` | Neue zufällige PIN für Paperless-Freigabelinks von außen (danach `netbird-apply`) bzw. aktuelle anzeigen |
 | `just netbird-key <host>` | Neuer Setup-Key für einen Host, 24 h Zeit zum Deployen – ein gezieltes `tofu apply` nur dieses Keys; Tofu zeigt den Plan und fragt vorher, wie bei jedem `netbird-key*`-Rezept |
 | `just netbird-key-techo5` | Setup-Key für ein TECHO5-Gerät (Echo Show 8) in die Zwischenablage des Macs, nie ausgegeben; 24 h gültig, Schritte in `terraform/netbird/techo5.tf` |
 | `just netbird-import` | Tofu-State aus dem Account neu aufbauen – nur nötig, wenn auch git ihn nicht hat ([Tofu-State](#tofu-state)) |

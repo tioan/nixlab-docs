@@ -386,35 +386,34 @@ Then commit and deploy grammi each time. **Alerts** (`hosts/grammi/alerting/iden
 - A new person: after `just netbird-apply` commit the new `terraform/netbird/group-sync.json` and deploy grammi.
 - `group-sync.json` also holds grammi's mesh addresses; when they change (new v6 address), deploy zummi.
 
-#### Paperless: from outside, share links (PIN) and the app (SSO)
+#### Paperless: from outside, share links (public) and the app (SSO)
 
 In the mesh `dokumente.homelab.example` resolves straight to ursalia through the NetBird zone (full app, Pocket ID login).
 
-**From outside** `dokumente` is a CNAME to the reverse proxy. Its service `dokumente` offers two logins and hands both on to a listener on ursalia (port 8092, mesh only, HTTP through the tunnel):
+**From outside** `dokumente` is a CNAME to the reverse proxy. Its service `dokumente` has two targets, both a listener on ursalia (port 8092, mesh only, HTTP through the tunnel), told apart by path (`access_action`, NetBird 0.81 and later):
 
-- **PIN**, for third parties with a share link: `share/<slug>` only (documents and bundles, both paperless' `SharedLinkView`), 404 otherwise. An expired or unknown link makes paperless redirect to its login page; the listener answers that with a short note.
-- **SSO** via Pocket ID (groups `paperless-users`/`paperless-admins`): the full app including paperless-gpt, as in the mesh. Paperless' own Pocket ID login still follows, usually without a prompt.
+- **`/share/`, without any login**, for third parties with a share link: `share/<slug>` only (documents and bundles, both paperless' `SharedLinkView`), 404 otherwise. An expired or unknown link makes paperless redirect to its login page; the listener catches that redirect and answers with a short note.
+- **everything else, SSO** via Pocket ID (groups `paperless-users`/`paperless-admins`): the full app including paperless-gpt, as in the mesh. Paperless' own Pocket ID login still follows, usually without a prompt.
 
 | Who | Path | Result |
 | --- | --- | --- |
-| Outside with PIN | reverse proxy (grammi) → ursalia:8092 | `/share/<slug>` only, 404 otherwise |
+| Outside, no login | reverse proxy (grammi) → ursalia:8092 | `/share/<slug>` only; any other path goes to SSO |
 | Outside with SSO | reverse proxy (grammi) → ursalia:8092 | full app |
-| In the mesh | straight to ursalia:443 | full app, share links without PIN |
+| In the mesh | straight to ursalia:443 | full app |
 
-**How the listener recognises SSO:** by the header `X-NetBird-User`. The proxy deletes whatever the client sends under that name on every request and sets it to the email address for SSO sessions only (`stampNetBirdIdentity` in NetBird, checked with 0.81.0 – check again on NetBird updates). The header only picks the paths, it logs nobody in: paperless still asks for its own login. A mesh peer sending the header straight to port 8092 gets nothing it would not get on 443 anyway.
+**How the listener recognises SSO:** by the header `X-NetBird-User`. The proxy deletes whatever the client sends under that name on every request – on the public path too – and sets it to the email address for SSO sessions only (`stampNetBirdIdentity` in NetBird, checked with 0.81.0; a spoofed header on the public path tested stripped with 0.82.0 – check again on NetBird updates). The header only picks the paths, it logs nobody in: paperless still asks for its own login. A mesh peer sending the header straight to port 8092 gets nothing it would not get on 443 anyway.
 
-**Why the same name:** paperless builds a share link from the origin of the UI. A link `https://dokumente.homelab.example/share/<slug>` therefore works for third parties without rewriting – whether created in the mesh or via SSO. A name of its own for either login would mean editing links by hand.
+**Why the same name:** paperless builds a share link from the origin of the UI. A link `https://dokumente.homelab.example/share/<slug>` therefore works for third parties without rewriting – whether created in the mesh or via SSO. Paperless has no setting for a separate share-link URL (upstream declined one, [paperless-ngx#14251](https://github.com/paperless-ngx/paperless-ngx/pull/14251)).
 
-**Why the listener filters, not the PIN:** the PIN is a second hurdle in front of the unguessable slug, not a replacement for it. That PIN visitors do not see the app rests on nginx on ursalia alone. The proxy service has no path filter (target `path`), otherwise the redirect to `/accounts/login/` for expired links would no longer reach the listener.
+**Two filters:** the proxy lets only `/share/` through without a login (literal, case-sensitive prefix: `/share` without the slash and `/SHARE/` go to SSO; traversal is rejected). Behind it, ursalia's listener serves nothing but `share/<slug>` to a request without `X-NetBird-User`. Either one alone would keep the app closed.
 
-**PIN:** exactly 6 digits (the NetBird API accepts nothing else), one for all shares. New one: `just dokumente-share-pin` (random, into `terraform/netbird/secrets.yaml`), then `just netbird-apply`; show it: `just dokumente-share-pin-show`. The proxy blocks a client address for 15 minutes after 5 wrong PINs within 5 minutes.
+**Terraform provider:** the registry release knows no `access_action` yet. `pkgs/terraform-provider-netbird.nix` builds it from upstream PR #215 plus a patch with `access_action` and PR #264 (two targets on one peer), both by Sebastien Baillet; it goes away with the first release that contains them.
 
 **What this deliberately accepts:**
 
-- A still-valid PIN session (the proxy's cookie) skips the login page. Whoever then wants the app via SSO lands on a note page and has to clear the site data or use a private window first.
-- Whoever knows the PIN gets every link whose slug they know – no others. So create shares in paperless with an expiry date.
-- Telling PIN from SSO rests on a behaviour of the proxy, not on a documented interface.
-- CrowdSec sees neither PIN attempts nor requests to the app (TCP passthrough, no HTTP log on grammi), as with every proxy name; the proxy's own block and paperless' login remain.
+- Whoever has a link gets the document, with no second hurdle – like Immich's shared links (`fotos`). The 50-character slug is the secret. So create shares in paperless with an expiry date and delete them once they are no longer needed.
+- Telling the paths apart in the listener rests on a behaviour of the proxy, not on a documented interface.
+- CrowdSec sees no requests to the app or the share links (TCP passthrough, no HTTP log on grammi), as with every proxy name; the proxy's IP/geo/CrowdSec rules and paperless' login remain.
 - ursalia's nginx logs the proxy's mesh address as the client, not the visitor's (no `realip`: it would rewrite the address before `allow`/`deny`).
 
 #### Grafana: public dashboards through `dash`
@@ -892,9 +891,12 @@ Alerts (`hosts/grammi/alerting/security.nix`): `WafAppsecDown` (no answer for 5 
 | --- | --- | --- |
 | zummi | `auth.homelab.example` | block (since 2026-11-08) |
 | aldrin | `short.homelab.example`, `fotos.homelab.example` | block (#4) |
+| ursalia | `inv.homelab.example` (OpenInvento's proxy listener, before its public lost-and-found paths) | block (#503) |
 | aldrin | `cloud.homelab.example`, `tabs.homelab.example` | detect, then block |
 | grammi | `dash.homelab.example` | block (#4) |
 | grammi | `mesh.homelab.example` (dashboard, `/oauth2/`) | detect, then block |
+
+ursalia has its own CrowdSec engine since #503 (`modules/crowdsec.nix`, the same module as the public VMs; its `secrets.yaml` needs `crowdsec_enroll_token` and `crowdsec_bouncer_api_key`), only for NetBird proxy listeners that take public paths. Those listeners use `lab.vhosts.<name>.realip`, so the WAF and the application see the visitor and not the proxy's mesh address.
 
 A Traefik plugin on grammi does not protect the services of other hosts: Traefik passes those names through as TCP to the NetBird proxy, which reaches its targets directly.
 
@@ -968,6 +970,7 @@ lab.vhosts."health.homelab.example" = {
 | `websockets` | Upgrade websockets on `location /`. |
 | `meshOnly`, `allow` | Admit only the mesh ranges (`lab.mesh`, from `inventory.json`) plus `allow`. An HTTPS vhost then listens on the wildcard address – the mesh address is NetBird's to assign. |
 | `proxyListener` | Instead of HTTPS: a plain-HTTP listener on this port for a NetBird reverse proxy service; always mesh-only, relative redirects. |
+| `realip` | Only with `proxyListener`: the visitor's address from the proxy's `X-Forwarded-For` (rightmost non-mesh entry) instead of the proxy's mesh address, for the WAF, CrowdSec, logs and the application. The mesh-only check then judges the peer before realip. |
 | `maintenance` | `switch` (default), `errorPages` or `none` – registration in [maintenance mode](#maintenance-mode). |
 | `waf` | Send the requests through the [AppSec WAF](#web-application-firewall). |
 | `serverName`, `extraConfig`, `nginx` | Server name when two vhosts share one; server-level directives; anything else, merged into `services.nginx.virtualHosts.<name>` unchanged. |
@@ -1214,7 +1217,7 @@ For services on grammi:
 3. Push a CNAME `<name>` → `proxy.homelab.example` in DNSControl – a few minutes before the apply, otherwise the resolver caches NXDOMAIN.
 4. Deploy grammi first, then `just netbird-apply`. At the end it runs `just netbird-proxy-certs`: it requests every new name once from outside so the proxy fetches its certificate, then restarts `netbird-proxy` once – otherwise the dashboard hangs at "Issuing certificate…" (NetBird discussion #7118).
 
-Services on other hosts get a resource of their own in `terraform/netbird/reverse-proxy.tf` with the host as peer target (examples: `dokumente` on ursalia – SSO for the app, a PIN for share links only –, `doku` on aldrin). Here too: push the CNAME first, `just netbird-apply` takes care of the certificates.
+Services on other hosts get a resource of their own in `terraform/netbird/reverse-proxy.tf` with the host as peer target (examples: `dokumente` on ursalia – SSO for the app, share links under `/share/` without login –, `doku` on aldrin). Here too: push the CNAME first, `just netbird-apply` takes care of the certificates.
 
 ### Directly public
 
@@ -1376,7 +1379,7 @@ just proxy-maintenance dokumente on "ursalia is being reinstalled"
 just proxy-maintenance dokumente off
 ```
 
-This writes `terraform/netbird/proxy-maintenance.json`, runs `just netbird-apply` and sets or removes the flag on grammi. Commit `proxy-maintenance.json` and `expected-peers.json` afterwards (while switched over, the host drops out of the proxy's targets). The login (SSO, PIN) stays in front; straight from the mesh the host is of course still unreachable.
+This writes `terraform/netbird/proxy-maintenance.json`, runs `just netbird-apply` and sets or removes the flag on grammi. Commit `proxy-maintenance.json` and `expected-peers.json` afterwards (while switched over, the host drops out of the proxy's targets). The login (SSO) stays in front, public paths stay public; straight from the mesh the host is of course still unreachable.
 
 ### Error pages for 502 and 504
 
@@ -5590,7 +5593,7 @@ Services are named by function, not by product. There are three kinds of reachab
 | `vm` / `vl` | VictoriaMetrics / VictoriaLogs UI | grammi | reverse proxy + SSO |
 | `alertmanager` / `alerts` | Alertmanager UI (alerts, silences) | grammi | reverse proxy + SSO, `homelab_admins` only ([Alerting](#alerting)) |
 | `s3-admin` | garage-ui | aldrin | mesh only |
-| `dokumente` | Paperless + paperless-gpt (`/paperless-gpt/`) | ursalia | in the mesh directly; from outside, through the reverse proxy, share links via PIN and the app via SSO ([why](#paperless-from-outside-share-links-pin-and-the-app-sso)) |
+| `dokumente` | Paperless + paperless-gpt (`/paperless-gpt/`) | ursalia | in the mesh directly; from outside, through the reverse proxy, share links without login and the app via SSO ([why](#paperless-from-outside-share-links-public-and-the-app-sso)) |
 | `ollama` | Ollama (behind Caddy) | zorlock | mesh only |
 | `health` | [HealthLog](https://github.com/MBombeck/HealthLog) ([`0497d60`](https://github.com/MBombeck/HealthLog/tree/0497d60a893784e709899cdb6fbdf155ef29e3e3) by Marc Bombeck) | ursalia | mesh only (the iOS app needs NetBird too), login via Pocket ID only (group `healthlog_users`); its own encrypted off-host copies in Garage on aldrin (bucket `healthlog-backups`, 30 days) |
 | `bambuddy` | [Bambuddy](https://github.com/maziggy/bambuddy) ([`98ecaf5`](https://github.com/maziggy/bambuddy/tree/98ecaf5020e3a20a5de49859b8ad5a754d5ad85c) by MartinNYHC) | ursalia | through the reverse proxy with SSO (groups `bambuddy_user` / `bambuddy_admin`), then Bambuddy's own login via Pocket ID; printers by IP in LAN mode; virtual printer for Bambu Studio on ursalia's LAN address (ports in the home LAN only, from outside via the NetBird route into the home LAN) |
@@ -5604,7 +5607,7 @@ Services are named by function, not by product. There are three kinds of reachab
 | `doku` | This documentation (private version) | aldrin + ursalia | in the mesh admin devices only ([why](#private-docs-admin-devices-home-lan-login)), one A record per host; in the home LAN through a record of the router's own to ursalia, except a deny list; from outside a redirect to the public docs through the reverse proxy, `/login` to `doku-login` |
 | `doku-login` | This documentation (private version) from the internet | aldrin | through the reverse proxy with SSO (group `docs-readers`), only with the proxy's secret header |
 
-**Reverse proxy:** Traefik on grammi owns port 443. It terminates `mesh.homelab.example` itself and hands everything else via TCP passthrough with PROXY protocol v2 to `netbird-proxy`, which does TLS and ACME (tls-alpn-01) on its own. Login at the proxy is SSO against Pocket ID, limited to the NetBird groups of the respective app; `dokumente` additionally with a PIN (share links only). The proxy reaches every service on grammi through the Traefik entrypoint `apps` (port 8090), which puts the maintenance switch and error pages in front ([maintenance mode](#maintenance-mode)).
+**Reverse proxy:** Traefik on grammi owns port 443. It terminates `mesh.homelab.example` itself and hands everything else via TCP passthrough with PROXY protocol v2 to `netbird-proxy`, which does TLS and ACME (tls-alpn-01) on its own. Login at the proxy is SSO against Pocket ID, limited to the NetBird groups of the respective app; on `dokumente` the share links (`/share/`) need no login. The proxy reaches every service on grammi through the Traefik entrypoint `apps` (port 8090), which puts the maintenance switch and error pages in front ([maintenance mode](#maintenance-mode)).
 
 **Mesh-only names:** Every name is its own NetBird DNS zone with one A record pointing at the mesh address (192.0.2.x). Public DNS does not know them; the certificate comes via DNS-01 through deSEC.
 
@@ -5676,7 +5679,6 @@ The 20 modules under `modules/` carry the configuration shared by all hosts; eve
 | `just known-hosts` | Write `~/.ssh/known_hosts.nixlab` from the inventory – for a workstation outside this repo; gusto gets the keys system-wide |
 | `just netbird-plan` / `netbird-apply` | Change the NetBird account; apply also rewrites `expected-peers.json` (commit it, deploy grammi) and `admin-peers.json` (commit it, deploy aldrin and ursalia) |
 | `just netbird-proxy-certs` | Get proxy services without a certificate one and bring the dashboard up to date (NetBird #7118); runs at the end of `netbird-apply` |
-| `just dokumente-share-pin` / `dokumente-share-pin-show` | New random PIN for Paperless share links from outside (then `netbird-apply`), or show the current one |
 | `just netbird-key <host>` | New setup key for a host, 24 h to deploy – a targeted `tofu apply` of that one key; tofu shows the plan and asks first, like every `netbird-key*` recipe |
 | `just netbird-key-techo5` | Setup key for a TECHO5 device (Echo Show 8) onto the Mac's clipboard, never printed; valid 24 h, steps in `terraform/netbird/techo5.tf` |
 | `just netbird-import` | Rebuild the Tofu state from the account – only needed when git does not have it either ([Tofu state](#tofu-state)) |

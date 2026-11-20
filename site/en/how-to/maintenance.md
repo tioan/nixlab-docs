@@ -148,7 +148,7 @@ just proxy-maintenance dokumente on "ursalia is being reinstalled"
 just proxy-maintenance dokumente off
 ```
 
-This writes `terraform/netbird/proxy-maintenance.json`, runs `just netbird-apply` and sets or removes the flag on grammi. Commit `proxy-maintenance.json` and `expected-peers.json` afterwards (while switched over, the host drops out of the proxy's targets). The login (SSO, PIN) stays in front; straight from the mesh the host is of course still unreachable.
+This writes `terraform/netbird/proxy-maintenance.json`, runs `just netbird-apply` and sets or removes the flag on grammi. Commit `proxy-maintenance.json` and `expected-peers.json` afterwards (while switched over, the host drops out of the proxy's targets). The login (SSO) stays in front, public paths stay public; straight from the mesh the host is of course still unreachable.
 
 ## Error pages for 502 and 504 { #error-pages }
 

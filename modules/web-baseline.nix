@@ -176,6 +176,29 @@ let
           '';
         };
 
+        realip = lib.mkOption {
+          type = lib.types.bool;
+          default = false;
+          description = ''
+            Only with proxyListener: take the visitor's address from the
+            NetBird proxy's X-Forwarded-For (nginx's realip module), so
+            $remote_addr, the access log, the AppSec WAF, the CrowdSec bouncer
+            and the application see the visitor and not the proxy's mesh
+            address. The proxy appends the address it got through Traefik's
+            PROXY header as the last entry; anything before it, and X-Real-IP,
+            the visitor can set freely (netbird proxy/internal/proxy/
+            reverseproxy.go, setTrustedForwardingHeaders). So the header is
+            read recursively and only mesh addresses are trusted: the
+            rightmost non-mesh entry is the visitor. A mesh peer could forge
+            the header - accepted, the mesh holds only our own devices.
+
+            The mesh-only check then runs on the address before realip
+            ($realip_remote_addr); `allow` does not apply. The vhost should
+            pass $remote_addr on (X-Forwarded-For $remote_addr, X-Real-IP
+            $remote_addr), not $proxy_add_x_forwarded_for.
+          '';
+        };
+
         maintenance = lib.mkOption {
           type = lib.types.enum [
             "switch"
@@ -212,11 +235,25 @@ let
 
   namesWhere = pred: lib.attrNames (lib.filterAttrs (_: pred) config.lab.vhosts);
 
+  # With realip, allow/deny would judge the visitor, so the mesh check looks at
+  # the peer before realip instead ($lab_realip_from_mesh, defined below).
+  realipNames = namesWhere (v: v.realip);
   allowBlock =
     v:
-    lib.optionalString (v.meshOnly || v.proxyListener != null) (
-      lib.concatMapStrings (a: "allow ${a};\n") (config.lab.mesh.networks ++ v.allow) + "deny all;\n"
-    );
+    if v.realip then
+      ''
+        if ($lab_realip_from_mesh = 0) {
+          return 403;
+        }
+        ${
+          lib.concatMapStrings (n: "set_real_ip_from ${n};\n") config.lab.mesh.networks
+        }real_ip_header X-Forwarded-For;
+        real_ip_recursive on;
+      ''
+    else
+      lib.optionalString (v.meshOnly || v.proxyListener != null) (
+        lib.concatMapStrings (a: "allow ${a};\n") (config.lab.mesh.networks ++ v.allow) + "deny all;\n"
+      );
 
   # A function, not an attribute set: the vhost submodule reads a bare
   # attribute set as config only, which would make `imports` an option.
@@ -350,6 +387,24 @@ in
     {
       services.nginx.virtualHosts = lib.mapAttrs toNginx config.lab.vhosts;
     }
+
+    (lib.mkIf (realipNames != [ ]) {
+      services.nginx.commonHttpConfig = ''
+        geo $realip_remote_addr $lab_realip_from_mesh {
+          default 0;
+        ${lib.concatMapStrings (n: "  ${n} 1;\n") config.lab.mesh.networks}}
+      '';
+      assertions = [
+        {
+          assertion = lib.all (n: config.lab.vhosts.${n}.proxyListener != null) realipNames;
+          message = "lab.vhosts: realip needs proxyListener (${lib.concatStringsSep ", " realipNames})";
+        }
+        {
+          assertion = lib.all (n: config.lab.vhosts.${n}.allow == [ ]) realipNames;
+          message = "lab.vhosts: realip does not take `allow` (${lib.concatStringsSep ", " realipNames})";
+        }
+      ];
+    })
 
     # Only where the host imports those modules; a vhost asking for one that
     # is not there fails below.

@@ -1,6 +1,6 @@
 # Web Application Firewall
 
-CrowdSec liest auf jedem Host die Access-Logs von nginx und Traefik und sperrt Adressen, die auffallen (`modules/crowdsec.nix`). Das geschieht im Nachhinein: Der eine Request, der eine Lücke ausnutzt, ist dann schon beim Dienst angekommen. Die WAF (`modules/waf.nix`, seit 2026-10-25) prüft jeden Request, bevor der Proxy ihn weiterreicht – mit CrowdSecs AppSec-Komponente, also derselben Engine, denselben Alerts und denselben Bans. Seit #4 (2026-11-16) läuft sie auf allen drei Front Doors.
+CrowdSec liest auf jedem Host die Access-Logs von nginx und Traefik und sperrt Adressen, die auffallen (`modules/crowdsec.nix`, dasselbe Modul wie auf den öffentlichen VMs; seine `secrets.yaml` braucht `crowdsec_enroll_token` und `crowdsec_bouncer_api_key`). Das geschieht im Nachhinein: Der eine Request, der eine Lücke ausnutzt, ist dann schon beim Dienst angekommen. Die WAF (`modules/waf.nix`, seit 2026-10-25) prüft jeden Request, bevor der Proxy ihn weiterreicht – mit CrowdSecs AppSec-Komponente, also derselben Engine, denselben Alerts und denselben Bans. Seit #4 (2026-11-16) läuft sie auf allen drei Front Doors.
 
 ## Aufbau
 
@@ -92,9 +92,12 @@ Alarme (`hosts/grammi/alerting/security.nix`): `WafAppsecDown` (5 Minuten keine 
 | --- | --- | --- |
 | zummi | `auth.homelab.example` | Block (seit 2026-11-08) |
 | aldrin | `short.homelab.example`, `fotos.homelab.example` | Block (#4) |
+| ursalia | `inv.homelab.example` (Proxy-Listener von OpenInvento, vor den öffentlichen Fundseiten-Pfaden) | Block (#503) |
 | aldrin | `cloud.homelab.example`, `tabs.homelab.example` | Detect, dann Block |
 | grammi | `dash.homelab.example` | Block (#4) |
 | grammi | `mesh.homelab.example` (Dashboard, `/oauth2/`) | Detect, dann Block |
+
+ursalia hat seit #503 eine eigene CrowdSec-Engine (`modules/crowdsec.nix`), nur für NetBird-Proxy-Listener mit öffentlichen Pfaden. Diese Listener nutzen `lab.vhosts.<name>.realip`; WAF und Anwendung sehen so den Besucher und nicht die Mesh-Adresse des Proxys.
 
 Ein Traefik-Plugin auf grammi schützt die Dienste anderer Hosts nicht: Traefik reicht diese Namen als TCP an den NetBird-Proxy durch, der seine Ziele direkt erreicht.
 

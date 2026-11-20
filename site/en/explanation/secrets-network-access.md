@@ -267,35 +267,34 @@ Then commit and deploy grammi each time. **Alerts** (`hosts/grammi/alerting/iden
 - A new person: after `just netbird-apply` commit the new `terraform/netbird/group-sync.json` and deploy grammi.
 - `group-sync.json` also holds grammi's mesh addresses; when they change (new v6 address), deploy zummi.
 
-### Paperless: from outside, share links (PIN) and the app (SSO)
+### Paperless: from outside, share links (public) and the app (SSO)
 
 In the mesh `dokumente.homelab.example` resolves straight to ursalia through the NetBird zone (full app, Pocket ID login).
 
-**From outside** `dokumente` is a CNAME to the reverse proxy. Its service `dokumente` offers two logins and hands both on to a listener on ursalia (port 8092, mesh only, HTTP through the tunnel):
+**From outside** `dokumente` is a CNAME to the reverse proxy. Its service `dokumente` has two targets, both a listener on ursalia (port 8092, mesh only, HTTP through the tunnel), told apart by path (`access_action`, NetBird 0.81 and later):
 
-- **PIN**, for third parties with a share link: `share/<slug>` only (documents and bundles, both paperless' `SharedLinkView`), 404 otherwise. An expired or unknown link makes paperless redirect to its login page; the listener answers that with a short note.
-- **SSO** via Pocket ID (groups `paperless-users`/`paperless-admins`): the full app including paperless-gpt, as in the mesh. Paperless' own Pocket ID login still follows, usually without a prompt.
+- **`/share/`, without any login**, for third parties with a share link: `share/<slug>` only (documents and bundles, both paperless' `SharedLinkView`), 404 otherwise. An expired or unknown link makes paperless redirect to its login page; the listener catches that redirect and answers with a short note.
+- **everything else, SSO** via Pocket ID (groups `paperless-users`/`paperless-admins`): the full app including paperless-gpt, as in the mesh. Paperless' own Pocket ID login still follows, usually without a prompt.
 
 | Who | Path | Result |
 | --- | --- | --- |
-| Outside with PIN | reverse proxy (grammi) → ursalia:8092 | `/share/<slug>` only, 404 otherwise |
+| Outside, no login | reverse proxy (grammi) → ursalia:8092 | `/share/<slug>` only; any other path goes to SSO |
 | Outside with SSO | reverse proxy (grammi) → ursalia:8092 | full app |
-| In the mesh | straight to ursalia:443 | full app, share links without PIN |
+| In the mesh | straight to ursalia:443 | full app |
 
-**How the listener recognises SSO:** by the header `X-NetBird-User`. The proxy deletes whatever the client sends under that name on every request and sets it to the email address for SSO sessions only (`stampNetBirdIdentity` in NetBird, checked with 0.81.0 – check again on NetBird updates). The header only picks the paths, it logs nobody in: paperless still asks for its own login. A mesh peer sending the header straight to port 8092 gets nothing it would not get on 443 anyway.
+**How the listener recognises SSO:** by the header `X-NetBird-User`. The proxy deletes whatever the client sends under that name on every request – on the public path too – and sets it to the email address for SSO sessions only (`stampNetBirdIdentity` in NetBird, checked with 0.81.0; a spoofed header on the public path tested stripped with 0.82.0 – check again on NetBird updates). The header only picks the paths, it logs nobody in: paperless still asks for its own login. A mesh peer sending the header straight to port 8092 gets nothing it would not get on 443 anyway.
 
-**Why the same name:** paperless builds a share link from the origin of the UI. A link `https://dokumente.homelab.example/share/<slug>` therefore works for third parties without rewriting – whether created in the mesh or via SSO. A name of its own for either login would mean editing links by hand.
+**Why the same name:** paperless builds a share link from the origin of the UI. A link `https://dokumente.homelab.example/share/<slug>` therefore works for third parties without rewriting – whether created in the mesh or via SSO. Paperless has no setting for a separate share-link URL (upstream declined one, [paperless-ngx#14251](https://github.com/paperless-ngx/paperless-ngx/pull/14251)).
 
-**Why the listener filters, not the PIN:** the PIN is a second hurdle in front of the unguessable slug, not a replacement for it. That PIN visitors do not see the app rests on nginx on ursalia alone. The proxy service has no path filter (target `path`), otherwise the redirect to `/accounts/login/` for expired links would no longer reach the listener.
+**Two filters:** the proxy lets only `/share/` through without a login (literal, case-sensitive prefix: `/share` without the slash and `/SHARE/` go to SSO; traversal is rejected). Behind it, ursalia's listener serves nothing but `share/<slug>` to a request without `X-NetBird-User`. Either one alone would keep the app closed.
 
-**PIN:** exactly 6 digits (the NetBird API accepts nothing else), one for all shares. New one: `just dokumente-share-pin` (random, into `terraform/netbird/secrets.yaml`), then `just netbird-apply`; show it: `just dokumente-share-pin-show`. The proxy blocks a client address for 15 minutes after 5 wrong PINs within 5 minutes.
+**Terraform provider:** the registry release knows no `access_action` yet. `pkgs/terraform-provider-netbird.nix` builds it from upstream PR #215 plus a patch with `access_action` and PR #264 (two targets on one peer), both by Sebastien Baillet; it goes away with the first release that contains them.
 
 **What this deliberately accepts:**
 
-- A still-valid PIN session (the proxy's cookie) skips the login page. Whoever then wants the app via SSO lands on a note page and has to clear the site data or use a private window first.
-- Whoever knows the PIN gets every link whose slug they know – no others. So create shares in paperless with an expiry date.
-- Telling PIN from SSO rests on a behaviour of the proxy, not on a documented interface.
-- CrowdSec sees neither PIN attempts nor requests to the app (TCP passthrough, no HTTP log on grammi), as with every proxy name; the proxy's own block and paperless' login remain.
+- Whoever has a link gets the document, with no second hurdle – like Immich's shared links (`fotos`). The 50-character slug is the secret. So create shares in paperless with an expiry date and delete them once they are no longer needed.
+- Telling the paths apart in the listener rests on a behaviour of the proxy, not on a documented interface.
+- CrowdSec sees no requests to the app or the share links (TCP passthrough, no HTTP log on grammi), as with every proxy name; the proxy's IP/geo/CrowdSec rules and paperless' login remain.
 - ursalia's nginx logs the proxy's mesh address as the client, not the visitor's (no `realip`: it would rewrite the address before `allow`/`deny`).
 
 ### Grafana: public dashboards through `dash`

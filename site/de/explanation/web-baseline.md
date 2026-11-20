@@ -55,6 +55,7 @@ lab.vhosts."health.homelab.example" = {
 | `websockets` | Websockets auf `location /` durchreichen. |
 | `meshOnly`, `allow` | Nur die Mesh-Netze (`lab.mesh`, aus `inventory.json`) plus `allow` zulassen. Ein HTTPS-vHost lauscht dann auf der Wildcard-Adresse – die Mesh-Adresse vergibt NetBird. |
 | `proxyListener` | Statt HTTPS: ein HTTP-Listener auf diesem Port für einen Reverse-Proxy-Dienst von NetBird; immer nur Mesh, relative Weiterleitungen. |
+| `realip` | Nur mit `proxyListener`: Adresse des Besuchers aus dem `X-Forwarded-For` des Proxys (rechtester Nicht-Mesh-Eintrag) statt der Mesh-Adresse des Proxys, für WAF, CrowdSec, Logs und die Anwendung. Die Mesh-Prüfung beurteilt dann den Peer vor realip. |
 | `maintenance` | `switch` (Standard), `errorPages` oder `none` – Eintrag im [Wartungsmodus](../how-to/maintenance.md). |
 | `waf` | Anfragen durch die [AppSec-WAF](waf.md) schicken. |
 | `serverName`, `extraConfig`, `nginx` | Servername, wenn zwei vHosts sich einen teilen; Direktiven auf Server-Ebene; alles Weitere, unverändert in `services.nginx.virtualHosts.<name>` übernommen. |

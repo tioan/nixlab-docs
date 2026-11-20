@@ -92,9 +92,12 @@ Alerts (`hosts/grammi/alerting/security.nix`): `WafAppsecDown` (no answer for 5 
 | --- | --- | --- |
 | zummi | `auth.homelab.example` | block (since 2026-11-08) |
 | aldrin | `short.homelab.example`, `fotos.homelab.example` | block (#4) |
+| ursalia | `inv.homelab.example` (OpenInvento's proxy listener, before its public lost-and-found paths) | block (#503) |
 | aldrin | `cloud.homelab.example`, `tabs.homelab.example` | detect, then block |
 | grammi | `dash.homelab.example` | block (#4) |
 | grammi | `mesh.homelab.example` (dashboard, `/oauth2/`) | detect, then block |
+
+ursalia has its own CrowdSec engine since #503 (`modules/crowdsec.nix`, the same module as the public VMs; its `secrets.yaml` needs `crowdsec_enroll_token` and `crowdsec_bouncer_api_key`), only for NetBird proxy listeners that take public paths. Those listeners use `lab.vhosts.<name>.realip`, so the WAF and the application see the visitor and not the proxy's mesh address.
 
 A Traefik plugin on grammi does not protect the services of other hosts: Traefik passes those names through as TCP to the NetBird proxy, which reaches its targets directly.
 

@@ -25,7 +25,6 @@
 | `just known-hosts` | Write `~/.ssh/known_hosts.nixlab` from the inventory – for a workstation outside this repo; gusto gets the keys system-wide |
 | `just netbird-plan` / `netbird-apply` | Change the NetBird account; apply also rewrites `expected-peers.json` (commit it, deploy grammi) and `admin-peers.json` (commit it, deploy aldrin and ursalia) |
 | `just netbird-proxy-certs` | Get proxy services without a certificate one and bring the dashboard up to date (NetBird #7118); runs at the end of `netbird-apply` |
-| `just dokumente-share-pin` / `dokumente-share-pin-show` | New random PIN for Paperless share links from outside (then `netbird-apply`), or show the current one |
 | `just netbird-key <host>` | New setup key for a host, 24 h to deploy – a targeted `tofu apply` of that one key; tofu shows the plan and asks first, like every `netbird-key*` recipe |
 | `just netbird-key-techo5` | Setup key for a TECHO5 device (Echo Show 8) onto the Mac's clipboard, never printed; valid 24 h, steps in `terraform/netbird/techo5.tf` |
 | `just netbird-import` | Rebuild the Tofu state from the account – only needed when git does not have it either ([Tofu state](../explanation/nixos-opentofu.md#state)) |

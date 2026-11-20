@@ -148,7 +148,7 @@ just proxy-maintenance dokumente on "ursalia wird neu installiert"
 just proxy-maintenance dokumente off
 ```
 
-Das schreibt `terraform/netbird/proxy-maintenance.json`, ruft `just netbird-apply` auf und setzt bzw. löscht das Flag auf grammi. Danach `proxy-maintenance.json` und `expected-peers.json` committen (solange umgestellt ist, fällt der Host aus den Zielen des Proxys). Der Login (SSO, PIN) bleibt davor; aus dem Mesh direkt bleibt der Host natürlich unerreichbar.
+Das schreibt `terraform/netbird/proxy-maintenance.json`, ruft `just netbird-apply` auf und setzt bzw. löscht das Flag auf grammi. Danach `proxy-maintenance.json` und `expected-peers.json` committen (solange umgestellt ist, fällt der Host aus den Zielen des Proxys). Der Login (SSO) bleibt davor, offene Pfade bleiben offen; aus dem Mesh direkt bleibt der Host natürlich unerreichbar.
 
 ## Fehlerseiten bei 502 und 504 { #error-pages }
 

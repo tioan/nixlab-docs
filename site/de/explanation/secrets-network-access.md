@@ -267,35 +267,34 @@ Danach jeweils Commit und Deploy von grammi. **Alarme** (`hosts/grammi/alerting/
 - Neue Person: nach `just netbird-apply` die neue `terraform/netbird/group-sync.json` committen und grammi deployen.
 - `group-sync.json` enthält auch grammis Mesh-Adressen; ändern die sich (neue v6-Adresse), zummi deployen.
 
-### Paperless: von außen Freigabelinks (PIN) und App (SSO)
+### Paperless: von außen Freigabelinks (offen) und App (SSO)
 
 Im Mesh löst `dokumente.homelab.example` über die NetBird-Zone direkt zu ursalia auf (volle App, Login per Pocket ID).
 
-**Von außen** ist `dokumente` ein CNAME auf den Reverse Proxy. Dessen Dienst `dokumente` bietet zwei Anmeldungen und reicht beide an einen Listener auf ursalia weiter (Port 8092, nur Mesh, HTTP durch den Tunnel):
+**Von außen** ist `dokumente` ein CNAME auf den Reverse Proxy. Dessen Dienst `dokumente` hat zwei Ziele, beide ein Listener auf ursalia (Port 8092, nur Mesh, HTTP durch den Tunnel), unterschieden nach Pfad (`access_action`, ab NetBird 0.81):
 
-- **PIN**, für Dritte mit einem Freigabelink: nur `share/<slug>` (Dokumente und Bündel, beides `SharedLinkView` in Paperless), sonst 404. Ein abgelaufener oder unbekannter Link führt in Paperless auf die Login-Seite; der Listener beantwortet das mit einem kurzen Hinweistext.
-- **SSO** über Pocket ID (Gruppen `paperless-users`/`paperless-admins`): die volle App samt paperless-gpt wie im Mesh. Danach folgt noch der Pocket-ID-Login von Paperless selbst, meist ohne Eingabe.
+- **`/share/` ohne Anmeldung**, für Dritte mit einem Freigabelink: nur `share/<slug>` (Dokumente und Bündel, beides `SharedLinkView` in Paperless), sonst 404. Ein abgelaufener oder unbekannter Link führt in Paperless auf die Login-Seite; der Listener fängt diese Weiterleitung ab und antwortet mit einem kurzen Hinweistext.
+- **alles andere mit SSO** über Pocket ID (Gruppen `paperless-users`/`paperless-admins`): die volle App samt paperless-gpt wie im Mesh. Danach folgt noch der Pocket-ID-Login von Paperless selbst, meist ohne Eingabe.
 
 | Wer | Weg | Ergebnis |
 | --- | --- | --- |
-| Extern mit PIN | Reverse Proxy (grammi) → ursalia:8092 | nur `/share/<slug>`, sonst 404 |
+| Extern ohne Anmeldung | Reverse Proxy (grammi) → ursalia:8092 | nur `/share/<slug>`; jeder andere Pfad führt zum SSO |
 | Extern mit SSO | Reverse Proxy (grammi) → ursalia:8092 | volle App |
-| Im Mesh | direkt ursalia:443 | volle App, Freigabelinks ohne PIN |
+| Im Mesh | direkt ursalia:443 | volle App |
 
-**Woran der Listener SSO erkennt:** am Header `X-NetBird-User`. Der Proxy löscht bei jeder Anfrage, was der Client unter diesem Namen schickt, und setzt ihn nur bei SSO-Sitzungen auf die E-Mail-Adresse (`stampNetBirdIdentity` in NetBird, geprüft mit 0.81.0 – bei NetBird-Updates erneut prüfen). Der Header wählt nur die Pfade, er meldet niemanden an: Paperless verlangt weiter seinen eigenen Login. Ein Mesh-Peer, der den Header direkt an Port 8092 schickt, bekommt nichts, was er über 443 nicht ohnehin bekäme.
+**Woran der Listener SSO erkennt:** am Header `X-NetBird-User`. Der Proxy löscht bei jeder Anfrage, was der Client unter diesem Namen schickt – auch auf dem offenen Pfad –, und setzt ihn nur bei SSO-Sitzungen auf die E-Mail-Adresse (`stampNetBirdIdentity` in NetBird, geprüft mit 0.81.0; ein gefälschter Header auf dem offenen Pfad mit 0.82.0 als entfernt getestet – bei NetBird-Updates erneut prüfen). Der Header wählt nur die Pfade, er meldet niemanden an: Paperless verlangt weiter seinen eigenen Login. Ein Mesh-Peer, der den Header direkt an Port 8092 schickt, bekommt nichts, was er über 443 nicht ohnehin bekäme.
 
-**Warum derselbe Name:** Paperless baut den Freigabelink aus dem Origin der Oberfläche. Ein Link `https://dokumente.homelab.example/share/<slug>` funktioniert so für Dritte ohne Umschreiben – egal ob im Mesh oder per SSO erzeugt. Ein eigener Name für eine der beiden Anmeldungen hieße, Links von Hand anzupassen.
+**Warum derselbe Name:** Paperless baut den Freigabelink aus dem Origin der Oberfläche. Ein Link `https://dokumente.homelab.example/share/<slug>` funktioniert so für Dritte ohne Umschreiben – egal ob im Mesh oder per SSO erzeugt. Eine eigene Adresse für Freigabelinks kennt Paperless nicht (upstream abgelehnt, [paperless-ngx#14251](https://github.com/paperless-ngx/paperless-ngx/pull/14251)).
 
-**Warum der Listener filtert und nicht die PIN:** Die PIN ist eine zweite Hürde vor dem nicht ratbaren Slug, kein Ersatz. Dass PIN-Besucher die App nicht sehen, hängt allein an nginx auf ursalia. Der Proxy-Dienst hat keinen Pfadfilter (Ziel-`path`), sonst käme die Weiterleitung auf `/accounts/login/` bei abgelaufenen Links nicht mehr beim Listener an.
+**Zwei Filter:** Der Proxy lässt nur `/share/` ohne Anmeldung durch (wörtliches Präfix mit Groß-/Kleinschreibung: `/share` ohne Schrägstrich und `/SHARE/` gehen zum SSO; Traversal wird abgewiesen). Dahinter liefert ursalias Listener einer Anfrage ohne `X-NetBird-User` nur `share/<slug>`. Jeder der beiden hielte die App allein schon zu.
 
-**PIN:** genau 6 Ziffern (mehr nimmt die NetBird-API nicht an), eine für alle Freigaben. Neu: `just dokumente-share-pin` (zufällig, nach `terraform/netbird/secrets.yaml`), dann `just netbird-apply`; anzeigen: `just dokumente-share-pin-show`. Der Proxy sperrt eine Client-Adresse nach 5 falschen PINs in 5 Minuten für 15 Minuten.
+**Terraform-Provider:** Das Release in der Registry kennt `access_action` noch nicht. `pkgs/terraform-provider-netbird.nix` baut ihn aus Upstream-PR #215 plus einem Patch mit `access_action` und PR #264 (zwei Ziele auf einem Peer), beides von Sebastien Baillet; er entfällt mit dem ersten Release, das beides enthält.
 
 **Was das bewusst in Kauf nimmt:**
 
-- Eine noch gültige PIN-Sitzung (Cookie des Proxys) überspringt die Anmeldeseite. Wer dann per SSO in die App will, landet auf einer Hinweisseite und muss erst die Website-Daten löschen oder ein privates Fenster nehmen.
-- Wer die PIN kennt, kommt an jeden Link, dessen Slug er kennt – nicht an andere. Freigaben in Paperless deshalb mit Ablaufdatum anlegen.
-- Die Unterscheidung PIN/SSO hängt an einem Verhalten des Proxys, nicht an einer dokumentierten Schnittstelle.
-- CrowdSec sieht weder PIN-Versuche noch Anfragen an die App (TCP-Passthrough, kein HTTP-Log auf grammi), wie bei allen Proxy-Namen; es bleiben die Sperre des Proxys und der Login von Paperless.
+- Wer einen Link hat, bekommt das Dokument, ohne zweite Hürde – wie bei den geteilten Links von Immich (`fotos`). Der 50-stellige Slug ist das Geheimnis. Freigaben in Paperless deshalb mit Ablaufdatum anlegen und löschen, wenn sie nicht mehr gebraucht werden.
+- Die Unterscheidung der Pfade im Listener hängt an einem Verhalten des Proxys, nicht an einer dokumentierten Schnittstelle.
+- CrowdSec sieht keine Anfragen an die App oder die Freigabelinks (TCP-Passthrough, kein HTTP-Log auf grammi), wie bei allen Proxy-Namen; es bleiben die IP-/Geo-/CrowdSec-Regeln des Proxys und der Login von Paperless.
 - ursalias nginx loggt als Absender die Mesh-Adresse des Proxys, nicht die des Besuchers (kein `realip`: es würde die Adresse vor `allow`/`deny` umschreiben).
 
 ### Grafana: öffentliche Dashboards über `dash`
