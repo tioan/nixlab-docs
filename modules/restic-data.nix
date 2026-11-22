@@ -1,5 +1,5 @@
 # Backs up a home host's whole data disk to Garage on aldrin, via restic
-# (modules/restic-garage.nix). The same job on tummi and ursalia, next to
+# (modules/restic-lab.nix). The same job on tummi and ursalia, next to
 # whatever else the host backs up.
 #
 # Its own bucket and key instead of a path in the host's existing repository:
@@ -16,7 +16,7 @@
 # Bandwidth: no --limit-upload, SQM cake on gruffi shapes uploads per host and
 # measured all of them passing through it (nixlab#180).
 #
-# Verification (modules/restic-verified.nix), different from the other jobs:
+# Verification (restic-verified, input nixos-restic-verified), different from the other jobs:
 #  - minPercent 1: on a box for sorting files, moving a disk image away is
 #    normal. With the default every later run would fail, because the verified
 #    size it compares against only moves on a verified run.
@@ -65,7 +65,7 @@ in
   config = lib.mkIf cfg.enable {
     # Secrets restic_data_password, restic_data_key_id, restic_data_secret_key
     # and the template restic-data-s3-env: named after the job.
-    services.resticGarage.jobs.data = {
+    services.resticS3.jobs.data = {
       bucket = "${host}-data-backups";
       sopsFile = cfg.secretsFile;
 

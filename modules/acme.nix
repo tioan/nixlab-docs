@@ -5,13 +5,20 @@
 { config, lib, ... }:
 let
   desecFile = ../hosts + "/${config.networking.hostName}/desec.yaml";
+  acmeDefaults = config.security.acme.defaults;
+  certs = lib.attrValues config.security.acme.certs;
 in
 {
   # dns01.extraNames, for names this host answers challenges for outside of
   # security.acme.certs (grammi's dns01proxy). Together with the certificates
   # it decides what this host's token may write - see lib.dns01Names in
   # flake.nix and terraform/desec-tokens.
-  imports = [ ./dns01-names.nix ];
+  # acme-caa.nix: the account's backup path and the CAA check, see
+  # services.acmeCaa.clients.lego below.
+  imports = [
+    ./dns01-names.nix
+    ./acme-caa.nix
+  ];
 
   # The secret holds the bare token and nothing else.
   #
@@ -50,9 +57,13 @@ in
     defaults = {
       # Part of lego's account directory name (with key type and server):
       # a different email - or a lost /var/lib/acme - registers a new Let's
-      # Encrypt account. zummi's is pinned by CAA accounturi (DNSControl,
-      # zummi.homelab.example), so update that record first, or auth.homelab.example
-      # stops renewing (admin/nixlab#68).
+      # Encrypt account. Each host's account is pinned by CAA accounturi
+      # (DNSControl), so update that record first, or the host's names stop
+      # renewing (admin/nixlab#68, #411).
+      #
+      # Every host's account is pinned that way since admin/nixlab#411; the
+      # check in modules/acme-caa.nix (alert AcmeCaaRefusesAccount) says so
+      # within the hour if account and record drift apart.
       email = "admin@homelab.example";
       dnsProvider = "desec";
       environmentFile = config.sops.templates."desec-env".path;
@@ -108,4 +119,17 @@ in
       };
     }
   ) config.security.acme.certs;
+
+  # lego's account and names for the CAA check and the backup
+  # (modules/acme-caa.nix). The account directory is
+  # accounts/<hash of email, key type and server>/<server host>/<email>/;
+  # the NixOS module does not expose the hash, hence the glob.
+  services.acmeCaa.clients.lego = lib.mkIf (certs != [ ]) {
+    method = if acmeDefaults.dnsProvider != null then "dns-01" else "http-01";
+    names = lib.unique (lib.concatMap (c: [ c.domain ] ++ c.extraDomainNames) certs);
+    accountJson.glob = "/var/lib/acme/.lego/accounts/*/${lib.elemAt (lib.splitString "/" acmeDefaults.server) 2}/${acmeDefaults.email}/account.json";
+    # Key and account.json. Only the account: certificates are simply
+    # fetched again. Restore as root so owner and mode come back with it.
+    backupPaths = [ "/var/lib/acme/.lego/accounts" ];
+  };
 }

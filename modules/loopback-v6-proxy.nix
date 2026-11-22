@@ -16,7 +16,7 @@ let
   proxyd = "${config.systemd.package}/lib/systemd/systemd-socket-proxyd";
 in
 {
-  imports = [ ./hardening.nix ];
+  imports = [ ./textfile-metrics-lab.nix ];
 
   options.services.loopbackV6Proxy = lib.mkOption {
     default = { };
@@ -57,7 +57,7 @@ in
           ExecStart = "${proxyd} 127.0.0.1:${toString p.port}";
           DynamicUser = true;
         };
-        # The shared sandbox (modules/hardening.nix); loopback only, in both
+        # The shared sandbox (hardening.nix in textfile-metrics); loopback only, in both
         # directions.
         hardening = {
           enable = true;

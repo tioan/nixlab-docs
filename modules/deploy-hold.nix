@@ -88,7 +88,7 @@ let
   };
 in
 {
-  imports = [ ./textfile-metrics.nix ];
+  imports = [ ./textfile-metrics-lab.nix ];
 
   environment.systemPackages = [ nixos-hold ];
 

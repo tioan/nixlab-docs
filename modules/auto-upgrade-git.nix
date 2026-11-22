@@ -26,7 +26,7 @@ let
   # failed state is no record of past runs - the next switch clears it - so
   # the time of the last success is kept for hosts/grammi/alerting/units-updates.nix
   # (NixosUpgradeStale). The textfile collector's root directory
-  # (modules/textfile-metrics.nix): the upgrade is a root job anyway (#320).
+  # (modules/textfile-metrics-lab.nix): the upgrade is a root job anyway (#320).
   markSuccess = pkgs.writeShellScript "auto-upgrade-git-mark-success" ''
     set -eu
     out=${textfileDir}/nixos-upgrade.prom

@@ -109,6 +109,16 @@ gusto installiert `netbirdio/homebrew-tap/netbird-ui`, den Cask aus NetBirds eig
 
 `terraform/netbird/subraum.tf` holt sich die Admin-Workstation über den Peer-Namen (`data "netbird_peer"`) für die Gruppe `admin-workstations` – die Gruppe, die die Subraum-Geräte und die Doku-Site erreichen darf. Ein Wechsel der Workstation (altes MacBook → gusto) läuft mit beiden Peers kurz parallel in der Gruppe: zweiter data source `gusto`, `just netbird-apply`, aldrin und ursalia deployen (Freigabeliste der Doku-Site), testen, erst dann den alten Peer entfernen.
 
+## zorlock: Backup und Zertifikat { #zorlock-backup }
+
+Seit 2026-11-20 (admin/nixlab#516) sichert zorlock wie die Server mit restic in den Bucket `zorlock-backups` in Garage auf aldrin: [`modules/darwin/restic-s3.nix`](https://github.com/tioan/nixos-restic-verified/blob/main/modules/darwin/restic-s3.nix), ein launchd-Job um 03:45, der die Verifikation der Server ausführt (`modules/restic-verified.sh`, siehe [Wann ein Backup als erfolgreich gilt](monitoring.md#backup-verified)). Gesichert wird, was sich aus der Konfiguration nicht wiederherstellen lässt:
+
+- Caddys Let's-Encrypt-Konten (Produktion und Staging) unter `/opt/caddy/data/acme/*/users` – `ollama.homelab.example` ist per CAA an sie gebunden ([Zertifikate: deSEC-Tokens und CAA](secrets-network-access.md#acme-caa)), ein verlorenes Konto würde die Erneuerung stoppen,
+- der SSH-Host-Schlüssel, mit dem zorlocks sops-Dateien entschlüsselt werden,
+- die nächtlichen Ergebnisse von version-check (`/opt/version-check/runs`, mit `known.json`).
+
+Nicht die Ollama-Modelle (38 GB, werden neu geladen), NetBirds State (ein Setup-Key registriert den Peer neu), Nix-Caches oder Claudes Sitzungsdaten. Secrets: `just host-backup-secrets zorlock` (Bucket-Schlüssel und ein neues Repository-Passwort nach `hosts/zorlock/backup.yaml`, das Passwort zusätzlich in die Zwischenablage für 1Password); von Hand als root: `restic-zorlock snapshots`, einmalig `restic-zorlock init`. Die CAA-Prüfung (`modules/darwin/acme-caa.nix`) läuft stündlich aus launchd, mit denselben Clients und Metriken wie auf den Servern.
+
 ## gusto im Einzelnen
 
 Hier die Gründe hinter gustos Aufbau; die vollständige Liste, was darauf ist, jede Einstellung und die Abläufe im Alltag stehen unter [gusto – die Admin-Workstation](../reference/gusto.md).

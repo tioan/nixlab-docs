@@ -35,7 +35,7 @@
 | `just github-key <host>` | Neuer GitHub-Deploy-Key für einen Host (Schlüssel per sops, Registrierung per Tofu) |
 | `just github-plan` / `github-apply` | Repos und Deploy-Keys auf GitHub ändern |
 | `just garage-plan` / `garage-apply` | Buckets, Keys und Rechte in Garage auf aldrin ändern (`terraform/garage`) |
-| `just aldrin-backup-secrets` | Den Garage-Schlüssel des Buckets `aldrin-backups` aus dem Tofu-State und ein neues Repository-Passwort nach `hosts/aldrin/backup.yaml` schreiben – einmal, nach `garage-apply` |
+| `just host-backup-secrets <host>` | Den Garage-Schlüssel des Buckets `<host>-backups` (aldrin, zorlock) aus dem Tofu-State und ein neues Repository-Passwort nach `hosts/<host>/backup.yaml` schreiben, das Passwort zusätzlich in die Zwischenablage für 1Password – einmal, nach `garage-apply` |
 | `just data-backup-secrets <host>` | Dasselbe für den Bucket `<host>-data-backups` nach `hosts/<host>/backup-data.yaml` (`modules/restic-data.nix`) – einmal pro Host, nach `garage-apply` |
 | `just garage-admin-token` | Garages Admin-Token per SSH von aldrin nach `terraform/secrets.yaml` kopieren – einmal, und wieder nach jeder Rotation |
 | `just desec-key <host>` / `desec-verify` | deSEC-Token tauschen bzw. Scopes von jedem Host aus prüfen |

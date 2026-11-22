@@ -5,7 +5,7 @@
 # a bare overrideAttrs with such a comment. Overrides that are meant to stay
 # (a local patch, a build variant, tests switched off) are not hotfixes and
 # stay plain overrides; their comment says so ("permanent, not a hotfix").
-# The Macs do not load this module; there is no hotfix on them yet.
+# The Macs load this module too (profiles/darwin.nix).
 #
 # A hotfix pins a package to a newer version (or adds a patch) until nixpkgs
 # catches up. Written by hand, it has to be removed by hand too - and since
@@ -45,7 +45,8 @@
 #
 # Hotfixes for packages from the host's own pkgs go into modules/hotfixes/,
 # one overlay per file, as `hotfix: final: prev: { <pkg> = hotfix { ... }; }`;
-# every file there is loaded on every NixOS host. Packages taken from another
+# every file there is loaded on every NixOS host and every Mac. An overlay
+# is lazy: a host that does not use the package never evaluates it. Packages taken from another
 # nixpkgs (`inputs.<pin>.legacyPackages.${system}`) do not see these overlays - call
 # `hotfix` on them in the host module instead.
 { lib, ... }:

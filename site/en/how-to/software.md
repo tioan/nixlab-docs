@@ -31,7 +31,7 @@ The start term is optional (`apps` alone starts with an empty search). One round
 │ filter> export                                 │   ← the active one
 ╰────────────────────────────────────────────────╯
   this round:  + ripgrep (nixpkgs, user)   − shottr (cask) ZAP
-  enter: add / remove   tab: search ⇄ filter   ctrl-s: done   esc: cancel
+  enter: add / remove   tab: search ⇄ filter   ctrl-o / ctrl-y: open / copy homepage   ctrl-s: done   esc: cancel
   nixpkgs ✓ 12  Homebrew ✓ 2  App Store ✓ 10
    nixpkgs  obsidian-export   25.3.0   CLI  Rust library and CLI to export …
 …
@@ -40,7 +40,7 @@ The start term is optional (`apps` alone starts with an empty search). One round
 
 - **Two fields, `tab` switches between them.** `search>` searches online; `filter>` (optional) narrows the results of that search in fzf, fuzzy, without searching again (`'word` for an exact match). A new search term empties the filter – it was for the old results. The border above shows both.
 - **The search** runs as you type (from 2 characters, after a short pause) against nixpkgs (search.nixos.org, release of `nixpkgs-darwin`), Homebrew (formulae.brew.sh), the Mac App Store and the third-party taps gusto pins (offline, from their pin). A fully qualified term – `owner/tap/name`, as in `brew install --cask owner/tap/name` – also looks that one cask or formula up on GitHub when its tap is not pinned yet (see [A cask from a third-party tap](#a-cask-from-a-third-party-tap)). If search.nixos.org is down, `nix search` against the pin takes over – slower, but always there. The line above the list says what each source returned.
-- **★** marks the recommended source where the same software exists more than once: for a GUI app cask before App Store before nixpkgs, for a command line tool nixpkgs before a Homebrew formula. The preview below shows description, version, licence, homepage – and for a declared entry its note.
+- **★** marks the recommended source where the same software exists more than once: for a GUI app cask before App Store before nixpkgs, for a command line tool nixpkgs before a Homebrew formula. The preview below shows description, version, licence, homepage – and for a declared entry its note. A click opens the homepage; by key, `ctrl-o` opens it in the browser and `ctrl-y` copies it.
 - **Enter on a new hit adds it.** The list closes for the questions:
     1. The pin check –
 

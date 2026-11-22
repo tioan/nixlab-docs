@@ -74,7 +74,7 @@ in
 
   imports = [
     ./forwarding.nix
-    ./textfile-metrics.nix
+    ./textfile-metrics-lab.nix
   ];
 
   config = lib.mkIf cfg.enable {
@@ -146,7 +146,7 @@ in
       '';
     };
 
-    # Into node_exporter's textfile collector (modules/textfile-metrics.nix):
+    # Into node_exporter's textfile collector (modules/textfile-metrics-lab.nix):
     # reading the counters takes CAP_NET_ADMIN and a netlink socket, nothing
     # else.
     services.textfileMetrics.writers.netbird-exit-node-metrics = {

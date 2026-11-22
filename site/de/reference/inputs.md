@@ -12,6 +12,8 @@ Nur `nixpkgs` und `nixpkgs-unstable` laufen im nächtlichen Auto-Upgrade mit (`s
 | `nixpkgs-opencloud` | nixos-unstable | aldrin (OpenCloud-Paket) | nein – OpenCloud lässt sich nicht downgraden | sobald Stable die laufende Version erreicht (der aldrin-Build warnt) |
 | `nixpkgs-mealie` | nixos-unstable | grammi (Mealie-Paket) | nein – Migrationen gehen nur vorwärts, Release-Notes lesen | sobald Stable mindestens die laufende Version liefert (erwartet: 26.11) |
 | `nixpkgs-immich` | nixos-unstable | ursalia (Immich-Modul und -Paket) | nein – Migrationen gehen nur vorwärts, Release-Notes lesen | sobald Stable Immich 3.x mindestens in der laufenden Version liefert (erwartet: 26.11) |
+| `nixpkgs-karakeep` | nixos-unstable | ursalia (Karakeep-Paket) | nein – SQLite-Migrationen gehen nur vorwärts, Release-Notes lesen | sobald Stable mindestens die laufende Version liefert (erwartet: 26.11) |
+| `nixpkgs-readeck` | nixos-unstable | ursalia (Readeck-Paket; Alarm `PinnedPackageNewerRelease` eine Woche nach einem neueren Upstream-Release) | nein – SQLite-Migrationen gehen nur vorwärts, Changelog lesen | sobald Stable mindestens die laufende Version liefert (erwartet: 26.11) |
 | `disko` | main | ursalia, tummi (alle Mounts) | nein | – |
 | `lanzaboote` | v1.2.0 | ursalia, tummi (Secure Boot) | nein | – |
 | `nixpkgs-darwin`, `nix-darwin` | 26.05-darwin | zorlock, gusto | nein (kein Auto-Upgrade) | – |

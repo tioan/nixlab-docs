@@ -31,7 +31,7 @@ Der Suchbegriff ist optional (`apps` allein startet mit leerer Suche). Eine Rund
 │ filter> export                                 │   ← das aktive
 ╰────────────────────────────────────────────────╯
   this round:  + ripgrep (nixpkgs, user)   − shottr (cask) ZAP
-  enter: add / remove   tab: search ⇄ filter   ctrl-s: done   esc: cancel
+  enter: add / remove   tab: search ⇄ filter   ctrl-o / ctrl-y: open / copy homepage   ctrl-s: done   esc: cancel
   nixpkgs ✓ 12  Homebrew ✓ 2  App Store ✓ 10
    nixpkgs  obsidian-export   25.3.0   CLI  Rust library and CLI to export …
 …
@@ -40,7 +40,7 @@ Der Suchbegriff ist optional (`apps` allein startet mit leerer Suche). Eine Rund
 
 - **Zwei Felder, `tab` wechselt.** `search>` sucht online; `filter>` (optional) grenzt die Treffer dieser Suche in fzf unscharf ein, ohne neu zu suchen (`'wort` für einen exakten Treffer). Ein neuer Suchbegriff leert den Filter – er gehörte zu den alten Treffern. Der Rahmen oben zeigt beide.
 - **Die Suche** läuft beim Tippen (ab 2 Zeichen, nach einer kurzen Pause) gegen nixpkgs (search.nixos.org, Release von `nixpkgs-darwin`), Homebrew (formulae.brew.sh), den Mac App Store und die Drittanbieter-Taps, die gusto pinnt (offline, aus ihrem Pin). Ein voll qualifizierter Begriff – `owner/tap/name`, wie in `brew install --cask owner/tap/name` – schlägt diesen einen Cask oder diese Formel zusätzlich auf GitHub nach, wenn ihr Tap noch nicht gepinnt ist (siehe [Ein Cask aus einem Drittanbieter-Tap](#ein-cask-aus-einem-drittanbieter-tap)). Ist search.nixos.org nicht erreichbar, übernimmt `nix search` gegen den Pin – langsamer, aber immer verfügbar. Die Zeile über der Liste zeigt, was jede Quelle geliefert hat.
-- **★** markiert die empfohlene Quelle, wenn es dieselbe Software mehrfach gibt: für eine GUI-App Cask vor App Store vor nixpkgs, für ein Kommandozeilenwerkzeug nixpkgs vor einer Homebrew-Formel. Die Vorschau unten zeigt Beschreibung, Version, Lizenz, Homepage – und bei einem deklarierten Eintrag seine Notiz.
+- **★** markiert die empfohlene Quelle, wenn es dieselbe Software mehrfach gibt: für eine GUI-App Cask vor App Store vor nixpkgs, für ein Kommandozeilenwerkzeug nixpkgs vor einer Homebrew-Formel. Die Vorschau unten zeigt Beschreibung, Version, Lizenz, Homepage – und bei einem deklarierten Eintrag seine Notiz. Ein Klick öffnet die Homepage; per Taste öffnet `ctrl-o` sie im Browser, `ctrl-y` kopiert sie.
 - **Enter auf einen neuen Treffer fügt ihn hinzu.** Die Liste schließt sich für die Fragen:
     1. Die Pin-Prüfung –
 

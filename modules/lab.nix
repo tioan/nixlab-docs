@@ -5,7 +5,7 @@
 # lab values.
 #
 # The mesh ranges and the OIDC issuer (admin/nixlab#319) and the S3 endpoint
-# of the restic jobs (modules/restic-garage.nix, #318).
+# of the restic jobs (modules/restic-lab.nix, #318).
 { config, lib, ... }:
 let
   cfg = config.lab;

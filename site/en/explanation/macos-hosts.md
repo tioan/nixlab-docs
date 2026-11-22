@@ -109,6 +109,16 @@ gusto installs `netbirdio/homebrew-tap/netbird-ui`, the cask from NetBird's own 
 
 `terraform/netbird/subraum.tf` looks up the admin workstation by peer name (`data "netbird_peer"`) for the group `admin-workstations` – the group that may reach the Subraum devices and the docs site. Changing the workstation (old MacBook → gusto) is done with both peers in the group for a short while: add a second data source `gusto`, `just netbird-apply`, deploy aldrin and ursalia (docs site allow-list), test, and only then remove the old peer.
 
+## zorlock: backup and certificate { #zorlock-backup }
+
+Since 2026-11-20 (admin/nixlab#516) zorlock backs up with restic to the bucket `zorlock-backups` in Garage on aldrin, like the servers: [`modules/darwin/restic-s3.nix`](https://github.com/tioan/nixos-restic-verified/blob/main/modules/darwin/restic-s3.nix), a launchd job at 03:45 that runs the servers' verification (`modules/restic-verified.sh`, see [When a backup counts as successful](monitoring.md#backup-verified)). It holds what the configuration cannot recreate:
+
+- Caddy's Let's Encrypt accounts (production and staging) under `/opt/caddy/data/acme/*/users` – `ollama.homelab.example` is pinned to them by CAA ([Certificates: deSEC tokens and CAA](secrets-network-access.md#acme-caa)), so a lost account would stop the renewal,
+- the SSH host key, which decrypts zorlock's sops files,
+- version-check's nightly results (`/opt/version-check/runs`, with `known.json`).
+
+Not the Ollama models (38 GB, pulled again), NetBird's state (a setup key registers the peer anew), Nix caches or Claude's session data. Secrets: `just host-backup-secrets zorlock` (bucket key and a new repository password into `hosts/zorlock/backup.yaml`, the password also onto the clipboard for 1Password); by hand as root: `restic-zorlock snapshots`, `restic-zorlock init` once. The CAA check (`modules/darwin/acme-caa.nix`) runs hourly from launchd, with the same clients and metrics as on the servers.
+
 ## gusto in detail
 
 The reasons behind gusto's setup; the complete list of what is on it, every setting and the day-to-day tasks are on [gusto – the admin workstation](../reference/gusto.md).

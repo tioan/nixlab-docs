@@ -2,6 +2,62 @@
 
 Automatisch erzeugt aus dem Kopfkommentar und den Optionen jedes Moduls unter `modules/` – Gegenstück zur [handgeschriebenen Übersicht](modules.md). Die Kommentare sind englisch, wie aller Code-Kommentar im Repo.
 
+## acme-caa-options.nix
+
+Options of the CAA check (admin/nixlab#411): a host's ACME clients, where
+each keeps its account and which names it gets. Shared by the NixOS side
+(modules/acme-caa.nix, a sandboxed systemd writer) and the Mac side
+(modules/darwin/acme-caa.nix, a launchd job); see modules/acme-caa.nix for
+what the check does.
+
+[Quelltext](https://github.com/tioan/nixlab-docs/blob/main/modules/acme-caa-options.nix)
+
+## acme-caa.nix
+
+Reusable module: the ACME clients of a host, their accounts, and a check
+that the CAA records still let each account renew (admin/nixlab#411).
+
+Every public name is pinned by CAA (RFC 8657 accounturi +
+validationmethods, records in the DNSControl repo) to the Let's Encrypt
+account and method of the client that gets its certificate. The price:
+a new account - a lost state directory, a changed email in lego's account
+path - can no longer renew until the record is changed. Two things here
+keep that from happening quietly:
+
+
+```
+backupPaths  where each client keeps its account. Hosts add the list to
+their restic paths, so a restored host comes back with the
+same account instead of registering a new one.
+the check    a textfile writer (modules/textfile-metrics-lab.nix) that
+resolves the CAA records applying to each name the way
+Let's Encrypt does (follow the CNAME, climb towards the
+apex) and compares them with the account in use. Alerts:
+hosts/grammi/alerting/security.nix (AcmeCaa*).
+```
+
+
+A client says where its account is in one of three ways:
+
+```
+accountJson  a JSON file holding the URI (lego, Caddy), by glob - the
+lego directory name contains a hash of email, key type and
+server that the NixOS module does not expose
+accountKey   the account key itself (NetBird proxy's autocert stores no
+URI); the check derives the URI from Let's Encrypt with a
+`newAccount` + `onlyReturnExisting` request signed with it
+accountUri   the URI as a string, for an account on a device the lab
+does not manage (Home Assistant's add-on)
+```
+
+
+Root-only sources (account JSON, a 0700 state directory) are read by a
+root ExecStartPre step that writes only the URI and the names into the
+unit's runtime directory; a key reaches the sandboxed check as a
+credential, never through the filesystem.
+
+[Quelltext](https://github.com/tioan/nixlab-docs/blob/main/modules/acme-caa.nix)
+
 ## acme.nix
 
 ACME defaults for every host that serves TLS.
@@ -257,60 +313,6 @@ this file is the lab's policy.
 
 [Quelltext](https://github.com/tioan/nixlab-docs/blob/main/modules/deploy.nix)
 
-## disk-health.nix
-
-SMART health of a physical host's disks: smartd runs the drives' own
-self-tests and watches their attributes, smartctl_exporter publishes the
-values, vmagent ships them to grammi - dashboard
-hosts/grammi/dashboards/disk-health.json. For bare-metal hosts only; the
-VMs have no SMART to speak of. Switched on by listing the disks:
-
-
-```
-services.diskHealth.devices = [
-"/dev/disk/by-id/nvme-Samsung_SSD_980_PRO_2TB_<serial>"
-"/dev/disk/by-id/ata-Samsung_SSD_870_QVO_8TB_<serial>"
-];
-```
-
-
-Listed, not autodiscovered: behind the ArkKVM a host also sees the KVM's
-virtual USB drive and virtual media, which are not worth polling. By-id
-paths with model and serial rather than kernel names, because /dev/sdX
-moves with whatever USB devices are plugged in, and the path ends up in
-the exporter's `device` label - it should say which disk it is.
-
-Schedule, staggered by position in the list so no two tests of one host
-run at the same time (a long test reads the whole disk - 640 min on the
-8 TB QVO - and slows its I/O while it runs):
-
-```
-short     every Sunday, 03:00 for the first disk, 04:00 for the second, ...
-extended  monthly at 01:00, on the 1st for the first disk, the 2nd for
-the second, ...
-```
-
-smartd's -a additionally checks health and attributes every 30 minutes and
-logs every change and every failed test to the journal, which log
-shipping forwards to VictoriaLogs on grammi.
-
-smartctl_exporter 0.14 does not export the self-test log, so the outcome
-of the tests goes through node_exporter's textfile collector instead
-(hourly, same `device` label as the exporter - the by-id basename):
-
-
-```
-smart_selftest_running{device}                      1 while a test runs
-smart_selftest_last_passed{device,test}             1 = completed without error
-smart_selftest_last_power_on_hours{device,test}     power-on hours of that test
-```
-
-
-test is short/extended/other. last_passed is 0 for aborted tests too (a
-reboot during the 11 h QVO test, for instance) - the journal says which.
-
-[Quelltext](https://github.com/tioan/nixlab-docs/blob/main/modules/disk-health.nix)
-
 ## dns01-names.nix
 
 Names a host answers ACME DNS-01 challenges for outside of
@@ -395,6 +397,38 @@ opened there too.
 
 [Quelltext](https://github.com/tioan/nixlab-docs/blob/main/modules/firewall.nix)
 
+## flake-input-tags.nix
+
+Reusable module: how long a newer tag of a tag-pinned flake input has been
+waiting (admin/nixlab#327, decision 4a). Inputs pinned by tag are bumped by
+hand (`just bump`), so nothing else notices a new release of them.
+
+The pins come from the flake.lock this system was built from (lockFile):
+every direct input of type github whose owner is in `owners` and whose ref
+is a version tag (v1.2.3 / 1.2.3). A writer of modules/textfile-metrics.nix
+asks the GitHub API for each one's newest version tag, a few unauthenticated
+requests per input and run, and exports
+
+
+```
+<prefix>flake_input_newer_tag_age_seconds{input,repo,pinned,latest}
+```
+
+
+0 while the pin is the newest tag, else the newest tag's age. The script
+is modules/flake-input-tags.sh.
+
+**Optionen** (`services.flakeInputTags`):
+
+| Option | Beschreibung |
+| --- | --- |
+| `enable` | Enable: the age of newer tags of tag-pinned flake inputs as metrics |
+| `lockFile` | flake.lock of the flake this system is built from. |
+| `owners` | GitHub owners whose tag-pinned inputs are watched. |
+| `inputs` | The watched inputs and their pinned tags, as read from lockFile. |
+
+[Quelltext](https://github.com/tioan/nixlab-docs/blob/main/modules/flake-input-tags.nix)
+
 ## forwarding.nix
 
 IP forwarding with a default-drop filter, for hosts that route between
@@ -435,111 +469,6 @@ the firewall's chain drops, and the other way round.
 
 [Quelltext](https://github.com/tioan/nixlab-docs/blob/main/modules/forwarding.nix)
 
-## fwupd.nix
-
-Firmware updates from LVFS on the physical host (ursalia).
-Nothing is ever installed automatically, and that has to stay so: a BIOS
-capsule moves PCR 0 and with it the TPM keyslot that unlocks the disk, and
-under Secure Boot without shim the firmware runs fwupdx64.efi only when it
-is signed with the host's own sbctl key - see docs/install-ursalia.md
-("Firmware-Updates"). Updates are installed by hand, with somebody at the
-console or the ArkKVM.
-
-[Quelltext](https://github.com/tioan/nixlab-docs/blob/main/modules/fwupd.nix)
-
-## hardening.nix
-
-Reusable module: one systemd sandbox profile for services, in graded
-levels, instead of a hand-copied block of directives per unit
-(admin/nixlab#18, #320).
-
-
-```
-systemd.services.foo.hardening = {
-enable = true;
-level = "standard";
-network = "loopback";
-capabilities = [ "CAP_DAC_READ_SEARCH" ];
-};
-```
-
-
-Every exception is an explicit argument, so `git grep hardening` shows
-what each unit was allowed and the comment next to it says why. The
-directives are set at normal priority: a unit that defines the same
-single-valued directive differently fails evaluation instead of silently
-winning or losing - pick one place.
-
-What each directive typically breaks, so an exception is deliberate:
-
-
-```
-level "base" - safe for nearly every daemon
-NoNewPrivileges        setuid helpers (sudo, ping without caps, newuidmap)
-ProtectSystem=strict   writes outside writablePaths and the unit's own
-State/Cache/Logs/RuntimeDirectory
-ProtectHome            anything under /home, /root, /run/user
-PrivateTmp             sharing files through /tmp with other units
-PrivateDevices         raw devices: disks (smartctl), GPU, serial,
-/dev/virtio-ports; see `devices`
-ProtectKernelTunables  writing /proc/sys, /sys (sysctl, nft does not care)
-ProtectKernelModules   modprobe from the service
-ProtectKernelLogs      dmesg / /dev/kmsg readers
-ProtectControlGroups   cgroup writes (container managers); reads stay
-ProtectClock           setting the clock; implies DevicePolicy=closed,
-which together with `devices` is fine
-ProtectHostname        sethostname
-RestrictNamespaces     user namespaces: podman, gVisor, bubblewrap,
-Chromium's sandbox
-RestrictRealtime       audio/RT scheduling
-RestrictSUIDSGID       creating setuid files
-LockPersonality        old 32-bit personality tricks
-SystemCallArchitectures=native  32-bit binaries on x86_64
-```
-
-
-
-```
-level "standard" - base plus
-CapabilityBoundingSet  everything not in `capabilities` (empty = none);
-root services that chown, bind < 1024 or read
-foreign files need theirs listed
-SystemCallFilter       @system-service minus @privileged (chown, setuid,
-mount, raw I/O, ...) and @resources (setrlimit,
-sched_setaffinity, ...); add back with
-`systemCalls`; a violation is EPERM, not a kill
-ProtectProc=invisible  seeing other users' processes (/proc/<pid>);
-ProcSubset=pid           /proc/cpuinfo, /proc/meminfo, /proc/net -
-`seeProcesses` turns both off
-UMask=0077             files other users are meant to read: set
-`umask` (e.g. "0022" for textfile metrics)
-```
-
-
-
-```
-level "strict" - standard plus
-MemoryDenyWriteExecute JIT runtimes: Node, Java, LuaJIT, PyPy, some
-regex engines; `writeExecute` keeps them working
-PrivateIPC             SysV IPC / POSIX queues shared with other units
-RemoveIPC              the same, for a static user's leftovers
-```
-
-
-
-```
-network (independent of the level)
-"none"      PrivateNetwork, AF_UNIX only: no sockets but local ones
-"netlink"   host namespace, AF_UNIX + AF_NETLINK, no IP sockets: for
-kernel state such as nftables counters (with CAP_NET_ADMIN)
-or nl80211; cannot open a connection
-"loopback"  IP sockets, but IPAddressDeny=any except localhost
-"any"       IP sockets to anywhere
-`addressFamilies` adds to the list (e.g. AF_NETLINK for getifaddrs).
-```
-
-[Quelltext](https://github.com/tioan/nixlab-docs/blob/main/modules/hardening.nix)
-
 ## hotfixes.nix
 
 Package hotfixes that switch themselves off.
@@ -549,7 +478,7 @@ nixpkgs - "drop this once nixpkgs has ..." - goes through `hotfix`, never
 a bare overrideAttrs with such a comment. Overrides that are meant to stay
 (a local patch, a build variant, tests switched off) are not hotfixes and
 stay plain overrides; their comment says so ("permanent, not a hotfix").
-The Macs do not load this module; there is no hotfix on them yet.
+The Macs load this module too (profiles/darwin.nix).
 
 A hotfix pins a package to a newer version (or adds a patch) until nixpkgs
 catches up. Written by hand, it has to be removed by hand too - and since
@@ -593,54 +522,24 @@ Ours adds the warning: there the override goes quiet without telling anyone.
 
 Hotfixes for packages from the host's own pkgs go into modules/hotfixes/,
 one overlay per file, as `hotfix: final: prev: { <pkg> = hotfix { ... }; }`;
-every file there is loaded on every NixOS host. Packages taken from another
+every file there is loaded on every NixOS host and every Mac. An overlay
+is lazy: a host that does not use the package never evaluates it. Packages taken from another
 nixpkgs (`inputs.<pin>.legacyPackages.${system}`) do not see these overlays - call
 `hotfix` on them in the host module instead.
 
 [Quelltext](https://github.com/tioan/nixlab-docs/blob/main/modules/hotfixes.nix)
 
-## intel-gpu-metrics.nix
+## intel-gpu-metrics-lab.nix
 
-Load of an Intel iGPU for node_exporter's textfile collector, from
-intel_gpu_top (igt-gpu-tools). Shipped to grammi with the other node
-metrics; panels in hosts/grammi/dashboards/immich.json (ursalia's iGPU runs
-Immich's machine learning through OpenVINO and its video transcoding
-through Quick Sync).
+The lab side of the intel-gpu-metrics module from the input
+intel-gpu-metrics (github.com/tioan/nixos-intel-gpu-metrics, #327, item 2):
+the bridge writes into its own sandboxed writer directory of
+modules/textfile-metrics-lab.nix instead of the textfile root, root-owned
+because the unit stays root. Metric names keep the module's default prefix
+intel_gpu_ (not textfileMetrics.metricPrefix), which
+hosts/grammi/dashboards/immich.json reads.
 
-Neither node_exporter nor a packaged exporter covers i915 engine load. The
-one exporter around (onedr0p/intel-gpu-exporter) is archived, carries no
-license, and reads engine names with a "/0" suffix that current
-intel_gpu_top no longer prints - its busy values would stay 0. So a small
-bridge of our own: intel_gpu_top -J runs for good, one sample every 15 s,
-and modules/intel-gpu-metrics.py rewrites intel-gpu.prom after each one.
-
-
-```
-intel_gpu_engine_busy_percent{engine}          Render/3D, Video, VideoEnhance, Blitter, ...
-intel_gpu_engine_wait_percent{engine}
-intel_gpu_frequency_mhz{type}                  requested / actual
-intel_gpu_rc6_percent                          time in the power-saving state
-intel_gpu_power_watts{domain}                  gpu / package (RAPL)
-intel_gpu_interrupts_per_second
-intel_gpu_imc_bandwidth_mibps{direction}       only where the uncore PMU offers it
-intel_gpu_client_busy_percent{name,engine}     per process name (gunicorn = Immich ML, ffmpeg)
-intel_gpu_client_memory_resident_bytes{name}   GPU buffers in system RAM
-intel_gpu_last_sample_timestamp_seconds        stale = the bridge is down
-```
-
-
-Process names, not pids: a pid label would start new series on every
-restart. NixOS wrapper names (".gunicorn-wrapped", cut to 15 characters)
-are reduced to the program name.
-
-**Optionen** (`services.intelGpuMetrics`):
-
-| Option | Beschreibung |
-| --- | --- |
-| `enable` | Enable: Intel iGPU load metrics from intel_gpu_top |
-| `device` | intel_gpu_top -d filter; null takes the first Intel GPU. |
-
-[Quelltext](https://github.com/tioan/nixlab-docs/blob/main/modules/intel-gpu-metrics.nix)
+[Quelltext](https://github.com/tioan/nixlab-docs/blob/main/modules/intel-gpu-metrics-lab.nix)
 
 ## lab.nix
 
@@ -651,7 +550,7 @@ this file only declares them, so the modules that read them stay free of
 lab values.
 
 The mesh ranges and the OIDC issuer (admin/nixlab#319) and the S3 endpoint
-of the restic jobs (modules/restic-garage.nix, #318).
+of the restic jobs (modules/restic-lab.nix, #318).
 
 **Optionen** (`lab.mesh`):
 
@@ -951,6 +850,42 @@ them.
 
 [Quelltext](https://github.com/tioan/nixlab-docs/blob/main/modules/no-redirects.nix)
 
+## pinned-releases.nix
+
+Reusable module: how long a newer upstream release of a pinned package has
+been waiting. Packages taken from a nixpkgs pin that is bumped by hand
+(flake.nix: nixpkgs-readeck and its siblings) do not move with the nightly
+update, and nothing else notices when upstream has moved on - the weekly
+version check (pkgs/version-check) only reports it. Sibling of
+modules/flake-input-tags.nix, which does the same for flake inputs pinned by
+tag.
+
+
+```
+services.pinnedReleases.packages.readeck = {
+version = config.services.readeck.package.version;
+api = "https://codeberg.org/api/v1";   # Forgejo; GitHub by default
+repo = "readeck/readeck";
+};
+```
+
+
+The version comes from the evaluated package, so it follows the pin by
+itself. A writer of modules/textfile-metrics-lab.nix asks the forge's releases
+API (GitHub and Forgejo/Gitea answer alike, unauthenticated, one request
+per package and run) and exports
+
+
+```
+<prefix>pinned_newer_release_age_seconds{package,repo,pinned,latest}
+```
+
+
+0 while the pin is the newest stable release, else the age of the oldest
+release newer than the pin. The script is modules/pinned-releases.sh.
+
+[Quelltext](https://github.com/tioan/nixlab-docs/blob/main/modules/pinned-releases.nix)
+
 ## public-probes-targets.nix
 
 What every public endpoint must answer, and from where it is probed - the
@@ -1039,43 +974,10 @@ below is incidental.
 
 [Quelltext](https://github.com/tioan/nixlab-docs/blob/main/modules/qemu-guest.nix)
 
-## restic-btrfs-snapshots.nix
-
-Read-only btrfs snapshots for a restic job to read from, so that what it
-stores from each subvolume is one consistent instant (to SQLite a snapshot
-looks like a power cut, which it is built to survive). Several snapshots are
-taken one after another, not at the same instant. Used by
-modules/restic-garage.nix and by restic jobs with other targets (BorgBase on
-ursalia):
-
-
-```
-snap = import ./restic-btrfs-snapshots.nix { inherit pkgs; } [
-{ from = "/"; to = "/snapshots/restic-myjob"; }
-];
-services.restic.backups.myjob.backupPrepareCommand = snap.prepare;
-services.restic.backups.myjob.backupCleanupCommand = snap.cleanup;
-```
-
-
-A snapshot lives on the filesystem of its source and leaves nested
-subvolumes out, so restic does not descend from it into itself. A leftover
-from an aborted run would make `snapshot` fail, so it is removed first;
-cleanup runs as ExecStopPost, i.e. after failed runs too. If the source is
-not a subvolume (a data disk that is not mounted leaves a plain directory),
-`snapshot` refuses and the run fails instead of storing an empty disk.
-
-Paths go into the scripts unquoted, so they are limited to characters that
-need no quoting, and must be absolute and canonical (no trailing or doubled
-slash, no . or ..) so that they can be compared as strings: `to` is
-deleted before each run, so it must not be `from` or lie above it.
-
-[Quelltext](https://github.com/tioan/nixlab-docs/blob/main/modules/restic-btrfs-snapshots.nix)
-
 ## restic-data.nix
 
 Backs up a home host's whole data disk to Garage on aldrin, via restic
-(modules/restic-garage.nix). The same job on tummi and ursalia, next to
+(modules/restic-lab.nix). The same job on tummi and ursalia, next to
 whatever else the host backs up.
 
 Its own bucket and key instead of a path in the host's existing repository:
@@ -1092,7 +994,7 @@ empty disk as a backup.
 Bandwidth: no --limit-upload, SQM cake on gruffi shapes uploads per host and
 measured all of them passing through it (nixlab#180).
 
-Verification (modules/restic-verified.nix), different from the other jobs:
+Verification (restic-verified, input nixos-restic-verified), different from the other jobs:
 
 - minPercent 1: on a box for sorting files, moving a disk image away is
   normal. With the default every later run would fail, because the verified
@@ -1134,86 +1036,84 @@ restic-data restore <id> --sparse --target /root/restore --include /data/.restic
 
 [Quelltext](https://github.com/tioan/nixlab-docs/blob/main/modules/restic-data.nix)
 
-## restic-garage.nix
+## restic-lab.nix
 
-restic jobs that back up to the lab's Garage S3 store, one bucket each
-(#318). Each job gets what every host used to write out by hand: the
-repository password and the bucket key from sops, the S3 environment file,
-the repository URL, `initialize = false` (modules/restic-verified.nix
-explains why), the timer, the prune policy and the verification by
-modules/restic-verified.nix. Optionally one job per host is watched by the
-restic exporter, which the NixOS module runs once per host - with a
-read-only key of its own, if the host has one (exporter.ownKey).
+The lab's part of the restic jobs (#318): restic-s3 and restic-s3-sops from
+the input restic-verified (github.com/tioan/nixos-restic-verified, #327) are
+reusable and hold no lab values, this file fills them in for the lab. Like
+modules/waf.nix next to modules/waf-lab.nix.
 
-Not here: buckets and keys (terraform/garage), what a job reads and how it
-makes that consistent (`paths`, `prepare`, `cleanup` per job), restic jobs
-with other targets (BorgBase on ursalia).
+- target: Garage on aldrin, the endpoint from inventory.json
+  (lab.s3.endpoint, profiles/lab-s3.nix), region `garage`
+- secrets: `hostSecrets` keeps the names from before restic-s3,
+  one set per host (restic_password, garage_backup_key_id,
+  garage_backup_secret_key, template restic-s3-env); every Garage job
+  except the data jobs of modules/restic-data.nix uses them
+- metrics: restic-verified writes into the textfile directory
+  of modules/textfile-metrics.nix, with its prefix, so the alerts in
+  hosts/grammi/alerting/backups.nix read the same series as always
+- exporter: dual stack on loopback through modules/loopback-v6-proxy.nix,
+  registered with modules/metrics-shipping.nix where that is enabled; a
+  host that scrapes itself (grammi) registers it on its own
+
+Retries: restic-verified's default retryAt (05:15, 07:15) lies
+after the upgrade/reboot window at 04:00 (modules/deploy.nix).
 
 Setting up a job: bucket and key in terraform/garage, `just garage-apply`,
 the secrets into the job's sops file, deploy, then once `restic-<job> init`.
+The exporter's read-only key: terraform/garage/restic-exporter.tf, into sops
+with `just restic-exporter-secrets` (#312).
 
-**Optionen** (`services.resticGarage`):
+[Quelltext](https://github.com/tioan/nixlab-docs/blob/main/modules/restic-lab.nix)
 
-| Option | Beschreibung |
-| --- | --- |
-| `endpoint` | URL of the Garage S3 endpoint, without a bucket. |
-| `jobs` | restic jobs (services.restic.backups.<name>) to a bucket of their own in Garage. |
+## restic-sqlite-steps.nix
 
-[Quelltext](https://github.com/tioan/nixlab-docs/blob/main/modules/restic-garage.nix)
-
-## restic-verified.nix
-
-A backup only counts as successful once that has been verified (#238).
-
-On 2026-11-08 ursalia's job to aldrin failed, and `systemctl show` still said
-Result=success: the nightly switch resets failed units, and success is what
-a reset unit reports. Apart from that, a unit's result says little anyway.
-restic exits 0 when --files-from names a missing path (tested with 0.18.1)
-or an empty directory, and it happily stores yesterday's dump when today's
-failed. So for each job listed here this module replaces the ExecStart of
-services.restic.backups.<name> with modules/restic-verified.sh:
+The prepare/cleanup steps of modules/restic-sqlite.nix, on their own so
+tests/restic-sqlite.nix can run them without a restic job.
 
 
 ```
-before  every required path holds something, declared inputs (dumps, the
-paperless export) finished successfully within maxAgeHours
-backup  always attempted; if the checks above failed the snapshot is tagged
-`unverified`, because one bad part must not cost the night's other
-new data
-after   the snapshot is read back from the repository: it exists, it is
-from this run, its size is plausible against the last verified one,
-the required paths are in it, `restic check` passes (Sundays with
-a sample of the data, checkSubset). If one of these fails, the
-snapshot is tagged `unverified` afterwards - only for jobs with
-pruneOpts: an append-only repository cannot change a snapshot
-(BorgBase), and nothing forgets there anyway. Until the tag is
-confirmed, its ID waits in <stateDir>/<job>.untagged and no forget
-runs
-only then
-nixlab_backup_verified_timestamp_seconds moves and forget/prune
-runs. Anything else sets nixlab_backup_last_run_failed, which only
-a verified run clears and which, being a file, survives switches.
-forget  the job's pruneOpts apply to snapshots without a tag only, so
-unverified ones never take a verified one's keep slot (#246).
-Unverified ones older than keepUnverifiedDays are forgotten by the
-first verified run after that - while runs keep failing, nothing
-is forgotten at all
+databases: { <name> = "/path/to/file.db"; ... }
+dir:       where the copies go, <dir>/<name>/<file name of the database>
 ```
 
 
-Snapshots that failed a check before this tagging existed (2026-11) carry no
-tag and count as verified until the policy drops them.
+prepare: a consistent copy of each database with SQLite's online backup
+(.backup), safe while the service writes - WAL mode included - and checked
+with PRAGMA quick_check; a missing database or a bad copy fails the step,
+so the backup run fails instead of saving a broken copy. Runs as root, so
+a -wal/-shm file sqlite3 had to create gets the database's owner back -
+otherwise a service that opens its database later could not.
+cleanup: removes the copies.
 
-Failed jobs are started again by a timer after the upgrade window, for
-whatever the reason was. Alerts: hosts/grammi/alerting/backups.nix. Restoring: use the
-snapshot ID in nixlab_backup_verified_snapshot_info rather than `latest`,
-which may be an `unverified` one.
+[Quelltext](https://github.com/tioan/nixlab-docs/blob/main/modules/restic-sqlite-steps.nix)
 
-Requires `initialize = false`: the module's `restic cat config || restic init`
-would answer an emptied bucket with a new repository that then counts as a
-backup, and costs another five minutes when the target is unreachable.
+## restic-sqlite.nix
 
-[Quelltext](https://github.com/tioan/nixlab-docs/blob/main/modules/restic-verified.nix)
+Reusable module: SQLite databases a restic job backs up as consistent
+copies instead of the live files.
+
+
+```
+services.resticS3.jobs.aldrin.sqlite.readeck = "/var/lib/readeck/data/db.sqlite3";
+```
+
+
+Before the job reads, each database is copied with SQLite's online backup
+into the job's runtime directory, /run/restic-backups-<job>/<name>/<file>,
+which joins the job's paths; afterwards the copies are removed. A copy of
+the live file - in a btrfs snapshot or not - can miss what is still in the
+-wal file or catch a write halfway; .backup cannot. The steps are
+modules/restic-sqlite-steps.nix, tested by tests/restic-sqlite.nix.
+
+Restoring: take <name>/<file> from the snapshot, stop the service, put it
+in place of the database, remove a stale -wal/-shm next to it, give it the
+service's owner, start the service.
+
+The service's other files (attachments, assets) stay the job's own `paths`;
+the live database among them does no harm but is not the one to restore.
+
+[Quelltext](https://github.com/tioan/nixlab-docs/blob/main/modules/restic-sqlite.nix)
 
 ## samba-mesh.nix
 
@@ -1249,36 +1149,6 @@ has its own keypair on purpose - so this module only defines *who may log in
 from where*, never *with which key*.
 
 [Quelltext](https://github.com/tioan/nixlab-docs/blob/main/modules/ssh.nix)
-
-## state-metrics.nix
-
-Reusable module: an app's state as metrics, without changing the app. Each
-job runs a command on a timer that prints Prometheus text format to stdout,
-usually a read-only query against the app's own database; the result goes
-into node_exporter's textfile collector (modules/metrics.nix) and from there
-to grammi like every other node metric. admin/nixlab#268.
-
-For apps that have no metrics endpoint and will not get one (Chhoto URL:
-SinTan1729/chhoto-url#158), or whose interesting state is a timestamp in
-their database rather than anything they would export.
-
-Each job is a writer of modules/textfile-metrics.nix: it runs as its own
-user (or the one given, e.g. for PostgreSQL peer auth) in that module's
-sandbox, without a network, and can write nothing but its own directory.
-A failed query keeps the previous file, so the success timestamp ages.
-
-Every job exports
-
-```
-nixlab_state_metrics_last_success_timestamp_seconds{name}
-nixlab_state_metrics_interval_seconds{name}
-```
-
-and StateMetricsStale (hosts/grammi/alerting/backups.nix) compares the two, so a
-query that starts failing - an upstream schema change, a lost GRANT - shows
-up without an alert per job.
-
-[Quelltext](https://github.com/tioan/nixlab-docs/blob/main/modules/state-metrics.nix)
 
 ## telemetry-ingest.nix
 
@@ -1352,56 +1222,19 @@ passwordFile instead.
 
 [Quelltext](https://github.com/tioan/nixlab-docs/blob/main/modules/telemetry-sender.nix)
 
-## textfile-metrics.nix
+## textfile-metrics-lab.nix
 
-Reusable module: node_exporter's textfile collector, with every writer in
-a sandbox that can write its own files and nothing else
-(admin/nixlab#320).
+The lab side of the textfile-metrics collection, the input
+textfile-metrics (github.com/tioan/nixos-textfile-metrics, #327, item 3):
+the sandbox profile, the textfile collector with its sandboxed writers, the
+state-metrics jobs and the single writers. Every module that writes
+textfile metrics or uses the sandbox profile imports this file, so the
+lab's prefix is set wherever the options exist.
 
-Layout under `directory`:
+The lab's own metrics keep the prefix nixlab_, which the alert rules on
+grammi (hosts/grammi/alerting/) and the dashboards read.
 
-
-```
-<directory>/*.prom                 root-owned; only for writers that are
-root jobs anyway (an upgrade, a backup)
-<directory>/writers/<name>/*.prom  one directory per writer, owned by the
-writer's user, 0755
-```
-
-
-node_exporter reads both: the textfile flag is repeatable and takes a glob
-(node_exporter >= 1.8). A writer's user owns only its own directory and
-its unit sees the filesystem read-only apart from it (ProtectSystem=strict
-via modules/hardening.nix), so a broken or compromised writer can neither
-fake another writer's metrics nor write anywhere else.
-
-Two ways in:
-
-
-```
-writers.<name>      a oneshot unit plus timer; the script prints the
-metrics to stdout, the module writes them atomically
-to writers/<name>/<file> - or, with file = null, the
-script writes its files itself with `write-prom`.
-directories.<name>  just the directory, for a unit defined elsewhere (a
-long-running exporter bridge, several units sharing
-one user); that unit puts the path into its own
-ReadWritePaths.
-```
-
-
-Files are written as "<dir>/.<file>.tmp" and renamed, because the collector
-reads whatever is there whenever it is scraped; a failing run keeps the
-previous file. Moving a writer here from the root directory removes its old
-file there (legacyFiles), so the two never export the same series twice.
-
-**Optionen** (`services.textfileMetrics`):
-
-| Option | Beschreibung |
-| --- | --- |
-| `enable` | Enable: node_exporter's textfile collector with sandboxed writers |
-
-[Quelltext](https://github.com/tioan/nixlab-docs/blob/main/modules/textfile-metrics.nix)
+[Quelltext](https://github.com/tioan/nixlab-docs/blob/main/modules/textfile-metrics-lab.nix)
 
 ## v64-measure.nix
 
@@ -1458,7 +1291,7 @@ is the mesh: the NetBird reverse proxy reaches Traefik's apps entrypoint
 from there (hosts/grammi/traefik.nix).
 
 Plus the metrics for "AppSec unreachable" and "AppSec refuses the key": a
-textfile writer (modules/textfile-metrics.nix) runs the WAF module's probe
+textfile writer (modules/textfile-metrics-lab.nix) runs the WAF module's probe
 once a minute with the bouncer's key. Both bouncers fail open
 (services.waf.failOpen), so without it an AppSec that is down would only
 show as a WAF that never blocks. The alerts are WafAppsecDown and
@@ -1536,51 +1369,6 @@ Docs: docs/site/*/explanation/waf.md.
 | `enable` | Enable: the CrowdSec AppSec WAF for this host's public web vhosts |
 
 [Quelltext](https://github.com/tioan/nixlab-docs/blob/main/modules/waf.nix)
-
-## watchdog.nix
-
-The hardware watchdog, held by systemd (issue #117).
-
-With RuntimeWatchdogSec set, PID 1 opens the watchdog device at boot and
-pings it every half timeout. If PID 1 hangs (a crash freezes it, see
-CrashAction= in systemd-system.conf(5)) or the kernel locks up, the pings
-stop and the hardware resets the host. RebootWatchdogSec (systemd's 10 min
-default) already covered a hanging shutdown; this adds the running system.
-
-Holding the device is also a guard: a watchdog device can only be open
-once, so nothing else gets it (EBUSY). That is how ursalia was reset four
-times on 2026-11-02/03: procd, PID 1 of gruffi's OpenWrt dry-run container
-(openwrt/gruffi/dryrun.sh, a VM since #181), opened /dev/watchdog, armed intel_oc_wdt and
-let go without the magic close when the container was removed - the
-hardware reset the host a minute later.
-
-The timeout stays the device's own ("default" - 60 s for intel_oc_wdt on
-the NUCs, 30 s for the ICH9 iTCO that QEMU emulates on the VMs). TCO v2
-cannot go much beyond that anyway.
-
-A host with more than one watchdog lists the others in blacklistedModules:
-the kernel numbers watchdogs in probe order, so with two drivers loading
-in parallel watchdog0 is not fixed, and the one systemd does not hold
-would be free for a container to arm.
-
-Hosts without any watchdog device (zummi on IONOS) get softdog, the
-kernel's software watchdog - see the softdog option.
-
-Test: `kill -SEGV 1` freezes systemd; the host has to reset within one
-timeout. `kill -STOP 1` does nothing (the kernel ignores SIGSTOP for
-init), and `echo c > /proc/sysrq-trigger` tests the panic path, not the
-watchdog.
-
-**Optionen** (`services.hardwareWatchdog`):
-
-| Option | Beschreibung |
-| --- | --- |
-| `enable` | Enable: the hardware watchdog, held and pinged by systemd |
-| `device` | The watchdog device systemd opens (WatchdogDevice=). |
-| `softdog` | Load the kernel's software watchdog, for hosts without a hardware one. It catches a hung PID 1, but not a kernel that stops running timers. |
-| `blacklistedModules` | Other watchdog drivers to keep from loading, so the host has exactly one watchdog. |
-
-[Quelltext](https://github.com/tioan/nixlab-docs/blob/main/modules/watchdog.nix)
 
 ## web-baseline.nix
 

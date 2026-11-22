@@ -12,7 +12,7 @@
 # from there (hosts/grammi/traefik.nix).
 #
 # Plus the metrics for "AppSec unreachable" and "AppSec refuses the key": a
-# textfile writer (modules/textfile-metrics.nix) runs the WAF module's probe
+# textfile writer (modules/textfile-metrics-lab.nix) runs the WAF module's probe
 # once a minute with the bouncer's key. Both bouncers fail open
 # (services.waf.failOpen), so without it an AppSec that is down would only
 # show as a WAF that never blocks. The alerts are WafAppsecDown and

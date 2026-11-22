@@ -143,7 +143,7 @@ let
   };
 in
 {
-  imports = [ ./hardening.nix ];
+  imports = [ ./textfile-metrics-lab.nix ];
 
   options.services.maintenance = {
     enable = lib.mkEnableOption "maintenance mode and error pages for the host's web front (nginx/Traefik)";
@@ -269,7 +269,7 @@ in
             DynamicUser = true;
             Restart = "on-failure";
           };
-          # The shared sandbox (modules/hardening.nix): its socket listens on
+          # The shared sandbox (hardening.nix in textfile-metrics): its socket listens on
           # loopback, so nothing else may reach it either.
           hardening = {
             enable = true;
@@ -431,7 +431,7 @@ in
           };
           # Root, but it may only write Traefik's dynamic directory (0750
           # traefik, hence CAP_DAC_OVERRIDE) and hand its file to traefik
-          # (CAP_CHOWN); the shared sandbox otherwise (modules/hardening.nix).
+          # (CAP_CHOWN); the shared sandbox otherwise (hardening.nix in textfile-metrics).
           hardening = {
             enable = true;
             level = "strict";

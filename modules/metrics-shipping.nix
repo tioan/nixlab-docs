@@ -78,7 +78,7 @@ let
   };
 in
 {
-  imports = [ ./hardening.nix ];
+  imports = [ ./textfile-metrics-lab.nix ];
 
   options.services.metricsShipping = {
     enable = lib.mkEnableOption "ship this host's Prometheus exporters to grammi's VictoriaMetrics via vmagent";
@@ -136,6 +136,8 @@ in
         "node-cert"
         "nginx"
         "nginxlog"
+        # disk-health.nix in textfile-metrics, on hosts with SMART disks.
+        "smartctl"
       ];
       description = ''
         services.prometheus.exporters.<name> registered in exporterPorts
@@ -209,7 +211,7 @@ in
       ];
       wants = [ "network-online.target" ];
       wantedBy = [ "multi-user.target" ];
-      # The shared sandbox (modules/hardening.nix, #18): scrapes loopback,
+      # The shared sandbox (hardening.nix in textfile-metrics, #18): scrapes loopback,
       # ships over the mesh, writes only its queue.
       hardening = {
         enable = true;

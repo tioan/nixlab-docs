@@ -118,7 +118,8 @@ container exists.
 Update the Homebrew pins (Homebrew itself and every tap: flake input
 nix-homebrew plus every input from a github:<owner>/homebrew-<name>
 repository - homebrew-core, homebrew-cask, netbirdio-tap and whatever
-`apps` pinned since; read from flake.lock), switch, then
+`apps` pinned since; read from flake.lock) and hyprmac (HyprMac's own
+flake: its version follows its cask, and Nix is its only updater), switch, then
 `brew upgrade` what is installed, list the formulae and casks new in the
 taps since the last pins (what `brew update` would have printed) - and
 print the NetBird client version here next to the mesh's
@@ -551,6 +552,16 @@ only the public keys.
 Run the group sync on grammi now instead of waiting for its timer (every minute),
 and show what it did.
 
+## `just netbird-geolite-refresh`
+
+Fetch the current GeoLite files for netbird-server (alert NetbirdGeoliteBehind,
+hosts/grammi/netbird-geolite.nix). The server only downloads when it finds
+no file at a start (disableGeoliteUpdate, #82), so this moves the files
+aside and restarts it - which interrupts the mesh's management for as long
+as the download takes (peers keep their tunnels, new logins and changes
+wait). If the server has not loaded new files after 5 minutes, the old
+ones go back and it is restarted with them.
+
 ## `just netbird-import`
 
 Adopt what the NetBird account already has into Tofu state: looks each
@@ -706,8 +717,9 @@ proxy maintenance too (`just proxy-maintenance`): the statuses below hold
 in both states, only the body differs (the maintenance page for bypass).
 
 Expectations: sso = redirect to the login (mesh.homelab.example), open = past
-the login (any status except sso and 403 - the backend decides), block =
-403, bad = 400 (path traversal is refused by the proxy). The forged
+the login (any status except sso and 403 - the backend decides), app =
+like open, and a 404 must carry the application's JSON, block = 403,
+bad = 400 (path traversal is refused by the proxy). The forged
 X-NetBird-User header goes along on every request: bypass and block must
 not let it turn a request into an SSO one, and the SSO paths must not
 take it for a login.
@@ -886,11 +898,14 @@ clipboard; the token never shows in a terminal.
 ## `just grafana-shares-token`
 
 Token for the list of public dashboards (hosts/grammi/grafana-shares.nix,
-#320): in Grafana, Administration -> Users and access -> Service accounts,
-add "public-shares" with role Viewer, add a token without expiry, copy it,
-then run this. It takes the token from the clipboard into
-hosts/grammi/grafana-shares.yaml and clears the clipboard; until that file
-exists the writer uses the admin password.
+#320, #407): on grammi, through Grafana's API on loopback with the local
+admin, it adds the service account "public-shares" (role Viewer) unless it
+exists, creates a token without expiry and pipes it straight into
+hosts/grammi/grafana-shares.yaml - the token is never printed and never
+sits in a variable on either side. Running it again rotates: a new token,
+the older ones stay valid until deleted in Grafana (Administration ->
+Users and access -> Service accounts -> public-shares) after the deploy.
+Commit, then deploy grammi.
 
 ## `just floccus-password`
 
@@ -962,6 +977,30 @@ Immich's OIDC client secret (terraform/pocket-id/immich.tf) from Tofu state
 into hosts/ursalia/immich-oidc.yaml. Until that file exists, Immich runs
 with OAuth off (hosts/ursalia/immich.nix).
 
+## `just karakeep-secrets`
+
+Karakeep's secrets on ursalia (hosts/ursalia/karakeep.nix): better-auth's
+NEXTAUTH_SECRET, Meilisearch's master key and the bearer token of both
+metrics endpoints. Once; rotating a value: `sops set`, deploy.
+
+## `just karakeep-oidc-secret`
+
+Karakeep's OIDC client secret (terraform/pocket-id/karakeep.tf) from Tofu
+state into hosts/ursalia/karakeep-oidc.yaml. Until that file exists,
+Karakeep runs with OAuth off (hosts/ursalia/karakeep.nix).
+
+## `just readeck-secrets`
+
+Readeck's secret key on ursalia (hosts/ursalia/readeck.nix): signs
+sessions and tokens. Once; rotating it signs everybody out and voids every
+API token: `sops set`, deploy.
+
+## `just readeck-oidc-secret`
+
+Readeck's OIDC client secret (terraform/pocket-id/readeck.tf) from Tofu
+state into hosts/ursalia/readeck-oidc.yaml. Until that file exists, Readeck
+runs with OIDC off (hosts/ursalia/readeck.nix).
+
 ## `just shortener-secrets`
 
 short.homelab.example's secrets on aldrin (hosts/aldrin/shortener.nix): Chhoto's API key and the
@@ -991,11 +1030,13 @@ permission are in terraform/garage since, the lifecycle rule is not (the
 provider has none). Should it ever run again, import the new bucket and key
 there (terraform/garage/README.md). New buckets go through terraform/garage.
 
-## `just aldrin-backup-secrets`
+## `just host-backup-secrets host`
 
-The key of bucket aldrin-backups from Tofu state plus a new repository password
-into hosts/aldrin/backup.yaml, straight into sops, never printed. Refuses to
-overwrite: a new password would lock out the existing repository.
+The key of bucket <host>-backups from Tofu state (output host_backup_keys:
+aldrin, zorlock) plus a new repository password into hosts/<host>/backup.yaml,
+straight into sops, never printed. Refuses to overwrite: a new password would
+lock out the existing repository. The password also goes onto the Mac's
+clipboard, for a copy outside the host (1Password) - like HealthLog's key.
 
 ## `just data-backup-secrets host`
 
@@ -1008,7 +1049,7 @@ the existing repository.
 
 The restic exporters' read-only keys (terraform/garage/restic-exporter.tf,
 output restic_exporter_keys) into hosts/<host>/restic-exporter.yaml for
-services.resticGarage.exporter.ownKey - from `tofu output` straight into
+services.resticS3.exporter.ownKey - from `tofu output` straight into
 sops, never printed. Encrypting needs only the public keys (.sops.yaml).
 Refuses while any of the files exists; after rotating a key, remove that
 host's file first.

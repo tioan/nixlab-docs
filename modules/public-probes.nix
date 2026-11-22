@@ -114,7 +114,7 @@ let
   '';
 in
 {
-  imports = [ ./hardening.nix ];
+  imports = [ ./textfile-metrics-lab.nix ];
 
   options.services.publicProbes = {
     enable = lib.mkEnableOption "probes of the public endpoints assigned to this host (modules/public-probes-targets.nix)";

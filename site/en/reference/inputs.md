@@ -12,6 +12,8 @@ Only `nixpkgs` and `nixpkgs-unstable` move with the nightly auto-upgrade (`servi
 | `nixpkgs-opencloud` | nixos-unstable | aldrin (OpenCloud package) | no – OpenCloud cannot be downgraded | once stable reaches the running version (the aldrin build warns) |
 | `nixpkgs-mealie` | nixos-unstable | grammi (Mealie package) | no – migrations only go forward, read the release notes | once stable ships at least the running version (expected: 26.11) |
 | `nixpkgs-immich` | nixos-unstable | ursalia (Immich module and package) | no – migrations only go forward, read the release notes | once stable ships Immich 3.x at least at the running version (expected: 26.11) |
+| `nixpkgs-karakeep` | nixos-unstable | ursalia (Karakeep package) | no – SQLite migrations only go forward, read the release notes | once stable ships at least the running version (expected: 26.11) |
+| `nixpkgs-readeck` | nixos-unstable | ursalia (Readeck package; alert `PinnedPackageNewerRelease` a week after a newer upstream release) | no – SQLite migrations only go forward, read the changelog | once stable ships at least the running version (expected: 26.11) |
 | `disko` | main | ursalia, tummi (all mounts) | no | – |
 | `lanzaboote` | v1.2.0 | ursalia, tummi (Secure Boot) | no | – |
 | `nixpkgs-darwin`, `nix-darwin` | 26.05-darwin | zorlock, gusto | no (no auto-upgrade) | – |

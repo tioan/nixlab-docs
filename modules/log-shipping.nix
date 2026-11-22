@@ -36,7 +36,7 @@ let
   logGroups = lib.optional nginx "nginx" ++ lib.optional traefik "traefik";
 in
 {
-  imports = [ ./hardening.nix ];
+  imports = [ ./textfile-metrics-lab.nix ];
 
   options.services.logShipping = {
     enable = lib.mkEnableOption "ship this host's journald log to grammi's VictoriaLogs via Vector";
@@ -293,7 +293,7 @@ in
       # checkpoints - delayed, not lost, as long as the journal still has it.
       systemd.services.vector.after = [ "netbird-mesh.service" ];
 
-      # The shared sandbox (modules/hardening.nix, #18). Reads the journal and
+      # The shared sandbox (hardening.nix in textfile-metrics, #18). Reads the journal and
       # the log directories through its groups, ships over the mesh. The
       # nixpkgs module grants CAP_NET_BIND_SERVICE ambiently; it stays the
       # only capability in the bounding set so that grant remains valid.

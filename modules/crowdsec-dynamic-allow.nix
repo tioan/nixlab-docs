@@ -50,7 +50,7 @@ let
     + "IpToRange(#, # contains ':' ? '/${toString cfg.ipv6PrefixLength}' : '/${toString cfg.ipv4PrefixLength}')) })";
 in
 {
-  imports = [ ./textfile-metrics.nix ];
+  imports = [ ./textfile-metrics-lab.nix ];
 
   options.services.crowdsecDynamicAllow = {
     name = lib.mkOption {

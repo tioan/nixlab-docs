@@ -32,7 +32,7 @@
 }:
 let
   cfg = config.services.v64Measure;
-  # Its own writer directory (modules/textfile-metrics.nix), shared by the
+  # Its own writer directory (modules/textfile-metrics-lab.nix), shared by the
   # four units below, which all run as this user.
   user = "v64-measure";
   textfileDir = config.services.textfileMetrics.directories.${user}.path;
@@ -121,7 +121,7 @@ let
   '';
 in
 {
-  imports = [ ./textfile-metrics.nix ];
+  imports = [ ./textfile-metrics-lab.nix ];
 
   options.services.v64Measure.enable = lib.mkEnableOption "counting traffic from ipv64.net's v64 blocklist";
 

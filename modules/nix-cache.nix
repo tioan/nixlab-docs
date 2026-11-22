@@ -45,6 +45,30 @@ let
   # auto-upgrade-git.nix, signers from git-signers.nix via deploy.nix).
   pullCmd = lib.getExe config.services.autoUpgradeGit.verifySignatures.package;
 
+  substituter = "s3://${bucket}?endpoint=${endpoint}&region=garage&profile=nix-cache&priority=50";
+
+  # Before the nightly rebuild: if aldrin's S3 does not answer, run the
+  # rebuild without this cache (admin/nixlab#460). Nix itself copes - one
+  # lookup fails after download-attempts x connect-timeout (~30 s), then it
+  # disables the cache for 60 s - but every later lookup after those 60 s
+  # starts the wait again, and on a lock-bump night there are hundreds. Any
+  # HTTP answer below 500 counts as up: unauthenticated, Garage answers 403;
+  # 5xx (the proxy without Garage behind it) and no answer count as down.
+  # Only the substituter list changes, never the trusted keys or
+  # require-sigs. NIX_CONFIG is read after nix.conf, so this replaces the
+  # list (with its extra-substituters) for nixos-rebuild and the nix it runs.
+  otherSubstituters = lib.remove substituter (
+    (config.nix.settings.substituters or [ ]) ++ (config.nix.settings.extra-substituters or [ ])
+  );
+  reachabilityCheck = ''
+    code=$(${lib.getExe pkgs.curl} -s -o /dev/null -w '%{http_code}' --connect-timeout 5 \
+      --max-time 10 --retry 1 --retry-delay 2 https://${endpoint}/${bucket}/nix-cache-info || true)
+    if [ "$code" -lt 100 ] || [ "$code" -ge 500 ]; then
+      echo "nix-cache: https://${endpoint} unreachable (HTTP $code), upgrading without the lab cache" >&2
+      export NIX_CONFIG="substituters = ${toString otherSubstituters}"
+    fi
+  '';
+
   # Priority 50: after cache.nixos.org (40), so the common case does not
   # depend on aldrin, and a path this cache lacks costs one fast 404.
   cacheInfo = pkgs.writeText "nix-cache-info" ''
@@ -69,7 +93,7 @@ let
   # flake-check-metrics <part> <started> <failed>: one run of the flake
   # check (part "gate": before the push, "vm": after it) into the textfile
   # collector's root directory - both units are root jobs anyway, like
-  # nixos-upgrade (modules/textfile-metrics.nix). Written after every run,
+  # nixos-upgrade (modules/textfile-metrics-lab.nix). Written after every run,
   # passed or failed, so FlakeCheckFailed and FlakeCheckStale
   # (hosts/grammi/alerting/units-updates.nix) see both.
   flakeCheckMetrics = pkgs.writeShellScript "flake-check-metrics" ''
@@ -104,11 +128,12 @@ let
       "${prefix}nix_cache_prebuild_duration_seconds $((now - started))"
   '';
 
-  # The checks that run after the lock push (admin/nixlab#391): the VM
-  # tests take long and can fail on timing, and a held lock holds back
-  # every host's updates - so a failure here only alerts, the next night
-  # tries again. From the commit the prebuild just pushed, by rev, so a
-  # pull into the checkout meanwhile changes nothing under it.
+  # The checks that run after the lock push (vmTestsAttr, admin/nixlab#391):
+  # tests too slow or too flaky to hold back every host's updates on - so a
+  # failure here only alerts, the next night tries again. With an empty
+  # list it runs nothing and reports 0, so the alerts on part "vm" stay
+  # valid. From the commit the prebuild just pushed, by rev, so a pull into
+  # the checkout meanwhile changes nothing under it.
   vmCheck = pkgs.writeShellScript "nix-flake-check-vm" ''
     set -euo pipefail
     started=$(date +%s)
@@ -161,12 +186,13 @@ let
     ${lib.optionalString fc.enable ''
 
       # Every check of the flake on the new lock, except the ones that run
-      # after the push (vmTestsAttr): these are deterministic, so a failure
-      # means the new lock breaks something, and it holds the lock back like
-      # a host build (admin/nixlab#391). First every output evaluated
+      # after the push (vmTestsAttr): a failure means the new lock breaks
+      # something, and it holds the lock back like a host build
+      # (admin/nixlab#391, #563). First every output evaluated
       # (`nix flake check` without building; a failure there counts as the
       # one check "flake-outputs"), then the checks built in one
-      # go; only when that fails one by one, for the names.
+      # go; only when that fails one by one, for the names - which also
+      # gives a VM test that failed on timing a second run, alone.
       checkStarted=$(date +%s)
       checkFailed=""
       nix flake check --no-build || checkFailed=" flake-outputs"
@@ -244,12 +270,13 @@ in
       vmTestsAttr = lib.mkOption {
         type = lib.types.nullOr lib.types.str;
         default = null;
-        example = "lib.vmTests";
+        example = "lib.vmTestsAfterPush";
         description = ''
           Flake attribute that evaluates to a list of check names (of this
           system) to run after the lock push instead of before it: long or
           timing-sensitive tests that should not hold every host's updates
-          back. null: every check runs before the push.
+          back. null: every check runs before the push, and there is no
+          nix-flake-check-vm unit.
         '';
       };
     };
@@ -271,9 +298,7 @@ in
       };
 
       nix.settings = {
-        extra-substituters = [
-          "s3://${bucket}?endpoint=${endpoint}&region=garage&profile=nix-cache&priority=50"
-        ];
+        extra-substituters = [ substituter ];
         extra-trusted-public-keys = [ publicKey ];
         # aldrin down or in maintenance must not stall every build: give up
         # on a connection after 5s (default: curl's own, minutes), and build
@@ -289,14 +314,24 @@ in
         # zummi (aldrin's toplevel, admin/nixlab#326): 283 local builds down
         # to 18, a few MB from the cache. It only changes where a path may
         # come from, not which signatures are accepted.
-        # Cost: with aldrin's S3 unreachable each of these lookups times out
-        # and is retried before the fallback builds it (dry run 4 -> 18 min);
-        # tracked in admin/nixlab#460.
+        # With aldrin's S3 unreachable the lookups cost little: Nix 2.34's S3
+        # store is its curl download (download-attempts, connect-timeout
+        # above), one lookup fails after ~30 s and the cache is disabled for
+        # 60 s - aldrin's toplevel on zummi with the cache unreachable: dry
+        # run 34 s with, 31 s without this option; real build 23 min 54 s,
+        # against 22 min 38 s with no lab cache at all. The nightly upgrade
+        # skips the cache outright when it does not answer
+        # (reachabilityCheck, admin/nixlab#460).
         always-allow-substitutes = true;
       };
 
       systemd.services.nix-daemon.environment = awsEnv;
       systemd.services.nixos-upgrade.environment = awsEnv;
+      # Ahead of system.autoUpgrade's own script, in the same shell, so the
+      # export reaches nixos-rebuild.
+      systemd.services.nixos-upgrade.script = lib.mkIf config.system.autoUpgrade.enable (
+        lib.mkBefore reachabilityCheck
+      );
     }
 
     (lib.mkIf cfg.prebuild.enable {

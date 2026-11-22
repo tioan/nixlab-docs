@@ -6,24 +6,16 @@
 # needs them on the mesh. Until 2026-11 they bound 0.0.0.0 and the firewall
 # kept them off the internet - which left them open to every mesh peer the
 # NetBird policies let through.
-{
-  config,
-  lib,
-  pkgs,
-  ...
-}:
+{ config, lib, ... }:
 let
   nginxStatusPort = 8079;
   # The S3 vhost's own access log (modules/crowdsec.nix), where it exists.
   bucketLog = lib.attrByPath [ "services" "crowdsecBuckets" "logFile" ] null config;
 in
 {
-  imports = [
-    ./hardening.nix
-    ./textfile-metrics.nix
-  ];
+  imports = [ ./textfile-metrics-lab.nix ];
 
-  # The textfile directory and its writers: modules/textfile-metrics.nix.
+  # The textfile directory and its writers: modules/textfile-metrics-lab.nix.
   services.textfileMetrics.enable = true;
 
   services.prometheus.exporters = {
@@ -132,52 +124,10 @@ in
     lib.mkIf config.services.nginx.enable
       [ "nginx" ];
 
-  # CPU and memory per systemd service, read from its cgroup. node_exporter's
-  # systemd collector only knows unit states, and prometheus-systemd-exporter
-  # measures a unit's main process alone - for a podman unit that is conmon,
-  # not the compiler (checked 2026-10-23). The cgroup counts every process of
-  # the unit, containers included as long as they run with --cgroups=split
-  # (hosts/ursalia/esphome-builder.nix). Feeds the "Homelab / ESPHome builds"
-  # dashboard; the same per-unit view for any service on any host.
-  #
-  #   unit_cgroup_cpu_seconds_total{unit}  cpu.stat usage_usec, counter
-  #   unit_cgroup_memory_bytes{unit}       memory.current, page cache included
-  #   unit_cgroup_memory_anon_bytes{unit}  anon from memory.stat - what the
-  #                                        processes actually hold
-  services.textfileMetrics.writers.unit-metrics = {
-    description = "Per-service cgroup CPU/memory for node_exporter's textfile collector";
-    file = "unit-cgroup.prom";
-    path = [ pkgs.gawk ];
-    # The text format wants all samples of one family together, hence three
-    # buffers printed at the end. A unit that stops between the glob and the
-    # read is skipped rather than failing the run. /sys/fs/cgroup stays
-    # readable under ProtectControlGroups.
-    script = ''
-      cpu="" mem="" anon=""
-      for d in /sys/fs/cgroup/system.slice/*.service; do
-        u=''${d##*/}
-        c=$(awk '$1 == "usage_usec" { printf "%.6f", $2 / 1e6 }' "$d/cpu.stat" 2>/dev/null) || continue
-        m=$(cat "$d/memory.current" 2>/dev/null) || continue
-        a=$(awk '$1 == "anon" { print $2 }' "$d/memory.stat" 2>/dev/null) || continue
-        [ -n "$c" ] && [ -n "$a" ] || continue
-        cpu+="unit_cgroup_cpu_seconds_total{unit=\"$u\"} $c"$'\n'
-        mem+="unit_cgroup_memory_bytes{unit=\"$u\"} $m"$'\n'
-        anon+="unit_cgroup_memory_anon_bytes{unit=\"$u\"} $a"$'\n'
-      done
-      echo "# HELP unit_cgroup_cpu_seconds_total CPU time of all processes in the unit's cgroup."
-      echo "# TYPE unit_cgroup_cpu_seconds_total counter"
-      printf '%s' "$cpu"
-      echo "# HELP unit_cgroup_memory_bytes Memory charged to the unit's cgroup, page cache included."
-      echo "# TYPE unit_cgroup_memory_bytes gauge"
-      printf '%s' "$mem"
-      echo "# HELP unit_cgroup_memory_anon_bytes Anonymous memory of the unit's cgroup."
-      echo "# TYPE unit_cgroup_memory_anon_bytes gauge"
-      printf '%s' "$anon"
-    '';
-    timer = {
-      OnBootSec = "1min";
-      OnUnitActiveSec = "15s";
-      AccuracySec = "1s";
-    };
-  };
+  # CPU and memory per systemd service from its cgroup, every 15 s
+  # (unit-cgroup-metrics.nix of the textfile-metrics input). Feeds the
+  # "Homelab / ESPHome builds" dashboard; the same per-unit view for any
+  # service on any host. Podman units count their containers as long as
+  # they run with --cgroups=split (hosts/ursalia/esphome-builder.nix).
+  services.unitCgroupMetrics.enable = true;
 }

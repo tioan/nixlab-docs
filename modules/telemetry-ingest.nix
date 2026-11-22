@@ -69,7 +69,7 @@ let
   };
 in
 {
-  imports = [ ./hardening.nix ];
+  imports = [ ./textfile-metrics-lab.nix ];
 
   options.services.telemetryIngest = {
     enable = lib.mkEnableOption "vmauth as the authenticated ingest endpoint for VictoriaMetrics and VictoriaLogs";
@@ -194,7 +194,7 @@ in
         Restart = "on-failure";
         RestartSec = "5s";
       };
-      # The shared sandbox (modules/hardening.nix): the ingest listens on
+      # The shared sandbox (hardening.nix in textfile-metrics): the ingest listens on
       # the mesh, the backends are on loopback.
       hardening = {
         enable = true;

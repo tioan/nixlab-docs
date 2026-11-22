@@ -26,6 +26,10 @@ gusto ist das MacBook Pro, von dem aus alles in diesem Repo läuft: Deploys, Sec
 | `hosts/gusto/home.nix` | admins Home: Umgebung, Links, zsh und Helfer, CLI-/TUI-Werkzeuge, Ghostty, git |
 | `hosts/gusto/ssh.nix` | `~/.ssh/config` und `~/.ssh/pub/` |
 | `hosts/gusto/mcp.nix`, `mcp.yaml` | Die MCP-Server der Claude-App: `mcp-run` und ihre Einträge in den Konfigs von Claude; ihre Zugangsdaten (sops) |
+| `hosts/gusto/sketchybar.nix` | SketchyBar statt der Menüleiste: Items, Plugin-Skripte, HyprMacs Status-Export |
+| `pkgs/sketchybar-menus.nix` | `menus`, der Helfer, der die Menüs der aktiven App für SketchyBar auflistet und öffnet ([von Felix Kratz](https://github.com/FelixKratz/dotfiles/blob/b098d399f45f4d6209fdfaa4324919560d4f555e/.config/sketchybar/helpers/menus/menus.c), GPL-3.0) |
+| `pkgs/sketchybar-event-providers.nix` | `cpu_load` und `network_load`, die alle zwei Sekunden die CPU-Last und die Raten einer Schnittstelle an SketchyBar schicken ([von Felix Kratz](https://github.com/FelixKratz/dotfiles/tree/b098d399f45f4d6209fdfaa4324919560d4f555e/.config/sketchybar/helpers/event_providers), GPL-3.0) |
+| `hosts/gusto/dracula.nix` | die Dracula-Palette für `home.nix`, SketchyBar und HyprMacs Fokusrahmen |
 | `hosts/gusto/ssh/*.pub` | Öffentliche Hälften der SSH-Schlüssel (einer pro Ziel), verlinkt nach `~/.ssh/pub/` |
 | `hosts/gusto/apps.json` | Alle Software: Casks, Formeln, Mac App Store, nixpkgs (System, Benutzer, Schrift), jeweils mit Notiz – `apps-list` |
 | `modules/darwin/apps.nix`, `apps.schema.json` | Macht aus `apps.json` die Optionen und prüft sie; Editor-Schema |
@@ -59,7 +63,9 @@ gusto wurde am 2026-10-21 bewusst „nackt“ aufgesetzt: keine App-Liste aus de
 | Continue | KI-Assistent in VS Code gegen Ollama auf zorlock, nur im Mesh | Erweiterung aus nixpkgs und `~/.continue/config.yaml` in `hosts/gusto/continue.nix`; Telemetrie aus, die Konfiguration ist schreibgeschützt |
 | `visual-studio-code` | Editor (Microsofts Build wegen Remote-SSH und Pylance); Telemetrie aus, `settings.json` kommt aus home-manager und ist schreibgeschützt |
 
-Aus dem Mac App Store (`homebrew.masApps`, über `mas`; braucht die App-Store-Anmeldung): **1Blocker**, **1Password for Safari**, **Ivory**, **TestFlight**. `zap` entfernt auch App-Store-Apps, die nicht deklariert sind; `just mac-switch` hält vorher an und fragt (siehe [macOS-Hosts](../explanation/macos-hosts.md)).
+Aus dem Mac App Store (`homebrew.masApps`, über `mas`; braucht die App-Store-Anmeldung): **1Blocker**, **1Password for Safari**, **Ivory**, **TestFlight**, **Xcode** (zum Bauen von HyprMac-Änderungen für upstream; die Command Line Tools bleiben das aktive Developer-Verzeichnis, ein Build setzt `DEVELOPER_DIR` selbst). `zap` entfernt auch App-Store-Apps, die nicht deklariert sind; `just mac-switch` hält vorher an und fragt (siehe [macOS-Hosts](../explanation/macos-hosts.md)).
+
+Bevor ein Cask entfernt wird, das eigene Hintergrunddienste oder eine Treibererweiterung registriert (etwa Karabiner-Elements), zuerst den Uninstaller der App ausführen. `zap` löscht die Dateien, lässt diese Dienste aber registriert; launchd versucht dann weiter, die fehlende App zu starten, und jeder Versuch öffnet einen Dialog „The file can't be found“ – etwa einen alle 10 Sekunden (passiert am 2026-11-21 nach dem Entfernen von Karabiner). Reste zeigen `launchctl list | grep <hersteller>` und `sudo launchctl list | grep <hersteller>`; entfernen mit `launchctl bootout gui/$(id -u)/<label>` bzw. `sudo launchctl bootout system/<label>`, die Treibererweiterung unter System Settings > General > Login Items & Extensions ausschalten.
 
 ### Systemweit (nix-darwin)
 
@@ -79,6 +85,9 @@ Aus dem Mac App Store (`homebrew.masApps`, über `mas`; braucht die App-Store-An
 | nvd, nix-output-monitor | Closure-Vergleiche, lesbare Build-Ausgabe (`nom`) |
 | uv | Python-Werkzeuge (`uv tool install` → `~/.local/bin`) |
 | typst | Dokumente (real-fast-document) |
+| HyprMac | Tiling-Fenstermanager (im Stil von Hyprland, am 2026-11-21 statt AeroSpace gewählt). Aus seinem eigenen Flake (Input `hyprmac`): das signierte Release-DMG und das home-manager-Modul `programs.hyprmac`, das das Projekt mitliefert ([Modul](https://github.com/zacharytgray/HyprMac/blob/f8f9c8e500d61653d4fec00e34504f5e735ee83e/nix/hm-module.nix) von Emil Nymann Sølyst, überarbeitet von Zachary Gray). Startet per launchd bei der Anmeldung; gehaltenes Caps Lock ist die Hypr-Taste, Hypr+Return öffnet Ghostty, Ghosttys Quick Terminal ist ⌃⌥⌘T. Updates nur mit `just mac-upgrade` – HyprMacs eigener Updater bleibt bei einer Nix-Installation aus. |
+| Trickpad | Trackpad-Gesten: drei Finger nach links/rechts wechseln den HyprMac-Workspace (`hyprmac://`-Links), einen Finger ablegen und daneben tippen sendet Return/Escape. Eigenes Paket `pkgs/trickpad.nix` (aus dem Quellcode ohne Updater gebaut, [nach Eric Kucks Dotfiles](https://github.com/EricKuck/dotfiles/blob/c01ea776f1e8/packages/trickpad/default.nix)), echte Kopie in Home Manager Apps für Accessibility, launchd-Agent, schreibgeschützte `~/.config/trickpad/config.toml` |
+| DockPin | hält das Dock auf dem Dell, statt es an der Unterkante zum LG springen zu lassen; mit gehaltener ⌥-Taste lässt es sich bewusst versetzen. Eigenes Paket `pkgs/dockpin.nix` (mit SwiftPM aus dem Quellcode ohne den Sparkle-Updater gebaut), echte Kopie in Home Manager Apps für Accessibility, launchd-Agent; der erlaubte Bildschirm ist in der App eingestellt (nur DELL U4021QW) |
 
 ### Repo-Werkzeuge (devShell)
 
@@ -103,6 +112,10 @@ Aus dem Mac App Store (`homebrew.masApps`, über `mas`; braucht die App-Store-An
 | `~/.zshenv` → `~/.config/zsh/.zshenv`, `.zshrc` | zsh |
 | `~/.config/git/config` | git |
 | `~/.config/ghostty/config` | Ghostty |
+| `~/Library/Application Support/HyprMac/config.json` | HyprMac – schreibgeschützt: eine Änderung im Einstellungsfenster gilt bis zum nächsten Neuladen und gehört in `home.nix` |
+| `~/Applications/Home Manager Apps/HyprMac.app` | echte Kopie (`targets.darwin.copyApps`) – die App, der macOS Accessibility erlaubt |
+| `~/Library/Application Support/HyprMac/monitor-config.json` | HyprMac pro Mac: Workspaces pro Monitor, Teilungsgrenzen, Platz für SketchyBar, Status-Export, `hyprmac://`-Links – schreibgeschützt wie `config.json` |
+| `~/.config/sketchybar/sketchybarrc` | SketchyBar – schreibgeschützt; nach einem Switch `sketchybar --reload` |
 | `~/.config/tmux/tmux.conf`, `~/.config/atuin/config.toml`, `~/.config/direnv/…`, `~/.config/lazygit/config.yml` | die Werkzeuge |
 | `~/.ssh/config`, `~/.ssh/pub/` | SSH |
 | `~/.1password/agent.sock` → `~/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock` | Pfad ohne Leerzeichen für den Agent; 1Password legt ihn nicht selbst an |
@@ -116,6 +129,7 @@ Am 2026-10-21 einzeln entschieden; alles nicht Genannte ist macOS-Standard.
 
 | Bereich | Einstellung | nix-darwin-Option |
 | --- | --- | --- |
+| Menüleiste | ausgeblendet, erscheint, wenn der Zeiger den oberen Rand berührt – SketchyBar nimmt ihren Platz ein | `NSGlobalDomain._HIHideMenuBar` |
 | Menüleisten-Uhr | 24 h, Wochentag, kein Datum | `menuExtraClock.Show24Hour`, `ShowDayOfWeek`, `ShowDate = 2` |
 | Dock | immer sichtbar, keine Vergrößerung, Symbolgröße 66 | `dock.autohide`, `magnification`, `tilesize` |
 | | keine Startanimation, kein Hüpfen | `dock.launchanim`, `CustomUserPreferences."com.apple.dock"."no-bouncing"` |
@@ -126,6 +140,11 @@ Am 2026-10-21 einzeln entschieden; alles nicht Genannte ist macOS-Standard.
 | Allgemein | dunkles Erscheinungsbild, alle Dateiendungen, automatische Großschreibung, Punkt nach doppeltem Leerzeichen | `NSGlobalDomain.AppleInterfaceStyle`, `AppleShowAllExtensions`, `NSAutomaticCapitalizationEnabled`, `NSAutomaticPeriodSubstitutionEnabled` |
 | Trackpad | Force Click an, Zeigergeschwindigkeit 1 | `NSGlobalDomain."com.apple.trackpad.forceClick"`, `"com.apple.trackpad.scaling"` |
 | Tastatur | Eingabequellen Deutsch (Haupt) und U.S. | `CustomUserPreferences."com.apple.HIToolbox".AppleEnabledInputSources` – U.S. für KVM-Sitzungen (NanoKVM Go+ und ArkKVM tippen PC-Scancodes); wirkt nach einmal Ab- und Anmelden |
+| | Caps Lock ist HyprMacs Hypr-Taste (von HyprMac per `hidutil` auf F18 gelegt); allein angetippt tut sie nichts | nicht über Nix: Unter Modifier Keys muss Caps Lock für jede Tastatur „Caps Lock“ bleiben |
+| | Wischen mit drei Fingern horizontal aus (gehört Trickpad), vier Finger wechseln zwischen Vollbild-Apps | `trackpad.TrackpadThreeFingerHorizSwipeGesture = 0` |
+| Fenster | Klick auf den Schreibtisch zeigt ihn nicht frei, macOS-Kacheln per Ziehen an den Rand aus, Stage Manager aus; Spaces in fester Reihenfolge, einer pro Display – für HyprMac | `WindowManager.EnableStandardClickToShowDesktop`, `EnableTilingByEdgeDrag`, `EnableTopTilingByEdgeDrag`, `EnableTilingOptionAccelerator`, `GloballyEnabled`; `dock.mru-spaces`, `spaces.spans-displays` |
+| HyprMac | Workspaces 1–6 auf dem Dell, 7–0 auf dem LG (Namen und feste Apps in `home.nix`, Crest auf 1); unterwegs verteilt HyprMac sie auf die angeschlossenen Bildschirme; Spotify, Home Assistant, NeoHtop im Scratchpad; 1Password, Shottr, Raycast, Alfred nie gekachelt; gespeichertes Layout pro Monitorkombination beim Login zurück; HyprMacs eigener Fokusrahmen in Dracula-Lila, schwebende Fenster pink umrandet, inaktive Fenster abgedunkelt (1a, 2026-11-21, admin/nixlab#540 – statt JankyBorders, das die 1 px umranden würde, die HyprMac von versteckten Workspaces unten rechts stehen lässt) | `programs.hyprmac.settings`, `monitorSettings` (home-manager) |
+| SketchyBar | Leiste oben auf jedem Display (am 2026-11-21 entschieden, admin/nixlab#540): links das Apfel-Item – ein Klick tauscht die Workspaces gegen die Menüs der aktiven App und zurück (nach Felix Kratz' Dotfiles; ein Klick auf ein Menü öffnet das echte, die Menüs folgen der aktiven App bis zum nächsten Klick auf den Apfel) – danach die HyprMac-Workspaces dieses Displays mit ihren App-Icons – leere gedimmt, der angezeigte umrahmt, der fokussierte lila; ein Klick fokussiert den Workspace (`hyprmac://focus`) – danach die aktive App; rechts Spotify (nur während etwas läuft, Klick: Play/Pause), eine CPU-Kurve (Klick: Aktivitätsanzeige), Upload- und Download-Rate der Schnittstelle der Default-Route, Netzwerk (Klick: Anschluss, Hostname, IP, Subnetzmaske, Router – ein Klick auf eine Zeile kopiert sie; Rechtsklick: Netzwerk-Einstellungen), Lautstärke (Klick: Regler und Ausgabegeräte; Rechtsklick: Ton-Einstellungen; Scrollen: Lautstärke), Akku, Datum und Uhrzeit (Klick: Calendar). CPU-Kurve, Raten und die beiden Popups nach Felix Kratz' Widgets ([Dotfiles](https://github.com/FelixKratz/dotfiles/tree/b098d399f45f4d6209fdfaa4324919560d4f555e/.config/sketchybar/items/widgets)), seit 2026-11-21 zum Ausprobieren (2a–2c). Startet per launchd als admins Agent. HyprMac schreibt bei jeder Änderung `state.json`, löst `hyprmac_change` aus und hält oben auf dem Dell, dem LG und dem eingebauten Display 40 px frei; ein Sidecar- oder USB-C-Monitor braucht dafür erst seinen Namen in `maxSplitsPerMonitor`. Keine Metriken und kein Dashboard: aus dem Lab gibt es nichts zu beobachten | `programs.sketchybar` (home-manager), `hosts/gusto/sketchybar.nix`; Schrift `sketchybar-app-font` (`apps.json`) |
 | Netzwerknamen | `gusto` als Computer-, lokaler Host- und SMB-NetBIOS-Name | `networking.*Name`, `smb.NetBIOSName` |
 | Sprache, Region | Englisch, Deutschland | nicht über Nix – bei der macOS-Einrichtung |
 
@@ -230,4 +249,7 @@ Alle `mac-*`-Rezepte nehmen den Host als optionalen Parameter (Standard `gusto`;
 | `.before-hm`-Dateien im Home | Reste vom ersten Switch; vergleichen und löschen |
 | Ein MCP-Server verbindet nicht | im Terminal `mcp-run <server>` starten: hängt es an Touch ID oder sops, fehlt ein Wert in `mcp.yaml`, fehlt der Checkout? Die Desktop-App protokolliert nach `~/Library/Logs/Claude/mcp-server-<name>.log` |
 | `homeassistant` hängt | Port in der URL muss 9583 sein, die Policy verwirft jeden anderen still (Timeout nach 30 s): `sops decrypt --extract '["homeassistant"]["url"]' hosts/gusto/mcp.yaml \| cut -d/ -f3` zeigt nur Host und Port; `nc -z homeassistant.peer.homelab.example 9583`; zeigt `netbird status -d` HA als „Connected“, aber ohne WireGuard-Handshake, steht Rosenpass in der NetBird-App auf HA auf strikt – dort `rosenpass_permissive` einschalten (bis 2026-10-31 gehört Rosenpass dort ganz aus) |
+| SketchyBar zeigt „Accessibility?“ statt der Menüs | SketchyBar braucht Accessibility (System Settings > Privacy & Security > Accessibility); macOS fragt beim ersten Klick auf den Apfel. Die Erlaubnis hängt am Programm, nach einem SketchyBar-Update fragt macOS erneut |
+| SketchyBar zeigt keine CPU-Kurve oder Raten | `pgrep -lx cpu_load network_load`; das Netzwerk-Item startet `network_load` neu, wenn die Schnittstelle der Default-Route wechselt, `sketchybar --reload` startet beide neu |
+| SketchyBar zeigt keine Workspaces oder folgt nicht | `ls ~/Library/Application\ Support/HyprMac/state.json` (fehlt: HyprMac beendet oder Tiling pausiert); `launchctl print gui/$(id -u)/org.nix-community.home.sketchybar`; `~/Library/Logs/sketchybar/`; `sketchybar --trigger hyprmac_change` |
 | NetBird getrennt | Menüleisten-App → Connect; `netbird status -d`; Daemon: `sudo launchctl print system/netbird` |
